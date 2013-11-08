@@ -60,6 +60,8 @@ static int    deblock               = 0;
 static char * deblock_opt           = 0;
 static int    denoise               = 0;
 static char * denoise_opt           = 0;
+static int    nlmeans               = 0;
+static char * nlmeans_opt           = 0;
 static int    detelecine            = 0;
 static char * detelecine_opt        = 0;
 static int    decomb                = 0;
@@ -1704,6 +1706,11 @@ static int HandleEvents( hb_handle_t * h )
             {
                 filter = hb_filter_init( HB_FILTER_DENOISE );
                 hb_add_filter( job, filter, denoise_opt );
+            }
+            if( nlmeans )
+            {
+                filter = hb_filter_init( HB_FILTER_NLMEANS );
+                hb_add_filter( job, filter, nlmeans_opt );
             }
             if( rotate )
             {
@@ -3440,6 +3447,8 @@ if (hb_qsv_available())
      "           or\n"
      "          <SL:SCb:SCr:TL:TCb:TCr>\n"
      "          (default: 4:3:3:6:4.5:4.5)\n"
+     "    --nlmeans               Denoise video with nlmeans filter\n"
+     "          <H:R:F:P>         (default 8:3:2:7)\n"
      "    -7, --deblock           Deblock video with pp7 filter\n"
      "          <QP:M>            (default 5:2)\n"
      "        --rotate            Flips images axes\n"
@@ -3671,6 +3680,7 @@ static int ParseOptions( int argc, char ** argv )
     #define QSV_BASELINE         295
     #define QSV_ASYNC_DEPTH      296
     #define QSV_IMPLEMENTATION   297
+    #define NLMEANS              298
 
     for( ;; )
     {
@@ -3729,6 +3739,7 @@ static int ParseOptions( int argc, char ** argv )
             { "deinterlace", optional_argument, NULL,    'd' },
             { "deblock",     optional_argument, NULL,    '7' },
             { "denoise",     optional_argument, NULL,    '8' },
+            { "nlmeans",     optional_argument, NULL,    NLMEANS },
             { "detelecine",  optional_argument, NULL,    '9' },
             { "decomb",      optional_argument, NULL,    '5' },
             { "grayscale",   no_argument,       NULL,    'g' },
@@ -4084,6 +4095,13 @@ static int ParseOptions( int argc, char ** argv )
                     }
                 }
                 denoise = 1;
+                break;
+            case NLMEANS:
+                if( optarg != NULL )
+                {
+                    nlmeans_opt = strdup( optarg );
+                }
+                nlmeans = 1;
                 break;
             case '9':
                 if( optarg != NULL )
