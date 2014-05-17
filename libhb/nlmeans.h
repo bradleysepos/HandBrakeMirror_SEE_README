@@ -21,8 +21,8 @@
 typedef struct
 {
     void (*buildIntegralImage)(uint32_t* integral,   int integral_stride32,
-                               const uint8_t* currimage, int currstride,
-                               const uint8_t* image, int stride,
+                               unsigned char* currimage, int currstride,
+                               unsigned char* image, int stride,
                                int  w,int  h,
                                int dx,int dy);
 } NLMeansFunctions;

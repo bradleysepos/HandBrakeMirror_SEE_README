@@ -18,7 +18,6 @@
 
 #include "hb.h"
 #include "hbffmpeg.h"
-#include "mpeg2dec/mpeg2.h"
 #include "nlmeans.h"
 
 #define NLMEANS_H_DEFAULT          8
@@ -40,7 +39,9 @@ struct hb_filter_private_s
     int    range;      // search range (must be odd number)
     int    n_frames;   // temporal search depth
     int    patch_size;
-    int    n_refs;     // frames cached
+
+    hb_buffer_t * ref[NLMEANS_MAX_IMAGES]; // frame cache
+    int           n_refs;                  // frame cache count
 
     int hsub;
     int vsub;
@@ -93,14 +94,16 @@ struct PixelSum
     float pixel_sum;
 };
 
-static void rawplane2bordered( MonoImage** out,
+/*
+static void rawplane2bordered( MonoImage* out,
                                unsigned char * src,
                                unsigned char * dst,
                                int w,
-                               int h )
+                               int h,
+                               hb_filter_private_t * pv )
 {
 
-    hb_filter_private_t * pv = filter->private_data;
+    //hb_filter_private_t * pv = filter->private_data;
 
     hb_log("rawplane2bordered");
     int border = (pv->range/2 + 15) /16*16;
@@ -114,7 +117,7 @@ static void rawplane2bordered( MonoImage** out,
     int k;
 
     // main image copy
-    for (y = 0; y < h, y++)
+    for (y = 0; y < h; y++)
     {
         memcpy(image + y*out_w, src + y*w, w);
     }
@@ -122,7 +125,7 @@ static void rawplane2bordered( MonoImage** out,
     // top/bottom borders
     for (k = 0; k < border; k++)
     {
-        memcpy(image - (k+1)*out_w, src, w)
+        memcpy(image - (k+1)*out_w, src, w);
     }
 
     // left/right borders
@@ -136,61 +139,14 @@ static void rawplane2bordered( MonoImage** out,
 
     out->img = image;
     out->mem_start = mem_start;
+    hb_log(" out->mem_start %p", out->mem_start);
     out->stride = out_w;
     out->w = w;
+    hb_log(" out->w %d", out->w);
     out->h = h;
+    hb_log(" out->h %d", out->h);
     out->border = border;
 
-}
-
-/*
-static void alloc_and_copy_image_with_border(MonoImage* out_img,
-                                             unsigned char* input_image, int input_stride,
-                                             int w,int h)
-{
-
-    hb_filter_private_t * pv = filter->private_data;
-
-    hb_log("alloc");
-    int border = (pv->range/2+15)/16*16;
-    int out_stride = (w+2*border);
-    int out_total_height = (h+2*border);
-
-    unsigned char* memory_ptr = malloc(out_stride*out_total_height);
-    hb_log(" memstart before %p", memory_ptr);
-    unsigned char* output_image = memory_ptr + border + border*out_stride; // logical output image origin (0,0)
-
-
-    // copy main image content
-
-    for (int y=0;y<h;y++) {
-        memcpy(output_image + y*out_stride, input_image+y*input_stride, w);
-    }
-
-    // top/bottom borders
-
-    for (int k=0;k<border;k++) {
-        memcpy(output_image-(k+1)*out_stride, input_image, w);
-        memcpy(output_image+(h+k)*out_stride, input_image+(h-1)*input_stride, w);
-    }
-
-    // left/right borders
-
-    for (int k=0;k<border;k++) {
-        for (int y=-border;y<h+border;y++)
-        {
-            *(output_image  -k-1+y*out_stride) = output_image[y*out_stride];
-            *(output_image+w+k  +y*out_stride) = output_image[y*out_stride+w-1];
-        }
-    }
-
-    out_img->img = output_image;
-    out_img->mem_start = memory_ptr;
-    hb_log(" memstart after %p", out_img->mem_start);
-    out_img->stride = out_stride;
-    out_img->w = w;
-    out_img->h = h;
-    out_img->border = border;
 }
 */
 
@@ -228,23 +184,27 @@ static void buildIntegralImage_scalar(uint32_t* integral_image,   int integral_s
     }
 }
 
-static void NLMeans_mono_multi(unsigned char* out, int out_stride,
-			       MonoImage** images, int n_images)
+static void nlmeans_plane(unsigned char * src,
+                          unsigned char * dst,
+                          int w,
+                          int h,
+                          int c,
+                          hb_buffer_t * ref,
+                          int n_refs,
+                          int h_param,
+                          int range,
+                          int n_frames,
+                          int patch_size )
 {
 
-    hb_filter_private_t * pv = filter->private_data;
+    hb_log("plane");
 
-    hb_log("mono");
-    int w = images[0]->w;
-    int h = images[0]->h;
-    hb_log(" images[0] w %d", images[0]->w);
-    hb_log(" images[0] h %d", images[0]->h);
-    hb_log(" images[0] %p", images[0]->mem_start);
-
-    int n = (pv->patch_size|1);
-    int r = (pv->range     |1);
+    int n = (patch_size|1);
+    int r = (range     |1);
+    hb_log(" patch_size %d", patch_size);
+    hb_log(" range %d", range);
     hb_log(" n %d", n);
-    hb_log(" r %d", n);
+    hb_log(" r %d", r);
 
     int n_half = (n-1)/2;
     int r_half = (r-1)/2;
@@ -252,7 +212,7 @@ static void NLMeans_mono_multi(unsigned char* out, int out_stride,
 
     // alloc memory for temporary pixel sums
 
-    struct PixelSum* tmp_data = (struct PixelSum*)calloc(w*h,sizeof(struct PixelSum));
+    struct PixelSum* tmp_data = calloc(w*h,sizeof(struct PixelSum));
     hb_log(" pixelsum tmp_data %p", tmp_data);
 
     // allocate integral image
@@ -268,7 +228,7 @@ static void NLMeans_mono_multi(unsigned char* out, int out_stride,
 
     // precompute exponential table
 
-    float weight_factor = 1.0/n/n / (pv->h_param * pv->h_param);
+    float weight_factor = 1.0/n/n / (h_param * h_param);
     hb_log(" weight_factor %f", weight_factor);
 
     int table_size=EXP_TABLE_SIZE;
@@ -285,17 +245,17 @@ static void NLMeans_mono_multi(unsigned char* out, int out_stride,
     }
     exptable[table_size-1]=0;
 
+    return;
 
-
-    for (int image_idx=0; image_idx<n_images; image_idx++)
+    for (int image_idx=0; image_idx < n_refs; image_idx++)
     {
         // copy input image
 
-        unsigned char* current_image = images[0]->img;
-        int current_image_stride = images[0]->stride;
+        unsigned char* current_image = src;
+        int current_image_stride = w;
 
-        unsigned char* compare_image = images[image_idx]->img;
-        int compare_image_stride = images[image_idx]->stride;
+        unsigned char* compare_image = ref[image_idx].plane[c].data;
+        int compare_image_stride = ref[image_idx].plane[c].stride;
 
         // --- iterate through all displacements ---
 
@@ -319,11 +279,41 @@ static void NLMeans_mono_multi(unsigned char* out, int out_stride,
 
                 // --- regular case ---
 
+                /*
                 pv->func.buildIntegralImage(integral,integral_stride,
                                              current_image, current_image_stride,
                                              compare_image, compare_image_stride,
                                              w,h, dx,dy);
                 hb_log("buildintegral->mono");
+                */
+
+                hb_log("buildintegral-inline");
+                memset(integral -1 -integral_stride, 0, (w+1)*sizeof(uint32_t));
+
+                for (int y=0;y<h;y++) {
+                    unsigned char* p1 = current_image +  y    *current_image_stride;
+                    unsigned char* p2 = compare_image + (y+dy)*compare_image_stride + dx;
+                    uint32_t* out = integral + y*integral_stride -1;
+
+                    *out++ = 0;
+
+                    for (int x=0;x<w;x++)
+                    {
+                        int diff = *p1++ - *p2++;
+                        *out = *(out-1) + diff * diff;
+                        out++;
+                    }
+
+                    if (y>0) {
+                        out = integral + y*integral_stride;
+
+                        for (int x=0;x<w;x++) {
+                            *out += *(out - integral_stride);
+                            out++;
+                        }
+                    }
+                }
+
 //#pragma omp parallel for
                 for (int y=0;y<=h-n;y++) {
                     uint32_t* integral_ptr1 = integral+(y  -1)*integral_stride-1;
@@ -360,7 +350,7 @@ static void NLMeans_mono_multi(unsigned char* out, int out_stride,
 
 
     // --- fill output image ---
-
+/*
     // copy border area
 
     {
@@ -386,19 +376,22 @@ static void NLMeans_mono_multi(unsigned char* out, int out_stride,
             memcpy(out+y*out_stride+w-n_half, in+y*orig_in_stride+w-n_half, n_half);
         }
     }
-
+*/
     // output main image
 
     for (int y=n_half;y<h-n_half;y++) \
     {
         for (int x=n_half;x<w-n_half;x++) \
         {
-            *(out+y*out_stride+x) = tmp_data[y*w+x].pixel_sum / tmp_data[y*w+x].weight_sum;
+            *(dst+y*w+x) = tmp_data[y*w+x].pixel_sum / tmp_data[y*w+x].weight_sum;
         }
     }
 
     free(tmp_data);
     free(integral_mem);
+
+    hb_log("return");
+
 }
 
 static int hb_nlmeans_init( hb_filter_object_t * filter,
@@ -467,6 +460,11 @@ static int hb_nlmeans_work( hb_filter_object_t * filter,
     hb_filter_private_t * pv = filter->private_data;
     hb_buffer_t * in = *buf_in, * out;
 
+    hb_log(" pv->h_param %f", pv->h_param);
+    hb_log(" pv->range %d", pv->range);
+    hb_log(" pv->n_frames %d", pv->n_frames);
+    hb_log(" pv->patch_size %d", pv->patch_size);
+
     if ( in->size <= 0 )
     {
         *buf_out = in;
@@ -491,19 +489,34 @@ static int hb_nlmeans_work( hb_filter_object_t * filter,
             pv->out_tmp[c] = malloc( in->plane[c].stride * in->plane[c].height * sizeof(unsigned char) );
         }
 
-        MonoImage* images[NLMEANS_MAX_IMAGES];
-        int i;
-        for (i=0; i < pv->n_refs; i++) {
-            rawplane2bordered(&images[i], pv->ref[i].plane[c], out_tmp[c], in->plane[c].stride, in->plane[c].height);
-        }
+        nlmeans_plane( in->plane[c].data,
+                       pv->out_tmp[c],
+                       in->plane[c].stride,
+                       in->plane[c].height,
+                       c,
+                       pv->ref,
+                       pv->n_refs,
+                       pv->h_param,
+                       pv->range,
+                       pv->n_frames,
+                       pv->patch_size );
 
-        //NLMeans_mono_multi(out[c], out_stride[c],
-        NLMeans_mono_multi(out[c], in->plane[c].stride,
-                           images, i);
+        //MonoImage* images[NLMEANS_MAX_IMAGES];
+        //int images[NLMEANS_MAX_IMAGES];
+        //int i;
+        //for (i=0; i < pv->n_refs; i++) {
+            //rawplane2bordered(&images[i], pv->ref[i]->plane[c].data, pv->out_tmp[c], in->plane[c].stride, in->plane[c].height, &pv);
+        //    rawplane2bordered(&images[i], pv->ref[i]->plane[c].data, pv->out_tmp[c], in->plane[c].stride, in->plane[c].height, &pv);
+        //}
+        //hb_log("images[0]->w %d", images[0]->w);
+
+        //NLMeans_mono_multi(pv->out_tmp[c], in->plane[c].stride,
+        //                   images, i, &pv);
 
         hb_log(" out->plane[c].data %d", sizeof(out->plane[c].data));
         hb_log(" pv->out_tmp[c] %d", sizeof(pv->out_tmp[c]));
-        out->plane[c].data = pv->out_tmp[c];
+        //out->plane[c].data = pv->out_tmp[c];
+        out->plane[c].data = in->plane[c].data; // DEBUG
         pv->out_tmp[c] = NULL;
     }
 
