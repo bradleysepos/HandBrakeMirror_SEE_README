@@ -18,6 +18,7 @@
 
 #include <stdint.h>
 
+/*
 typedef struct
 {
     void (*buildIntegralImage)(uint32_t* integral,   int integral_stride32,
@@ -26,3 +27,4 @@ typedef struct
                                int  w,int  h,
                                int dx,int dy);
 } NLMeansFunctions;
+*/
