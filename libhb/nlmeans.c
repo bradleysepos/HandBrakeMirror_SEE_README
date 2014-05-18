@@ -25,7 +25,7 @@
 #define NLMEANS_FRAMES_DEFAULT     1
 #define NLMEANS_PATCH_SIZE_DEFAULT 7
 
-#define NLMEANS_MAX_IMAGES 2 //32
+#define NLMEANS_MAX_IMAGES 1 //32
 #define EXP_TABLE_SIZE     128
 
 #define ABS(A) ( (A) > 0 ? (A) : -(A) )
@@ -40,12 +40,12 @@ struct hb_filter_private_s
     int    n_frames;   // temporal search depth
     int    patch_size;
 
-    hb_buffer_t * ref[NLMEANS_MAX_IMAGES]; // frame cache
-    int           n_refs;                  // frame cache count
+    //hb_buffer_t * ref[NLMEANS_MAX_IMAGES]; // frame cache
+    //int           n_refs;                  // frame cache count
 
     int hsub;
     int vsub;
-    NLMeansFunctions func;
+    //NLMeansFunctions func;
 };
 
 static int hb_nlmeans_init( hb_filter_object_t * filter,
@@ -79,6 +79,7 @@ typedef struct
     unsigned char* mem_start; // start of allocated memory
 } MonoImage;
 
+/*
 static void store_ref(hb_filter_private_t * pv, hb_buffer_t * b)
 {
     for (int i = NLMEANS_MAX_IMAGES-1; i > 0; i--) {
@@ -87,6 +88,7 @@ static void store_ref(hb_filter_private_t * pv, hb_buffer_t * b)
     }
     pv->ref[0] = b;
 }
+*/
 
 struct PixelSum
 {
@@ -150,6 +152,7 @@ static void rawplane2bordered( MonoImage* out,
 }
 */
 
+/*
 static void buildIntegralImage_scalar(uint32_t* integral_image,   int integral_stride,
 				      unsigned char* current_image, int current_image_stride,
 				      unsigned char* compare_image, int compare_image_stride,
@@ -183,14 +186,17 @@ static void buildIntegralImage_scalar(uint32_t* integral_image,   int integral_s
         }
     }
 }
+*/
 
 static void nlmeans_plane(unsigned char * src,
+                          int sw,
+                          int sh,
                           unsigned char * dst,
                           int w,
                           int h,
                           int c,
-                          hb_buffer_t * ref,
-                          int n_refs,
+                          //hb_buffer_t * ref,
+                          //int n_refs,
                           int h_param,
                           int range,
                           int n_frames,
@@ -245,17 +251,20 @@ static void nlmeans_plane(unsigned char * src,
     }
     exptable[table_size-1]=0;
 
-    return;
+    //return;
 
-    for (int image_idx=0; image_idx < n_refs; image_idx++)
-    {
+    int image_idx=0;
+    //for (int image_idx=0; image_idx < n_refs; image_idx++)
+    //{
         // copy input image
 
         unsigned char* current_image = src;
         int current_image_stride = w;
 
-        unsigned char* compare_image = ref[image_idx].plane[c].data;
-        int compare_image_stride = ref[image_idx].plane[c].stride;
+        //unsigned char* compare_image = ref[image_idx].plane[c].data;
+        //int compare_image_stride = ref[image_idx].plane[c].stride;
+        unsigned char* compare_image = src;
+        int compare_image_stride = w;
 
         // --- iterate through all displacements ---
 
@@ -290,6 +299,7 @@ static void nlmeans_plane(unsigned char * src,
                 hb_log("buildintegral-inline");
                 memset(integral -1 -integral_stride, 0, (w+1)*sizeof(uint32_t));
 
+                hb_log(" loop 1");
                 for (int y=0;y<h;y++) {
                     unsigned char* p1 = current_image +  y    *current_image_stride;
                     unsigned char* p2 = compare_image + (y+dy)*compare_image_stride + dx;
@@ -314,6 +324,7 @@ static void nlmeans_plane(unsigned char * src,
                     }
                 }
 
+                hb_log(" loop 2");
 //#pragma omp parallel for
                 for (int y=0;y<=h-n;y++) {
                     uint32_t* integral_ptr1 = integral+(y  -1)*integral_stride-1;
@@ -345,38 +356,34 @@ static void nlmeans_plane(unsigned char * src,
                     }
                 }
             }
-    }
+    //}
 
 
 
     // --- fill output image ---
-/*
+
     // copy border area
 
     {
-        unsigned char* in  = images[0]->img;
-        int orig_in_stride = images[0]->stride;
-        hb_log(" out_stride %d", out_stride);
-        hb_log(" orig_in_stride %d", orig_in_stride);
 
         for (int y=0;       y<n_half  ;y++)
         {
-            hb_log(" out %p", out+y*out_stride);
-            hb_log(" in  %p", in+y*orig_in_stride);
-            hb_log(" bytes %d", w);
-            memcpy(out+y*out_stride, in+y*orig_in_stride, w);
+            hb_log(" out %p", dst+y*w);
+            hb_log(" in  %p", src+y*sw);
+            hb_log(" bytes %d", sw);
+            memcpy(dst+y*w, src+y*sw, w);
         }
         for (int y=h-n_half;y<h       ;y++)
         {
-            memcpy(out+y*out_stride, in+y*orig_in_stride, w);
+            memcpy(dst+y*w, src+y*sw, w);
         }
         for (int y=n_half  ;y<h-n_half;y++)
         {
-            memcpy(out+y*out_stride,          in+y*orig_in_stride,          n_half);
-            memcpy(out+y*out_stride+w-n_half, in+y*orig_in_stride+w-n_half, n_half);
+            memcpy(dst+y*w,          src+y*sw,          n_half);
+            memcpy(dst+y*w+w-n_half, src+y*sw+w-n_half, n_half);
         }
     }
-*/
+
     // output main image
 
     for (int y=n_half;y<h-n_half;y++) \
@@ -419,14 +426,14 @@ static int hb_nlmeans_init( hb_filter_object_t * filter,
         pv->n_frames = NLMEANS_MAX_IMAGES;
     }
 
-    pv->func.buildIntegralImage = buildIntegralImage_scalar;
+    //pv->func.buildIntegralImage = buildIntegralImage_scalar;
 
     // amount to shift width/height right to find the corresponding chroma dimension
     // since handbrake only operates in one colorspace, for now hard code these values
     pv->hsub = 1;
     pv->vsub = 1;
 
-    pv->n_refs = 0;
+    //pv->n_refs = 0;
 
     return 0;
 }
@@ -440,14 +447,14 @@ static void hb_nlmeans_close( hb_filter_object_t * filter )
     {
         return;
     }
-
+/*
     // Close reference buffers
     int ii;
     for (ii = 0; ii < NLMEANS_MAX_IMAGES; ii++)
     {
         hb_buffer_close(&pv->ref[ii]);
     }
-
+*/
     free( pv );
     filter->private_data = NULL;
 }
@@ -473,14 +480,14 @@ static int hb_nlmeans_work( hb_filter_object_t * filter,
     }
 
     /* Store current frame in nlmeans cache */
-    *buf_in = NULL;
-    store_ref(pv, in);
-    if (pv->n_refs < NLMEANS_MAX_IMAGES)
-    {
-        pv->n_refs = pv->n_refs + 1;
-    }
+    //*buf_in = NULL;
+    //store_ref(pv, in);
+    //if (pv->n_refs < NLMEANS_MAX_IMAGES)
+    //{
+    //    pv->n_refs = pv->n_refs + 1;
+    //}
 
-    //out = hb_video_buffer_init( in->f.width, in->f.height );
+    out = hb_video_buffer_init( in->f.width, in->f.height );
 
     int c;
     for (c = 0; c < 3; c++) {
@@ -489,17 +496,72 @@ static int hb_nlmeans_work( hb_filter_object_t * filter,
             pv->out_tmp[c] = malloc( in->plane[c].stride * in->plane[c].height * sizeof(unsigned char) );
         }
 
+        hb_log("border");
+
+        unsigned char * src = in->plane[c].data;
+        int w = in->plane[c].stride;
+        int h = in->plane[c].height;
+
+        int border = (pv->range/2 + 15) /16*16;
+        int out_w = w + 2*border;
+        int out_h = h + 2*border;
+        unsigned char * mem_start = malloc(out_w * out_h);
+        unsigned char * bordered = mem_start + border + out_w*border;
+
+        int y;
+        int k;
+
+        // main image copy
+        for (y = 0; y < h; y++)
+        {
+            memcpy(bordered + y*out_w, src + y*w, w);
+        }
+
+        // top/bottom borders
+        for (k = 0; k < border; k++)
+        {
+            memcpy(bordered - (k+1)*out_w, src, w);
+        }
+
+        // left/right borders
+        for (k = 0; k < border; k++) {
+            for (y = -border; y < h + border; y++)
+            {
+                *(bordered - (k+1) + y*out_w) = bordered[y*out_w];
+                *(bordered + (k+w) + y*out_w) = bordered[y*out_w + (w-1)];
+            }
+        }
+
+        hb_log(" mem_start %p", mem_start);
+        hb_log(" w %d", w);
+        hb_log(" h %d", h);
+        hb_log(" border %d", border);
+
+        nlmeans_plane( bordered,
+                       out_w,
+                       out_h,
+                       pv->out_tmp[c],
+                       w,
+                       h,
+                       c,
+                       pv->h_param,
+                       pv->range,
+                       pv->n_frames,
+                       pv->patch_size );
+
+/*
         nlmeans_plane( in->plane[c].data,
                        pv->out_tmp[c],
                        in->plane[c].stride,
                        in->plane[c].height,
                        c,
-                       pv->ref,
-                       pv->n_refs,
+                       //pv->ref,
+                       //pv->n_refs,
                        pv->h_param,
                        pv->range,
                        pv->n_frames,
                        pv->patch_size );
+*/
 
         //MonoImage* images[NLMEANS_MAX_IMAGES];
         //int images[NLMEANS_MAX_IMAGES];
@@ -513,15 +575,15 @@ static int hb_nlmeans_work( hb_filter_object_t * filter,
         //NLMeans_mono_multi(pv->out_tmp[c], in->plane[c].stride,
         //                   images, i, &pv);
 
-        hb_log(" out->plane[c].data %d", sizeof(out->plane[c].data));
-        hb_log(" pv->out_tmp[c] %d", sizeof(pv->out_tmp[c]));
-        //out->plane[c].data = pv->out_tmp[c];
-        out->plane[c].data = in->plane[c].data; // DEBUG
+        out->plane[c].data = pv->out_tmp[c];
+        //out->plane[c].data = in->plane[c].data; // DEBUG
         pv->out_tmp[c] = NULL;
     }
 
-    hb_buffer_move_subs( out, pv->ref[0] );
-    out->s = pv->ref[0]->s;
+    //hb_buffer_move_subs( out, pv->ref[0] );
+    //out->s = pv->ref[0]->s;
+    out->s = in->s;
+    hb_buffer_move_subs( out, in );
 
     *buf_out = out;
 
