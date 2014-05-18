@@ -259,12 +259,12 @@ static void nlmeans_plane(unsigned char * src,
         // copy input image
 
         unsigned char* current_image = src;
-        int current_image_stride = w;
+        int current_image_stride = sw;
 
         //unsigned char* compare_image = ref[image_idx].plane[c].data;
         //int compare_image_stride = ref[image_idx].plane[c].stride;
         unsigned char* compare_image = src;
-        int compare_image_stride = w;
+        int compare_image_stride = sw;
 
         // --- iterate through all displacements ---
 
