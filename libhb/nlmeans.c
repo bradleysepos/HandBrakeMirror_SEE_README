@@ -337,6 +337,7 @@ static int hb_nlmeans_work( hb_filter_object_t * filter,
         for (k = 0; k < border; k++)
         {
             memcpy(bordered - (k+1)*out_w, src, w);
+            memcpy(bordered + (h+k)*out_w, src + (h-1)*w, w);
         }
         // Left, right
         for (k = 0; k < border; k++) {
