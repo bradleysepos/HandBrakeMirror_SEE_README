@@ -19,10 +19,10 @@
 #include "hb.h"
 #include "hbffmpeg.h"
 
-#define NLMEANS_H_DEFAULT          8
-#define NLMEANS_RANGE_DEFAULT      3
-#define NLMEANS_FRAMES_DEFAULT     1
-#define NLMEANS_PATCH_DEFAULT 7
+#define NLMEANS_H_DEFAULT      8
+#define NLMEANS_RANGE_DEFAULT  3
+#define NLMEANS_FRAMES_DEFAULT 1
+#define NLMEANS_PATCH_DEFAULT  7
 
 #define NLMEANS_MAX_IMAGES 1 //32
 #define EXP_TABLE_SIZE     128
@@ -33,7 +33,7 @@
 
 struct hb_filter_private_s
 {
-    unsigned char * out_tmp[3];
+    unsigned char * frame_tmp[3];
     double h_param;  // averaging weight decay (larger == smoother)
     int    range;    // spatial search window width (must be odd)
                      //   e.g. 15 = 15x15 search window
@@ -69,12 +69,10 @@ struct PixelSum
 };
 
 static void nlmeans_plane(unsigned char * src,
-                          int sw,
-                          int sh,
+                          int src_w,
                           unsigned char * dst,
                           int w,
                           int h,
-                          int c,
                           int h_param,
                           int range,
                           int frames,
@@ -82,7 +80,7 @@ static void nlmeans_plane(unsigned char * src,
 {
 
     int n = (patch|1);
-    int r = (range     |1);
+    int r = (range|1);
 
     int n_half = (n-1)/2;
     int r_half = (r-1)/2;
@@ -96,36 +94,33 @@ static void nlmeans_plane(unsigned char * src,
     uint32_t* integral = integral_mem + integral_stride + 16;
 
     // Precompute exponential table
-    float weight_factor = 1.0/n/n / (h_param * h_param);
-
-    int table_size=EXP_TABLE_SIZE;
-    float min_weight_in_table = 0.0005;
-
     float exptable[EXP_TABLE_SIZE];
-
-    float stretch = table_size/ (-log(min_weight_in_table));
+    float weight_factor = 1.0/n/n / (h_param * h_param);
+    float min_weight_in_table = 0.0005;
+    float stretch = EXP_TABLE_SIZE / (-log(min_weight_in_table));
     float weight_fact_table = weight_factor*stretch;
-    int diff_max = table_size/weight_fact_table;
-
-    for (int i=0;i<table_size;i++) {
+    int diff_max = EXP_TABLE_SIZE/weight_fact_table;
+    // TODO: Parallelize this?
+    for (int i=0;i<EXP_TABLE_SIZE;i++)
+    {
         exptable[i] = exp(-i/stretch);
     }
-    exptable[table_size-1]=0;
+    exptable[EXP_TABLE_SIZE-1]=0;
 
     // Iterate through available frames
     int image_idx=0;
-    //for (int image_idx=0; image_idx < n_refs; image_idx++)
+    //for (image_idx=0; image_idx < n_refs; image_idx++)
     //{
 
         // Source image
         unsigned char* current_image = src;
-        int current_image_stride = sw;
+        int current_image_stride = src_w;
 
         // Compare image
         //unsigned char* compare_image = ref[image_idx].plane[c].data;
         //int compare_image_stride = ref[image_idx].plane[c].stride;
         unsigned char* compare_image = src;
-        int compare_image_stride = sw;
+        int compare_image_stride = src_w;
 
         // Iterate through all displacements
         for (int dy=-r_half ; dy<=r_half ; dy++)
@@ -134,10 +129,13 @@ static void nlmeans_plane(unsigned char * src,
             {
 
                 // Special case: origin, weight = 1
-                if (dx==0 && dy==0 && image_idx==0) {
+                if (dx==0 && dy==0 && image_idx==0)
+                {
                     // TODO: Parallelize this
-                    for (int y=n_half;y<h-n+n_half;y++) {
-                        for (int x=n_half;x<w-n+n_half;x++) {
+                    for (int y=n_half;y<h-n+n_half;y++)
+                    {
+                        for (int x=n_half;x<w-n+n_half;x++)
+                        {
                             tmp_data[y*w+x].weight_sum += 1;
                             tmp_data[y*w+x].pixel_sum  += current_image[y*current_image_stride+x];
                         }
@@ -148,7 +146,8 @@ static void nlmeans_plane(unsigned char * src,
                 // Normal case
                 // Build integral
                 memset(integral -1 -integral_stride, 0, (w+1)*sizeof(uint32_t));
-                for (int y=0;y<h;y++) {
+                for (int y=0;y<h;y++)
+                {
                     unsigned char* p1 = current_image +  y    *current_image_stride;
                     unsigned char* p2 = compare_image + (y+dy)*compare_image_stride + dx;
                     uint32_t* out = integral + y*integral_stride -1;
@@ -162,10 +161,12 @@ static void nlmeans_plane(unsigned char * src,
                         out++;
                     }
 
-                    if (y>0) {
+                    if (y>0)
+                    {
                         out = integral + y*integral_stride;
 
-                        for (int x=0;x<w;x++) {
+                        for (int x=0;x<w;x++)
+                        {
                             *out += *(out - integral_stride);
                             out++;
                         }
@@ -173,11 +174,13 @@ static void nlmeans_plane(unsigned char * src,
                 }
                 // Average displacements
                 // TODO: Parallelize this
-                for (int y=0;y<=h-n;y++) {
+                for (int y=0;y<=h-n;y++)
+                {
                     uint32_t* integral_ptr1 = integral+(y  -1)*integral_stride-1;
                     uint32_t* integral_ptr2 = integral+(y+n-1)*integral_stride-1;
 
-                    for (int x=0;x<=w-n;x++) {
+                    for (int x=0;x<=w-n;x++)
+                    {
                         int xc = x+n_half;
                         int yc = y+n_half;
 
@@ -185,7 +188,8 @@ static void nlmeans_plane(unsigned char * src,
                         int diff = (uint32_t)(integral_ptr2[n] - integral_ptr2[0] - integral_ptr1[n] + integral_ptr1[0]);
 
                         // Sum pixel with weight
-                        if (diff<diff_max) {
+                        if (diff<diff_max)
+                        {
                             int diffidx = diff*weight_fact_table;
 
                             //float weight = exp(-diff*weightFact);
@@ -205,26 +209,25 @@ static void nlmeans_plane(unsigned char * src,
 
     // Output border area
     {
-
         for (int y=0;       y<n_half  ;y++)
         {
-            memcpy(dst+y*w, src+y*sw, w);
+            memcpy(dst+y*w, src+y*src_w, w);
         }
         for (int y=h-n_half;y<h       ;y++)
         {
-            memcpy(dst+y*w, src+y*sw, w);
+            memcpy(dst+y*w, src+y*src_w, w);
         }
         for (int y=n_half  ;y<h-n_half;y++)
         {
-            memcpy(dst+y*w,          src+y*sw,          n_half);
-            memcpy(dst+y*w+w-n_half, src+y*sw+w-n_half, n_half);
+            memcpy(dst+y*w,          src+y*src_w,          n_half);
+            memcpy(dst+y*w+w-n_half, src+y*src_w+w-n_half, n_half);
         }
     }
 
     // Output main image
-    for (int y=n_half;y<h-n_half;y++) \
+    for (int y=n_half;y<h-n_half;y++)
     {
-        for (int x=n_half;x<w-n_half;x++) \
+        for (int x=n_half;x<w-n_half;x++)
         {
             *(dst+y*w+x) = tmp_data[y*w+x].pixel_sum / tmp_data[y*w+x].weight_sum;
         }
@@ -297,30 +300,29 @@ static int hb_nlmeans_work( hb_filter_object_t * filter,
     for (c = 0; c < 3; c++)
     {
         // Allocate temporary image
-        if ( !pv->out_tmp[c] )
+        if ( !pv->frame_tmp[c] )
         {
-            pv->out_tmp[c] = malloc( in->plane[c].stride * in->plane[c].height * sizeof(unsigned char) );
+            pv->frame_tmp[c] = malloc( in->plane[c].stride * in->plane[c].height * sizeof(unsigned char) );
         }
 
-        // Source data, width, height
-        unsigned char * src = in->plane[c].data;
+        // Plane width and height
         int w = in->plane[c].stride;
         int h = in->plane[c].height;
 
-        // Extra border, new stride, new height
+        // Extra border around image, bordered width and height
         int border = (pv->range/2 + 15) /16*16;
-        int out_w = w + 2*border;
-        int out_h = h + 2*border;
+        int plane_tmp_w = w + 2*border;
+        int plane_tmp_h = h + 2*border;
 
         // Allocate bordered image
-        unsigned char * mem_start = malloc(out_w * out_h);
-        unsigned char * bordered = mem_start + border + out_w*border;
+        unsigned char * mem_start = malloc(plane_tmp_w * plane_tmp_h);
+        unsigned char * plane_tmp = mem_start + border + plane_tmp_w*border;
 
         // Copy main image
         int y;
         for (y = 0; y < h; y++)
         {
-            memcpy(bordered + y*out_w, src + y*w, w);
+            memcpy(plane_tmp + y*plane_tmp_w, in->plane[c].data + y*w, w);
         }
 
         // Copy borders
@@ -328,33 +330,32 @@ static int hb_nlmeans_work( hb_filter_object_t * filter,
         // Top, bottom
         for (k = 0; k < border; k++)
         {
-            memcpy(bordered - (k+1)*out_w, src, w);
-            memcpy(bordered + (h+k)*out_w, src + (h-1)*w, w);
+            memcpy(plane_tmp - (k+1)*plane_tmp_w, in->plane[c].data, w);
+            memcpy(plane_tmp + (h+k)*plane_tmp_w, in->plane[c].data + (h-1)*w, w);
         }
         // Left, right
-        for (k = 0; k < border; k++) {
+        for (k = 0; k < border; k++)
+        {
             for (y = -border; y < h + border; y++)
             {
-                *(bordered - (k+1) + y*out_w) = bordered[y*out_w];
-                *(bordered + (k+w) + y*out_w) = bordered[y*out_w + (w-1)];
+                *(plane_tmp - (k+1) + y*plane_tmp_w) = plane_tmp[y*plane_tmp_w];
+                *(plane_tmp + (k+w) + y*plane_tmp_w) = plane_tmp[y*plane_tmp_w + (w-1)];
             }
         }
 
         // Process plane
-        nlmeans_plane( bordered,
-                       out_w,
-                       out_h,
-                       pv->out_tmp[c],
+        nlmeans_plane( plane_tmp,
+                       plane_tmp_w,
+                       pv->frame_tmp[c],
                        w,
                        h,
-                       c,
                        pv->h_param,
                        pv->range,
                        pv->frames,
                        pv->patch );
 
-        out->plane[c].data = pv->out_tmp[c];
-        pv->out_tmp[c] = NULL;
+        out->plane[c].data = pv->frame_tmp[c];
+        pv->frame_tmp[c] = NULL;
     }
 
     out->s = in->s;
