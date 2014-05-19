@@ -275,6 +275,22 @@ static void hb_nlmeans_close( hb_filter_object_t * filter )
         return;
     }
 
+	if( pv->frame_tmp[0] )
+    {
+        free( pv->frame_tmp[0] );
+        pv->frame_tmp[0] = NULL;
+    }
+	if( pv->frame_tmp[1] )
+    {
+        free( pv->frame_tmp[1] );
+        pv->frame_tmp[1] = NULL;
+    }
+	if( pv->frame_tmp[2] )
+    {
+        free( pv->frame_tmp[2] );
+        pv->frame_tmp[2] = NULL;
+    }
+
     free( pv );
     filter->private_data = NULL;
 }
