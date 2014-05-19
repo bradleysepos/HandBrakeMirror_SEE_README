@@ -89,7 +89,6 @@ static void nlmeans_plane(unsigned char * src,
 
     // Allocate temporary pixel sums
     struct PixelSum* tmp_data = calloc(w*h,sizeof(struct PixelSum));
-    hb_log(" pixelsum tmp_data %p", tmp_data);
 
     // Allocate integral image
     int integral_stride = w + 2*16;
@@ -98,7 +97,6 @@ static void nlmeans_plane(unsigned char * src,
 
     // Precompute exponential table
     float weight_factor = 1.0/n/n / (h_param * h_param);
-    hb_log(" weight_factor %f", weight_factor);
 
     int table_size=EXP_TABLE_SIZE;
     float min_weight_in_table = 0.0005;
@@ -282,14 +280,8 @@ static int hb_nlmeans_work( hb_filter_object_t * filter,
                             hb_buffer_t ** buf_in,
                             hb_buffer_t ** buf_out )
 {
-    hb_log("nlmeans work");
     hb_filter_private_t * pv = filter->private_data;
     hb_buffer_t * in = *buf_in, * out;
-
-    hb_log(" pv->h_param %f", pv->h_param);
-    hb_log(" pv->range %d",   pv->range);
-    hb_log(" pv->frames %d",  pv->frames);
-    hb_log(" pv->patch %d",   pv->patch);
 
     if ( in->size <= 0 )
     {
