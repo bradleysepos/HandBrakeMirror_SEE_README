@@ -362,6 +362,8 @@ static int hb_nlmeans_work( hb_filter_object_t * filter,
                        pv->strength,
                        pv->origin );
 
+        free(mem_start);
+
     }
 
     out->s = in->s;
