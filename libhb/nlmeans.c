@@ -23,6 +23,7 @@
 #define NLMEANS_RANGE_DEFAULT    3
 #define NLMEANS_FRAMES_DEFAULT   2
 #define NLMEANS_STRENGTH_DEFAULT 8.00
+#define NLMEANS_ORIGIN_DEFAULT   1.00
 
 #define NLMEANS_MAX_IMAGES 1 //32
 #define EXP_TABLE_SIZE     128
@@ -38,6 +39,7 @@ struct hb_filter_private_s
     int    range;    // spatial search window width (must be odd, even--)
     int    frames;   // temporal search depth in frames
     double strength; // averaging weight decay, larger produces smoother output
+    double origin;   // weight tuning for origin patch, 0.01..1.00
 };
 
 static int hb_nlmeans_init( hb_filter_object_t * filter,
@@ -74,7 +76,8 @@ static void nlmeans_plane( unsigned char * src,
                            int patch,
                            int range,
                            int frames,
-                           int strength )
+                           double strength,
+                           double origin )
 {
 
     int n = (patch|1);
@@ -134,8 +137,8 @@ static void nlmeans_plane( unsigned char * src,
                     {
                         for (int x=n_half;x<w-n+n_half;x++)
                         {
-                            tmp_data[y*w+x].weight_sum += 1;
-                            tmp_data[y*w+x].pixel_sum  += current_image[y*current_image_stride+x];
+                            tmp_data[y*w+x].weight_sum += origin;
+                            tmp_data[y*w+x].pixel_sum  += origin * current_image[y*current_image_stride+x];
                         }
                     }
                     continue;
@@ -245,10 +248,11 @@ static int hb_nlmeans_init( hb_filter_object_t * filter,
     pv->range    = NLMEANS_RANGE_DEFAULT;
     pv->frames   = NLMEANS_FRAMES_DEFAULT;
     pv->strength = NLMEANS_STRENGTH_DEFAULT;
+    pv->origin   = NLMEANS_ORIGIN_DEFAULT;
 
     if( filter->settings )
     {
-        sscanf( filter->settings, "%d:%d:%d:%lf", &pv->patch, &pv->range, &pv->frames, &pv->strength );
+        sscanf( filter->settings, "%d:%d:%d:%lf:%lf", &pv->patch, &pv->range, &pv->frames, &pv->strength, &pv->origin );
     }
 
     //if ( pv->frames < 1 )
@@ -259,6 +263,14 @@ static int hb_nlmeans_init( hb_filter_object_t * filter,
     if ( pv->frames > NLMEANS_MAX_IMAGES )
     {
         pv->frames = NLMEANS_MAX_IMAGES;
+    }
+    if ( pv->origin < 0.01 )
+    {
+        pv->origin = 0.01;
+    }
+    if ( pv->origin > 1.00 )
+    {
+        pv->origin = 1.00;
     }
 
     return 0;
@@ -365,7 +377,8 @@ static int hb_nlmeans_work( hb_filter_object_t * filter,
                        pv->patch,
                        pv->range,
                        pv->frames,
-                       pv->strength );
+                       pv->strength,
+                       pv->origin );
 
         out->plane[c].data = pv->frame_tmp[c];
         pv->frame_tmp[c] = NULL;
