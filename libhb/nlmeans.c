@@ -36,10 +36,8 @@ struct hb_filter_private_s
     unsigned char * frame_tmp[3];
     double h_param;  // averaging weight decay (larger == smoother)
     int    range;    // spatial search window width (must be odd)
-                     //   e.g. 15 = 15x15 search window
     int    frames;   // temporal search depth (1 == static only)
     int    patch;    // pixel context region width (must be odd)
-                     //   e.g. 3 = 3x3 context window
 };
 
 static int hb_nlmeans_init( hb_filter_object_t * filter,
@@ -311,7 +309,6 @@ static int hb_nlmeans_work( hb_filter_object_t * filter,
 
     out = hb_video_buffer_init( in->f.width, in->f.height );
 
-    // Iterate through planes
     int c;
     for (c = 0; c < 3; c++)
     {
