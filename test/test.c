@@ -3448,7 +3448,7 @@ if (hb_qsv_available())
      "          <SL:SCb:SCr:TL:TCb:TCr>\n"
      "          (default: 4:3:3:6:4.5:4.5)\n"
      "    --nlmeans               Denoise video with nlmeans filter\n"
-     "          <H:R:F:P>         (default 8:3:2:7)\n"
+     "          <P:R:F:H>         (default 7:3:2:8)\n"
      "    -7, --deblock           Deblock video with pp7 filter\n"
      "          <QP:M>            (default 5:2)\n"
      "        --rotate            Flips images axes\n"
