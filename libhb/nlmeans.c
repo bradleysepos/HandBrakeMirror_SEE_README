@@ -103,7 +103,7 @@ static void nlmeans_plane( unsigned char * src,
     {
         exptable[i] = exp(-i/stretch);
     }
-    exptable[EXP_TABLE_SIZE-1]=0;
+    exptable[EXP_TABLE_SIZE-1] = min_weight_in_table;
 
     // Iterate through available frames
     int image_idx=0;
