@@ -39,7 +39,7 @@ struct hb_filter_private_s
     int    range;    // spatial search window width (must be odd, even--)
     int    frames;   // temporal search depth in frames
     double strength; // averaging weight decay, larger produces smoother output
-    double origin;   // weight tuning for origin patch, 0.01..1.00
+    double origin;   // weight tuning for origin patch, 0.00..1.00
 };
 
 static int hb_nlmeans_init( hb_filter_object_t * filter,
@@ -73,15 +73,12 @@ static void nlmeans_plane( unsigned char * src,
                            unsigned char * dst,
                            int w,
                            int h,
-                           int patch,
-                           int range,
-                           int frames,
-                           double strength,
-                           double origin )
+                           int n,
+                           int r,
+                           int f,
+                           double h_param,
+                           double origin_tune )
 {
-
-    int n = (patch|1);
-    int r = (range|1);
 
     int n_half = (n-1)/2;
     int r_half = (r-1)/2;
@@ -96,7 +93,7 @@ static void nlmeans_plane( unsigned char * src,
 
     // Precompute exponential table
     float exptable[EXP_TABLE_SIZE];
-    float weight_factor = 1.0/n/n / (strength * strength);
+    float weight_factor = 1.0/n/n / (h_param * h_param);
     float min_weight_in_table = 0.0005;
     float stretch = EXP_TABLE_SIZE / (-log(min_weight_in_table));
     float weight_fact_table = weight_factor*stretch;
@@ -110,7 +107,7 @@ static void nlmeans_plane( unsigned char * src,
 
     // Iterate through available frames
     int image_idx=0;
-    //for (image_idx=0; image_idx < n_refs; image_idx++)
+    //for (image_idx=0; image_idx < f; image_idx++)
     //{
 
         // Source image
@@ -137,8 +134,8 @@ static void nlmeans_plane( unsigned char * src,
                     {
                         for (int x=n_half;x<w-n+n_half;x++)
                         {
-                            tmp_data[y*w+x].weight_sum += origin;
-                            tmp_data[y*w+x].pixel_sum  += origin * current_image[y*current_image_stride+x];
+                            tmp_data[y*w+x].weight_sum += origin_tune;
+                            tmp_data[y*w+x].pixel_sum  += origin_tune * current_image[y*current_image_stride+x];
                         }
                     }
                     continue;
@@ -255,6 +252,14 @@ static int hb_nlmeans_init( hb_filter_object_t * filter,
         sscanf( filter->settings, "%d:%d:%d:%lf:%lf", &pv->patch, &pv->range, &pv->frames, &pv->strength, &pv->origin );
     }
 
+    if ( pv->patch < 1 )
+    {
+        pv->patch = 1;
+    }
+    if ( pv->range < 1 )
+    {
+        pv->range = 1;
+    }
     //if ( pv->frames < 1 )
     //{
     //    pv->frames = 1;
