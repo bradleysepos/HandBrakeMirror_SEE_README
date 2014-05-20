@@ -34,7 +34,6 @@
 
 struct hb_filter_private_s
 {
-    unsigned char * frame_tmp[3];
     int    patch;    // pixel context region width  (must be odd, even--)
     int    range;    // spatial search window width (must be odd, even--)
     int    frames;   // temporal search depth in frames
@@ -290,22 +289,6 @@ static void hb_nlmeans_close( hb_filter_object_t * filter )
         return;
     }
 
-	if( pv->frame_tmp[0] )
-    {
-        free( pv->frame_tmp[0] );
-        pv->frame_tmp[0] = NULL;
-    }
-	if( pv->frame_tmp[1] )
-    {
-        free( pv->frame_tmp[1] );
-        pv->frame_tmp[1] = NULL;
-    }
-	if( pv->frame_tmp[2] )
-    {
-        free( pv->frame_tmp[2] );
-        pv->frame_tmp[2] = NULL;
-    }
-
     free( pv );
     filter->private_data = NULL;
 }
@@ -329,12 +312,6 @@ static int hb_nlmeans_work( hb_filter_object_t * filter,
     int c;
     for (c = 0; c < 3; c++)
     {
-        // Allocate temporary image
-        if ( !pv->frame_tmp[c] )
-        {
-            pv->frame_tmp[c] = malloc( in->plane[c].stride * in->plane[c].height * sizeof(unsigned char) );
-        }
-
         // Plane width and height
         int w = in->plane[c].stride;
         int h = in->plane[c].height;
@@ -376,7 +353,7 @@ static int hb_nlmeans_work( hb_filter_object_t * filter,
         // Process plane
         nlmeans_plane( plane_tmp,
                        plane_tmp_w,
-                       pv->frame_tmp[c],
+                       out->plane[c].data,
                        w,
                        h,
                        pv->patch,
@@ -385,8 +362,6 @@ static int hb_nlmeans_work( hb_filter_object_t * filter,
                        pv->strength,
                        pv->origin );
 
-        out->plane[c].data = pv->frame_tmp[c];
-        pv->frame_tmp[c] = NULL;
     }
 
     out->s = in->s;
