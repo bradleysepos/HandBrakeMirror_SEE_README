@@ -19,10 +19,10 @@
 #include "hb.h"
 #include "hbffmpeg.h"
 
-#define NLMEANS_H_DEFAULT      8
-#define NLMEANS_RANGE_DEFAULT  3
-#define NLMEANS_FRAMES_DEFAULT 1
-#define NLMEANS_PATCH_DEFAULT  7
+#define NLMEANS_PATCH_DEFAULT    7
+#define NLMEANS_RANGE_DEFAULT    3
+#define NLMEANS_FRAMES_DEFAULT   2
+#define NLMEANS_STRENGTH_DEFAULT 8.00
 
 #define NLMEANS_MAX_IMAGES 1 //32
 #define EXP_TABLE_SIZE     128
@@ -34,10 +34,10 @@
 struct hb_filter_private_s
 {
     unsigned char * frame_tmp[3];
-    double h_param;  // averaging weight decay (larger == smoother)
-    int    range;    // spatial search window width (must be odd)
-    int    frames;   // temporal search depth (1 == static only)
-    int    patch;    // pixel context region width (must be odd)
+    int    patch;    // pixel context region width  (must be odd, even--)
+    int    range;    // spatial search window width (must be odd, even--)
+    int    frames;   // temporal search depth in frames
+    double strength; // averaging weight decay, larger produces smoother output
 };
 
 static int hb_nlmeans_init( hb_filter_object_t * filter,
@@ -66,15 +66,15 @@ struct PixelSum
     float pixel_sum;
 };
 
-static void nlmeans_plane(unsigned char * src,
-                          int src_w,
-                          unsigned char * dst,
-                          int w,
-                          int h,
-                          int h_param,
-                          int range,
-                          int frames,
-                          int patch )
+static void nlmeans_plane( unsigned char * src,
+                           int src_w,
+                           unsigned char * dst,
+                           int w,
+                           int h,
+                           int patch,
+                           int range,
+                           int frames,
+                           int strength )
 {
 
     int n = (patch|1);
@@ -93,7 +93,7 @@ static void nlmeans_plane(unsigned char * src,
 
     // Precompute exponential table
     float exptable[EXP_TABLE_SIZE];
-    float weight_factor = 1.0/n/n / (h_param * h_param);
+    float weight_factor = 1.0/n/n / (strength * strength);
     float min_weight_in_table = 0.0005;
     float stretch = EXP_TABLE_SIZE / (-log(min_weight_in_table));
     float weight_fact_table = weight_factor*stretch;
@@ -126,7 +126,7 @@ static void nlmeans_plane(unsigned char * src,
             for (int dx=-r_half ; dx<=r_half ; dx++)
             {
 
-                // Special case: origin, weight = 1
+                // Apply special weight tuning to origin patch
                 if (dx==0 && dy==0 && image_idx==0)
                 {
                     // TODO: Parallelize this
@@ -141,7 +141,6 @@ static void nlmeans_plane(unsigned char * src,
                     continue;
                 }
 
-                // Normal case
                 // Build integral
                 memset(integral -1 -integral_stride, 0, (w+1)*sizeof(uint32_t));
                 for (int y=0;y<h;y++)
@@ -242,20 +241,21 @@ static int hb_nlmeans_init( hb_filter_object_t * filter,
     filter->private_data = calloc( sizeof(struct hb_filter_private_s), 1 );
     hb_filter_private_t * pv = filter->private_data;
 
-    pv->h_param = NLMEANS_H_DEFAULT;
-    pv->range   = NLMEANS_RANGE_DEFAULT;
-    pv->frames  = NLMEANS_FRAMES_DEFAULT;
-    pv->patch   = NLMEANS_PATCH_DEFAULT;
+    pv->patch    = NLMEANS_PATCH_DEFAULT;
+    pv->range    = NLMEANS_RANGE_DEFAULT;
+    pv->frames   = NLMEANS_FRAMES_DEFAULT;
+    pv->strength = NLMEANS_STRENGTH_DEFAULT;
 
     if( filter->settings )
     {
-        sscanf( filter->settings, "%lf:%d:%d:%d", &pv->h_param, &pv->range, &pv->frames, &pv->patch );
+        sscanf( filter->settings, "%d:%d:%d:%lf", &pv->patch, &pv->range, &pv->frames, &pv->strength );
     }
 
-    if ( pv->frames < 1 )
-    {
-        pv->frames = 1;
-    }
+    //if ( pv->frames < 1 )
+    //{
+    //    pv->frames = 1;
+    //}
+    pv->frames = 1; // Static only, temporal filtering not implemented
     if ( pv->frames > NLMEANS_MAX_IMAGES )
     {
         pv->frames = NLMEANS_MAX_IMAGES;
@@ -362,10 +362,10 @@ static int hb_nlmeans_work( hb_filter_object_t * filter,
                        pv->frame_tmp[c],
                        w,
                        h,
-                       pv->h_param,
+                       pv->patch,
                        pv->range,
                        pv->frames,
-                       pv->patch );
+                       pv->strength );
 
         out->plane[c].data = pv->frame_tmp[c];
         pv->frame_tmp[c] = NULL;
