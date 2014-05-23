@@ -1,5 +1,6 @@
 /*
- Copyright (c) 2013 Dirk Farin <dirk.farin@gmail.com>
+ Copyright (c) 2013 Dirk Farin
+ Copyright (c) 2014 HandBrake Team
 
  This program is free software; you can redistribute it and/or modify
  it under the terms of the GNU General Public License as published by
@@ -19,11 +20,11 @@
 #include "hb.h"
 #include "hbffmpeg.h"
 
-#define NLMEANS_PATCH_DEFAULT    7
-#define NLMEANS_RANGE_DEFAULT    3
-#define NLMEANS_FRAMES_DEFAULT   2
-#define NLMEANS_STRENGTH_DEFAULT 8.00
-#define NLMEANS_ORIGIN_DEFAULT   1.00
+#define NLMEANS_STRENGTH_DEFAULT    8
+#define NLMEANS_ORIGIN_TUNE_DEFAULT 1
+#define NLMEANS_PATCH_DEFAULT       7
+#define NLMEANS_RANGE_DEFAULT       3
+#define NLMEANS_FRAMES_DEFAULT      2
 
 #define NLMEANS_FRAMES_MAX 32
 #define EXP_TABLE_SIZE     128
@@ -35,7 +36,7 @@
 typedef struct
 {
     unsigned char * mem;
-    unsigned char * data;
+    unsigned char * image;
     int w;
     int h;
     int border;
@@ -43,11 +44,11 @@ typedef struct
 
 struct hb_filter_private_s
 {
-    int    patch;    // pixel context region width  (must be odd, even--)
-    int    range;    // spatial search window width (must be odd, even--)
-    int    frames;   // temporal search depth in frames
-    double strength; // averaging weight decay, larger produces smoother output
-    double origin;   // weight tuning for origin patch, 0.00..1.00
+    double strength;    // averaging weight decay, larger produces smoother output
+    double origin_tune; // weight tuning for origin patch, 0.00..1.00
+    int    patch;       // pixel context region width  (must be odd)
+    int    range;       // spatial search window width (must be odd)
+    int    frames;      // temporal search depth in frames
 
     BorderedPlane frame_tmp[3][32];
     int           frame_ready[3][32];
@@ -88,38 +89,32 @@ static void nlmeans_copy_bordered( unsigned char * src,
                                    int border )
 {
 
-//    hb_log("copy_bordered");
-
     unsigned char * mem = malloc(dst_w * dst_h * sizeof(unsigned char));
-    unsigned char * data = mem + border + dst_w*border;
-//    hb_log(" malloc %p", mem);
+    unsigned char * image = mem + border + dst_w*border;
 
     // Copy main image
-    int y;
-    for (y = 0; y < src_h; y++)
+    for (int y = 0; y < src_h; y++)
     {
-        memcpy(data + y*dst_w, src + y*src_w, src_w);
+        memcpy(image + y*dst_w, src + y*src_w, src_w);
     }
 
     // Copy borders
-    int k;
-    for (k = 0; k < border; k++)
+    for (int k = 0; k < border; k++)
     {
-        memcpy(data - (k+1)*dst_w, src, src_w);
-        memcpy(data + (src_h+k)*dst_w, src + (src_h-1)*src_w, src_w);
+        memcpy(image - (k+1)*dst_w, src, src_w);
+        memcpy(image + (src_h+k)*dst_w, src + (src_h-1)*src_w, src_w);
     }
-    for (k = 0; k < border; k++)
+    for (int k = 0; k < border; k++)
     {
-        for (y = -border; y < src_h + border; y++)
+        for (int y = -border; y < src_h + border; y++)
         {
-            *(data - (k+1) + y*dst_w) = data[y*dst_w];
-            *(data + (k+src_w) + y*dst_w) = data[y*dst_w + (src_w-1)];
+            *(image - (k+1) + y*dst_w) = image[y*dst_w];
+            *(image + (k+src_w) + y*dst_w) = image[y*dst_w + (src_w-1)];
         }
     }
 
     dst->mem = mem;
-//    hb_log(" mem %p", dst->mem);
-    dst->data = data;
+    dst->image = image;
     dst->w = dst_w;
     dst->h = dst_h;
     dst->border = border;
@@ -131,30 +126,26 @@ static void nlmeans_plane( BorderedPlane * plane_tmp,
                            unsigned char * dst,
                            int w,
                            int h,
+                           double h_param,
+                           double origin_tune,
                            int n,
                            int r,
-                           int f,
-                           double h_param,
-                           double origin_tune )
+                           int f )
 {
-
-    // Source image
-    //BorderedPlane * plane_tmp0 = &plane_tmp[0];
-    //unsigned char * src = plane_tmp0->data;
-    //int src_w = plane_tmp0->w;
-    unsigned char * src = plane_tmp[0].data;
-    int src_w = plane_tmp[0].w;
-//    hb_log("process %p", plane_tmp[0].mem);
 
     int n_half = (n-1)/2;
     int r_half = (r-1)/2;
+
+    // Source image
+    unsigned char * src = plane_tmp[0].image;
+    int src_w = plane_tmp[0].w;
 
     // Allocate temporary pixel sums
     struct PixelSum* tmp_data = calloc(w*h,sizeof(struct PixelSum));
 
     // Allocate integral image
     int integral_stride = w + 2*16;
-    uint32_t* integral_mem = malloc( integral_stride * ( h + 1 ) * sizeof(uint32_t) );
+    uint32_t* integral_mem = malloc(integral_stride * (h+1) * sizeof(uint32_t));
     uint32_t* integral = integral_mem + integral_stride + 16;
 
     // Precompute exponential table
@@ -162,10 +153,9 @@ static void nlmeans_plane( BorderedPlane * plane_tmp,
     float weight_factor = 1.0/n/n / (h_param * h_param);
     float min_weight_in_table = 0.0005;
     float stretch = EXP_TABLE_SIZE / (-log(min_weight_in_table));
-    float weight_fact_table = weight_factor*stretch;
-    int diff_max = EXP_TABLE_SIZE/weight_fact_table;
-    // TODO: Parallelize this?
-    for (int i=0;i<EXP_TABLE_SIZE;i++)
+    float weight_fact_table = weight_factor * stretch;
+    int diff_max = EXP_TABLE_SIZE / weight_fact_table;
+    for (int i = 0; i < EXP_TABLE_SIZE; i++)
     {
         exptable[i] = exp(-i/stretch);
     }
@@ -176,10 +166,7 @@ static void nlmeans_plane( BorderedPlane * plane_tmp,
     {
 
         // Compare image
-        //BorderedPlane * plane_tmpN = &plane_tmp[plane_index];
-        //unsigned char * compare = plane_tmpN->data;
-        //int compare_w = plane_tmpN->w;
-        unsigned char * compare = plane_tmp[plane_index].data;
+        unsigned char * compare = plane_tmp[plane_index].image;
         int compare_w = plane_tmp[plane_index].w;
 
         // Iterate through all displacements
@@ -205,7 +192,7 @@ static void nlmeans_plane( BorderedPlane * plane_tmp,
 
                 // Build integral
                 memset(integral -1 -integral_stride, 0, (w+1)*sizeof(uint32_t));
-                for (int y=0;y<h;y++)
+                for (int y=0; y < h; y++)
                 {
                     unsigned char* p1 = src +  y    *src_w;
                     unsigned char* p2 = compare + (y+dy)*compare_w + dx;
@@ -213,32 +200,33 @@ static void nlmeans_plane( BorderedPlane * plane_tmp,
 
                     *out++ = 0;
 
-                    for (int x=0;x<w;x++)
+                    for (int x = 0; x < w; x++)
                     {
                         int diff = *p1++ - *p2++;
                         *out = *(out-1) + diff * diff;
                         out++;
                     }
 
-                    if (y>0)
+                    if (y > 0)
                     {
                         out = integral + y*integral_stride;
 
-                        for (int x=0;x<w;x++)
+                        for (int x = 0; x < w; x++)
                         {
                             *out += *(out - integral_stride);
                             out++;
                         }
                     }
                 }
+
                 // Average displacements
                 // TODO: Parallelize this
-                for (int y=0;y<=h-n;y++)
+                for (int y = 0; y <= h-n; y++)
                 {
                     uint32_t* integral_ptr1 = integral+(y  -1)*integral_stride-1;
                     uint32_t* integral_ptr2 = integral+(y+n-1)*integral_stride-1;
 
-                    for (int x=0;x<=w-n;x++)
+                    for (int x = 0; x <= w-n; x++)
                     {
                         int xc = x+n_half;
                         int yc = y+n_half;
@@ -247,7 +235,7 @@ static void nlmeans_plane( BorderedPlane * plane_tmp,
                         int diff = (uint32_t)(integral_ptr2[n] - integral_ptr2[0] - integral_ptr1[n] + integral_ptr1[0]);
 
                         // Sum pixel with weight
-                        if (diff<diff_max)
+                        if (diff < diff_max)
                         {
                             int diffidx = diff*weight_fact_table;
 
@@ -284,9 +272,9 @@ static void nlmeans_plane( BorderedPlane * plane_tmp,
     }
 
     // Copy main image
-    for (int y=n_half;y<h-n_half;y++)
+    for (int y = n_half; y < h-n_half; y++)
     {
-        for (int x=n_half;x<w-n_half;x++)
+        for (int x = n_half; x < w-n_half; x++)
         {
             *(dst+y*w+x) = tmp_data[y*w+x].pixel_sum / tmp_data[y*w+x].weight_sum;
         }
@@ -303,40 +291,40 @@ static int hb_nlmeans_init( hb_filter_object_t * filter,
     filter->private_data = calloc( sizeof(struct hb_filter_private_s), 1 );
     hb_filter_private_t * pv = filter->private_data;
 
-    pv->patch    = NLMEANS_PATCH_DEFAULT;
-    pv->range    = NLMEANS_RANGE_DEFAULT;
-    pv->frames   = NLMEANS_FRAMES_DEFAULT;
-    pv->strength = NLMEANS_STRENGTH_DEFAULT;
-    pv->origin   = NLMEANS_ORIGIN_DEFAULT;
+    pv->strength    = NLMEANS_STRENGTH_DEFAULT;
+    pv->origin_tune = NLMEANS_ORIGIN_TUNE_DEFAULT;
+    pv->patch       = NLMEANS_PATCH_DEFAULT;
+    pv->range       = NLMEANS_RANGE_DEFAULT;
+    pv->frames      = NLMEANS_FRAMES_DEFAULT;
 
-    if( filter->settings )
+    if (filter->settings)
     {
-        sscanf( filter->settings, "%d:%d:%d:%lf:%lf", &pv->patch, &pv->range, &pv->frames, &pv->strength, &pv->origin );
+        sscanf( filter->settings, "%lf:%lf:%d:%d:%d", &pv->strength, &pv->origin_tune, &pv->patch, &pv->range, &pv->frames );
     }
 
-    if ( pv->patch < 1 )
+    if (pv->origin_tune < 0.01)
+    {
+        pv->origin_tune = 0.01;
+    }
+    if (pv->origin_tune > 1)
+    {
+        pv->origin_tune = 1;
+    }
+    if (pv->patch < 1)
     {
         pv->patch = 1;
     }
-    if ( pv->range < 1 )
+    if (pv->range < 1)
     {
         pv->range = 1;
     }
-    if ( pv->frames < 1 )
+    if (pv->frames < 1)
     {
         pv->frames = 1;
     }
-    if ( pv->frames > NLMEANS_FRAMES_MAX )
+    if (pv->frames > NLMEANS_FRAMES_MAX)
     {
         pv->frames = NLMEANS_FRAMES_MAX;
-    }
-    if ( pv->origin < 0.01 )
-    {
-        pv->origin = 0.01;
-    }
-    if ( pv->origin > 1.00 )
-    {
-        pv->origin = 1.00;
     }
 
     for (int c = 0; c < 3; c++)
@@ -365,7 +353,6 @@ static void hb_nlmeans_close( hb_filter_object_t * filter )
         {
             if (pv->frame_tmp[c][f].mem != NULL)
             {
-                hb_log("free %p", pv->frame_tmp[c][f].mem);
                 free( pv->frame_tmp[c][f].mem );
                 pv->frame_tmp[c][f].mem = NULL;
             }
@@ -383,46 +370,30 @@ static int hb_nlmeans_work( hb_filter_object_t * filter,
     hb_filter_private_t * pv = filter->private_data;
     hb_buffer_t * in = *buf_in, * out;
 
-    if ( in->size <= 0 )
+    if (in->size <= 0)
     {
         *buf_out = in;
         *buf_in = NULL;
         return HB_FILTER_DONE;
     }
 
-//    hb_log("frame");
-
     out = hb_video_buffer_init( in->f.width, in->f.height );
 
     for (int c = 0; c < 3; c++)
     {
-//        hb_log(" plane %d", c);
-//        hb_log("  mem %p", pv->frame_tmp[c][0].mem);
+
         // Release last frame in buffer
-        int frames_buffered = 0;
-        for (int f = 0; f < pv->frames; f++)
+        if (pv->frame_tmp[c][pv->frames-1].mem != NULL)
         {
-            if (pv->frame_ready[c][f])
-            {
-                frames_buffered++;
-            }
+            free( pv->frame_tmp[c][pv->frames-1].mem );
+            pv->frame_tmp[c][pv->frames-1].mem = NULL;
         }
-//        hb_log("  frames_buffered %d", frames_buffered);
-        if (frames_buffered == pv->frames && pv->frame_tmp[c][frames_buffered].mem != NULL)
-        {
-//            hb_log("   free %p", pv->frame_tmp[c][frames_buffered].mem);
-            free( pv->frame_tmp[c][frames_buffered].mem );
-            pv->frame_tmp[c][frames_buffered].mem = NULL;
-            pv->frame_ready[c][frames_buffered] = 0;
-        }
-        // Shift frames in buffer
+        pv->frame_ready[c][pv->frames-1] = 0;
+
+        // Shift frames in buffer down one level
         for (int f = pv->frames-1; f > 0; f--)
         {
-//            hb_log("  shift %d", f);
-//            hb_log("   cur  %p", pv->frame_tmp[c][f].mem);
-//            hb_log("   prev %p", pv->frame_tmp[c][f-1].mem);
             pv->frame_tmp[c][f] = pv->frame_tmp[c][f-1];
-//            hb_log("   cur  %p", pv->frame_tmp[c][f].mem);
             pv->frame_ready[c][f] = pv->frame_ready[c][f-1];
         }
 
@@ -439,17 +410,17 @@ static int hb_nlmeans_work( hb_filter_object_t * filter,
                                border );
         pv->frame_ready[c][0] = 1;
 
-        // Process plane
+        // Process current plane
         nlmeans_plane( pv->frame_tmp[c],
                        pv->frame_ready[c],
                        out->plane[c].data,
                        in->plane[c].stride,
                        in->plane[c].height,
+                       pv->strength,
+                       pv->origin_tune,
                        pv->patch,
                        pv->range,
-                       pv->frames,
-                       pv->strength,
-                       pv->origin );
+                       pv->frames );
 
     }
 
