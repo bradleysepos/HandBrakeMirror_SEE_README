@@ -35,8 +35,8 @@
 
 typedef struct
 {
-    unsigned char * mem;
-    unsigned char * image;
+    unsigned uint8_t * mem;
+    unsigned uint8_t * image;
     int w;
     int h;
     int border;
@@ -80,7 +80,7 @@ struct PixelSum
     float pixel_sum;
 };
 
-static void nlmeans_copy_bordered( unsigned char * src,
+static void nlmeans_copy_bordered( unsigned uint8_t * src,
                                    int src_w,
                                    int src_h,
                                    BorderedPlane * dst,
@@ -89,8 +89,8 @@ static void nlmeans_copy_bordered( unsigned char * src,
                                    int border )
 {
 
-    unsigned char * mem = malloc(dst_w * dst_h * sizeof(unsigned char));
-    unsigned char * image = mem + border + dst_w*border;
+    unsigned uint8_t * mem = malloc(dst_w * dst_h * sizeof(unsigned uint8_t));
+    unsigned uint8_t * image = mem + border + dst_w*border;
 
     // Copy main image
     for (int y = 0; y < src_h; y++)
@@ -123,7 +123,7 @@ static void nlmeans_copy_bordered( unsigned char * src,
 
 static void nlmeans_plane( BorderedPlane * plane_tmp,
                            int * plane_ready,
-                           unsigned char * dst,
+                           unsigned uint8_t * dst,
                            int w,
                            int h,
                            double h_param,
@@ -137,7 +137,7 @@ static void nlmeans_plane( BorderedPlane * plane_tmp,
     int r_half = (r-1)/2;
 
     // Source image
-    unsigned char * src = plane_tmp[0].image;
+    unsigned uint8_t * src = plane_tmp[0].image;
     int src_w = plane_tmp[0].w;
 
     // Allocate temporary pixel sums
@@ -166,7 +166,7 @@ static void nlmeans_plane( BorderedPlane * plane_tmp,
     {
 
         // Compare image
-        unsigned char * compare = plane_tmp[plane_index].image;
+        unsigned uint8_t * compare = plane_tmp[plane_index].image;
         int compare_w = plane_tmp[plane_index].w;
 
         // Iterate through all displacements
@@ -194,8 +194,8 @@ static void nlmeans_plane( BorderedPlane * plane_tmp,
                 memset(integral -1 -integral_stride, 0, (w+1)*sizeof(uint32_t));
                 for (int y=0; y < h; y++)
                 {
-                    unsigned char* p1 = src +  y    *src_w;
-                    unsigned char* p2 = compare + (y+dy)*compare_w + dx;
+                    unsigned uint8_t* p1 = src +  y    *src_w;
+                    unsigned uint8_t* p2 = compare + (y+dy)*compare_w + dx;
                     uint32_t* out = integral + y*integral_stride -1;
 
                     *out++ = 0;
