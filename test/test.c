@@ -3704,7 +3704,7 @@ static int ParseOptions( int argc, char ** argv )
     #define QSV_BASELINE         295
     #define QSV_ASYNC_DEPTH      296
     #define QSV_IMPLEMENTATION   297
-    #define NLMEANS              298
+    #define NLMEANS_FILTER       298
 
     for( ;; )
     {
@@ -3763,7 +3763,7 @@ static int ParseOptions( int argc, char ** argv )
             { "deinterlace", optional_argument, NULL,    'd' },
             { "deblock",     optional_argument, NULL,    '7' },
             { "denoise",     optional_argument, NULL,    '8' },
-            { "nlmeans",     optional_argument, NULL,    NLMEANS },
+            { "nlmeans",     optional_argument, NULL,    NLMEANS_FILTER },
             { "detelecine",  optional_argument, NULL,    '9' },
             { "decomb",      optional_argument, NULL,    '5' },
             { "grayscale",   no_argument,       NULL,    'g' },
@@ -4120,7 +4120,7 @@ static int ParseOptions( int argc, char ** argv )
                 }
                 denoise = 1;
                 break;
-            case NLMEANS:
+            case NLMEANS_FILTER:
                 if( optarg != NULL )
                 {
                     nlmeans_opt = strdup( optarg );
