@@ -306,9 +306,17 @@ static int hb_nlmeans_init( hb_filter_object_t * filter,
     {
         pv->origin_tune = 1;
     }
+    if (pv->patch % 2 == 0)
+    {
+        pv->patch--;
+    }
     if (pv->patch < 1)
     {
         pv->patch = 1;
+    }
+    if (pv->range % 2 == 0)
+    {
+        pv->range--;
     }
     if (pv->range < 1)
     {
