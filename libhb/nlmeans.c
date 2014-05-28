@@ -290,7 +290,7 @@ static int hb_nlmeans_init(hb_filter_object_t *filter,
 
     if (pv->origin_tune < 0.01)
     {
-        pv->origin_tune = 0.01;
+        pv->origin_tune = 0.01; // avoid black artifacts
     }
     if (pv->origin_tune > 1)
     {
