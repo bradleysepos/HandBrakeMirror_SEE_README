@@ -125,8 +125,7 @@ static void nlmeans_plane(BorderedPlane *plane_tmp,
                           double h_param,
                           double origin_tune,
                           int n,
-                          int r,
-                          int f)
+                          int r)
 {
 
     int n_half = (n-1) /2;
@@ -423,8 +422,7 @@ static int hb_nlmeans_work(hb_filter_object_t *filter,
                       pv->strength,
                       pv->origin_tune,
                       pv->patch,
-                      pv->range,
-                      pv->frames);
+                      pv->range);
 
     }
 
