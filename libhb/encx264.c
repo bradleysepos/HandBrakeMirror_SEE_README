@@ -156,12 +156,19 @@ int encx264Init( hb_work_object_t * w, hb_job_t * job )
 
     /* set up the VUI color model & gamma to match what the COLR atom
      * set in muxmp4.c says. See libhb/muxmp4.c for notes. */
-    if( job->color_matrix_code == 4 )
+    if( job->color_matrix_code == 5 )
     {
         // Custom
         param.vui.i_colorprim = job->color_prim;
         param.vui.i_transfer  = job->color_transfer;
         param.vui.i_colmatrix = job->color_matrix;
+    }
+    else if( job->color_matrix_code == 4 )
+    {
+        // Undefined
+        param.vui.i_colorprim = HB_COLR_PRI_UNDEF;
+        param.vui.i_transfer  = HB_COLR_TRA_UNDEF;
+        param.vui.i_colmatrix = HB_COLR_MAT_UNDEF;
     }
     else if( job->color_matrix_code == 3 )
     {
@@ -215,7 +222,7 @@ int encx264Init( hb_work_object_t * w, hb_job_t * job )
 
     /* Reload colorimetry settings in case custom values were set
      * in the encoder_options string */
-    job->color_matrix_code = 4;
+    job->color_matrix_code = 5;
     job->color_prim = param.vui.i_colorprim;
     job->color_transfer = param.vui.i_transfer;
     job->color_matrix = param.vui.i_colmatrix;

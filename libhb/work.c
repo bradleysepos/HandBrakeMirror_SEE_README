@@ -385,7 +385,8 @@ void hb_display_job_info(hb_job_t *job)
             hb_log("     + custom color matrix: %s",
                    job->color_matrix_code == 1 ? "ITU Bt.601 (NTSC)" :
                    job->color_matrix_code == 2 ? "ITU Bt.601 (PAL)"  :
-                   job->color_matrix_code == 3 ? "ITU Bt.709 (HD)"   : "Custom");
+                   job->color_matrix_code == 3 ? "ITU Bt.709 (HD)"   :
+                   job->color_matrix_code == 4 ? "Undefined"         : "Custom");
         }
     }
 

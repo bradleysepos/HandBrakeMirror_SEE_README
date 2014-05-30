@@ -145,7 +145,12 @@ int encx265Init(hb_work_object_t *w, hb_job_t *job)
             strcpy(transfer,    "bt709");
             strcpy(colormatrix, "bt709");
             break;
-        case 4: // custom
+        case 4: // Undefined
+            strcpy(colorprim,   "undef");
+            strcpy(transfer,    "undef");
+            strcpy(colormatrix, "undef");
+            break;
+        case 5: // custom
             snprintf(colorprim,   sizeof(colorprim),   "%d", job->color_prim);
             snprintf(transfer,    sizeof(transfer),    "%d", job->color_transfer);
             snprintf(colormatrix, sizeof(colormatrix), "%d", job->color_matrix);
@@ -191,7 +196,7 @@ int encx265Init(hb_work_object_t *w, hb_job_t *job)
      * Reload colorimetry settings in case custom
      * values were set in the encoder_options string.
      */
-    job->color_matrix_code = 4;
+    job->color_matrix_code = 5;
     job->color_prim        = param->vui.colorPrimaries;
     job->color_transfer    = param->vui.transferCharacteristics;
     job->color_matrix      = param->vui.matrixCoeffs;

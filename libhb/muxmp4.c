@@ -252,10 +252,15 @@ static int MP4Init( hb_mux_object_t * m )
      * http://developer.apple.com/quicktime/icefloe/dispatch019.html#colr
      * http://forum.doom9.org/showthread.php?t=133982#post1090068
      * The user can set it from job->color_matrix_code. */
-    if( job->color_matrix_code == 4 )
+    if( job->color_matrix_code == 5 )
     {
         // Custom
-        MP4AddColr(m->file, mux_data->track, job->color_prim, job->color_transfer, job->color_matrix);        
+        MP4AddColr(m->file, mux_data->track, job->color_prim, job->color_transfer, job->color_matrix);
+    }
+    else if( job->color_matrix_code == 4 )
+    {
+        // Undefined
+        MP4AddColr(m->file, mux_data->track, HB_COLR_PRI_UNDEF, HB_COLR_TRA_UNDEF, HB_COLR_MAT_UNDEF);
     }
     else if( job->color_matrix_code == 3 )
     {

@@ -3408,8 +3408,12 @@ static void ShowHelp()
     "      <number>              to divide cleanly by. Does not affect strict\n"
     "                            anamorphic mode, which is always mod 2 (default: 16)\n"
     "    -M, --color-matrix      Set the color space signaled by the output\n"
-    "                            Values: 709, pal, ntsc, 601 (same as ntsc)\n"
-    "                            (default: detected from source)\n"
+    "                            Values:\n"
+    "                              bt709, 709        (ITU-R BT.709-2)\n"
+    "                              bt601, 601, ntsc  (ITU-R BT.601-4)\n"
+    "                              ebu, pal          (EBU Tech. 3213)\n"
+    "                              undef             (Undefined)\n"
+    "                            (default: detected from source or bt709)\n"
     "\n"
 
     "### Filters---------------------------------------------------------\n\n"
@@ -4359,13 +4363,26 @@ static int ParseOptions( int argc, char ** argv )
             case 'M':
                 if( optarg != NULL )
                 {
-                    if( !strcmp( optarg, "601" ) ||
-                        !strcmp( optarg, "ntsc" ) )
+                    if (!strcmp(optarg, "bt601") ||
+                        !strcmp(optarg, "601")   ||
+                        !strcmp(optarg, "ntsc"))
+                    {
                         color_matrix_code = 1;
-                    else if( !strcmp( optarg, "pal" ) )
+                    }
+                    else if (!strcmp(optarg, "ebu") ||
+                             !strcmp(optarg, "pal"))
+                    {
                         color_matrix_code = 2;
-                    else if( !strcmp( optarg, "709" ) )
+                    }
+                    else if (!strcmp(optarg, "bt709") ||
+                             !strcmp(optarg, "709"))
+                    {
                         color_matrix_code = 3;
+                    }
+                    else if (!strcmp(optarg, "undef"))
+                    {
+                        color_matrix_code = 4;
+                    }
                 } break;
             case MIN_DURATION:
                 min_title_duration = strtol( optarg, NULL, 0 );
