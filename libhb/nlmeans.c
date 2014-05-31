@@ -114,6 +114,34 @@ static void nlmeans_border(uint8_t *src,
 
 }
 
+static void nlmeans_filter_median(uint8_t *src,
+                                  uint8_t *dst,
+                                  int w,
+                                  int h,
+                                  int border,
+                                  int size)
+{
+
+    // Median filter
+    uint16_t pixel_sum;
+    for (int y = 0; y < h - 2*border; y++)
+    {
+        for (int x = 0; x < w - 2*border; x++)
+        {
+            pixel_sum = 0;
+            for (int k = -((size-1)/2); k < (size+1)/2; k++)
+            {
+                for (int j = -((size-1)/2); j < (size+1)/2; j++)
+                {
+                    pixel_sum = pixel_sum + src[w*(y+j) + (x+k)];
+                }
+            }
+            *(dst + w*y + x) = (uint8_t)(pixel_sum / (size * size));
+        }
+    }
+
+}
+
 static void nlmeans_prefilter(BorderedPlane *src,
                               int filter_type)
 {
@@ -132,40 +160,17 @@ static void nlmeans_prefilter(BorderedPlane *src,
         memcpy(mem_pre + y*w, src->mem + y*w, w);
     }
 
-    // Select filter
-    int median = 0;
+    // Filter plane; should already have at least 2px extra border on each side
     switch (filter_type)
     {
         case 1:
             // Median 3x3
-            median = 3;
+            nlmeans_filter_median(image, image_pre, w, h, border, 3);
             break;
         case 2:
             // Median 5x5
-            median = 5;
+            nlmeans_filter_median(image, image_pre, w, h, border, 5);
             break;
-    }
-
-    // Median filter
-    // Plane should already have at least 2px extra border on each side
-    if (median > 0)
-    {
-        uint16_t pixel_sum;
-        for (int y = 0; y < h - 2*border; y++)
-        {
-            for (int x = 0; x < w - 2*border; x++)
-            {
-                pixel_sum = 0;
-                for (int k = -((median-1)/2); k < (median+1)/2; k++)
-                {
-                    for (int j = -((median-1)/2); j < (median+1)/2; j++)
-                    {
-                        pixel_sum = pixel_sum + image[w*(y+j) + (x+k)];
-                    }
-                }
-                *(image_pre + w*y + x) = (uint8_t)(pixel_sum / (median * median));
-            }
-        }
     }
 
     src->mem_pre   = mem_pre;
