@@ -114,24 +114,29 @@ static void nlmeans_border(uint8_t *src,
 
 }
 
-static void nlmeans_filter_median(uint8_t *src,
-                                  uint8_t *dst,
-                                  int w,
-                                  int h,
-                                  int border,
-                                  int size)
+static void nlmeans_filter_mean(uint8_t *src,
+                                uint8_t *dst,
+                                int w,
+                                int h,
+                                int border,
+                                int size)
 {
 
-    // Median filter
+    int w_cropped = w - 2*border;
+    int h_cropped = h - 2*border;
+
+    // Mean filter
     uint16_t pixel_sum;
-    for (int y = 0; y < h - 2*border; y++)
+    int offset_min = -((size - 1) /2);
+    int offset_max =   (size + 1) /2;
+    for (int y = 0; y < h_cropped; y++)
     {
-        for (int x = 0; x < w - 2*border; x++)
+        for (int x = 0; x < w_cropped; x++)
         {
             pixel_sum = 0;
-            for (int k = -((size-1)/2); k < (size+1)/2; k++)
+            for (int k = offset_min; k < offset_max; k++)
             {
-                for (int j = -((size-1)/2); j < (size+1)/2; j++)
+                for (int j = offset_min; j < offset_max; j++)
                 {
                     pixel_sum = pixel_sum + src[w*(y+j) + (x+k)];
                 }
@@ -147,6 +152,7 @@ static void nlmeans_prefilter(BorderedPlane *src,
 {
 
     // Source image
+    uint8_t *mem   = src->mem;
     uint8_t *image = src->image;
     int w          = src->w;
     int h          = src->h;
@@ -157,19 +163,19 @@ static void nlmeans_prefilter(BorderedPlane *src,
     uint8_t *image_pre = mem_pre + border + w*border;
     for (int y = 0; y < h; y++)
     {
-        memcpy(mem_pre + y*w, src->mem + y*w, w);
+        memcpy(mem_pre + y*w, mem + y*w, w);
     }
 
     // Filter plane; should already have at least 2px extra border on each side
     switch (filter_type)
     {
         case 1:
-            // Median 3x3
-            nlmeans_filter_median(image, image_pre, w, h, border, 3);
+            // Mean 3x3
+            nlmeans_filter_mean(image, image_pre, w, h, border, 3);
             break;
         case 2:
-            // Median 5x5
-            nlmeans_filter_median(image, image_pre, w, h, border, 5);
+            // Mean 5x5
+            nlmeans_filter_mean(image, image_pre, w, h, border, 5);
             break;
     }
 
