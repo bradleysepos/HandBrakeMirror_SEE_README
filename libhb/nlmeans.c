@@ -16,6 +16,7 @@
 #define NLMEANS_PATCH_DEFAULT       7
 #define NLMEANS_RANGE_DEFAULT       3
 #define NLMEANS_FRAMES_DEFAULT      2
+#define NLMEANS_PREFILTER_DEFAULT   0
 
 #define NLMEANS_FRAMES_MAX 32
 #define NLMEANS_EXPSIZE    128
@@ -23,7 +24,9 @@
 typedef struct
 {
     uint8_t *mem;
+    uint8_t *mem_pre;
     uint8_t *image;
+    uint8_t *image_pre;
     int w;
     int h;
     int border;
@@ -42,6 +45,7 @@ struct hb_filter_private_s
     int    patch;       // pixel context region width  (must be odd)
     int    range;       // spatial search window width (must be odd)
     int    frames;      // temporal search depth in frames
+    int    prefilter;   // prefilter type, can improve weight analysis
 
     BorderedPlane frame_tmp[3][32];
     int           frame_ready[3][32];
@@ -100,11 +104,72 @@ static void nlmeans_copy_bordered(uint8_t *src,
         }
     }
 
-    dst->mem    = mem;
-    dst->image  = image;
-    dst->w      = dst_w;
-    dst->h      = dst_h;
-    dst->border = border;
+    dst->mem       = mem;
+    dst->mem_pre   = mem;
+    dst->image     = image;
+    dst->image_pre = image;
+    dst->w         = dst_w;
+    dst->h         = dst_h;
+    dst->border    = border;
+
+}
+
+static void nlmeans_prefilter(BorderedPlane *src,
+                              int filter_type)
+{
+
+    // Source image
+    uint8_t *image = src->image;
+    int w          = src->w;
+    int h          = src->h;
+    int border     = src->border;
+
+    // Duplicate plane
+    uint8_t *mem_pre = malloc(w * h * sizeof(uint8_t));
+    uint8_t *image_pre = mem_pre + border + w*border;
+    for (int y = 0; y < h; y++)
+    {
+        memcpy(mem_pre + y*w, src->mem + y*w, w);
+    }
+
+    // Select filter
+    int median = 0;
+    switch (filter_type)
+    {
+        case 1:
+            // Median 3x3
+            median = 3;
+            break;
+        case 2:
+            // Median 5x5
+            median = 5;
+            break;
+    }
+
+    // Median filter
+    // Plane should already have at least 2px extra border on each side
+    if (median > 0)
+    {
+        uint16_t pixel_sum;
+        for (int y = 0; y < h - 2*border; y++)
+        {
+            for (int x = 0; x < w - 2*border; x++)
+            {
+                pixel_sum = 0;
+                for (int k = -((median-1)/2); k < (median+1)/2; k++)
+                {
+                    for (int j = -((median-1)/2); j < (median+1)/2; j++)
+                    {
+                        pixel_sum = pixel_sum + image[w*(y+j) + (x+k)];
+                    }
+                }
+                *(image_pre + w*y + x) = (uint8_t)(pixel_sum / (median * median));
+            }
+        }
+    }
+
+    src->mem_pre   = mem_pre;
+    src->image_pre = image_pre;
 
 }
 
@@ -123,8 +188,9 @@ static void nlmeans_plane(BorderedPlane *plane_tmp,
     int r_half = (r-1) /2;
 
     // Source image
-    uint8_t *src = plane_tmp[0].image;
-    int src_w    = plane_tmp[0].w;
+    uint8_t *src     = plane_tmp[0].image;
+    uint8_t *src_pre = plane_tmp[0].image_pre;
+    int src_w        = plane_tmp[0].w;
 
     // Allocate temporary pixel sums
     struct PixelSum *tmp_data = calloc(w * h, sizeof(struct PixelSum));
@@ -152,8 +218,9 @@ static void nlmeans_plane(BorderedPlane *plane_tmp,
     {
 
         // Compare image
-        uint8_t *compare = plane_tmp[plane_index].image;
-        int compare_w    = plane_tmp[plane_index].w;
+        uint8_t *compare     = plane_tmp[plane_index].image;
+        uint8_t *compare_pre = plane_tmp[plane_index].image_pre;
+        int compare_w        = plane_tmp[plane_index].w;
 
         // Iterate through all displacements
         for (int dy = -r_half; dy <= r_half; dy++)
@@ -180,8 +247,8 @@ static void nlmeans_plane(BorderedPlane *plane_tmp,
                 memset(integral-1 - integral_stride, 0, (w+1) * sizeof(uint32_t));
                 for (int y = 0; y < h; y++)
                 {
-                    uint8_t  *p1  = src + y*src_w;
-                    uint8_t  *p2  = compare + (y+dy) * compare_w + dx;
+                    uint8_t  *p1  = src_pre + y*src_w;
+                    uint8_t  *p2  = compare_pre + (y+dy) * compare_w + dx;
                     uint32_t *out = integral + (y*integral_stride) - 1;
 
                     *out++ = 0;
@@ -282,10 +349,11 @@ static int hb_nlmeans_init(hb_filter_object_t *filter,
     pv->patch       = NLMEANS_PATCH_DEFAULT;
     pv->range       = NLMEANS_RANGE_DEFAULT;
     pv->frames      = NLMEANS_FRAMES_DEFAULT;
+    pv->prefilter   = NLMEANS_PREFILTER_DEFAULT;
 
     if (filter->settings)
     {
-        sscanf(filter->settings, "%lf:%lf:%d:%d:%d", &pv->strength, &pv->origin_tune, &pv->patch, &pv->range, &pv->frames);
+        sscanf(filter->settings, "%lf:%lf:%d:%d:%d:%d", &pv->strength, &pv->origin_tune, &pv->patch, &pv->range, &pv->frames, &pv->prefilter);
     }
 
     if (pv->origin_tune < 0.01)
@@ -345,6 +413,12 @@ static void hb_nlmeans_close(hb_filter_object_t *filter)
     {
         for (int f = 0; f < pv->frames; f++)
         {
+            if (pv->frame_tmp[c][f].mem_pre != NULL &&
+                pv->frame_tmp[c][f].mem_pre != pv->frame_tmp[c][f].mem)
+            {
+                free(pv->frame_tmp[c][f].mem_pre);
+                pv->frame_tmp[c][f].mem_pre = NULL;
+            }
             if (pv->frame_tmp[c][f].mem != NULL)
             {
                 free(pv->frame_tmp[c][f].mem);
@@ -377,6 +451,12 @@ static int hb_nlmeans_work(hb_filter_object_t *filter,
     {
 
         // Release last frame in buffer
+        if (pv->frame_tmp[c][pv->frames-1].mem_pre != NULL &&
+            pv->frame_tmp[c][pv->frames-1].mem_pre != pv->frame_tmp[c][pv->frames-1].mem)
+        {
+            free(pv->frame_tmp[c][pv->frames-1].mem_pre);
+            pv->frame_tmp[c][pv->frames-1].mem_pre = NULL;
+        }
         if (pv->frame_tmp[c][pv->frames-1].mem != NULL)
         {
             free(pv->frame_tmp[c][pv->frames-1].mem);
@@ -392,7 +472,7 @@ static int hb_nlmeans_work(hb_filter_object_t *filter,
         }
 
         // Extend copy of plane with extra border and place in buffer
-        int border = (pv->range/2 + 15) /16*16;
+        int border = ((pv->range + 2) / 2 + 15) /16*16;
         int tmp_w = in->plane[c].stride + 2*border;
         int tmp_h = in->plane[c].height + 2*border;
         nlmeans_copy_bordered(in->plane[c].data,
@@ -402,6 +482,11 @@ static int hb_nlmeans_work(hb_filter_object_t *filter,
                               tmp_w,
                               tmp_h,
                               border);
+        if (pv->prefilter > 0)
+        {
+            nlmeans_prefilter(&pv->frame_tmp[c][0],
+                              pv->prefilter);
+        }
         pv->frame_ready[c][0] = 1;
 
         // Process current plane
