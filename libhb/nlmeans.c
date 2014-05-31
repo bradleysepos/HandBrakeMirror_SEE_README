@@ -71,13 +71,13 @@ hb_filter_object_t hb_filter_nlmeans =
     .close         = hb_nlmeans_close,
 };
 
-static void nlmeans_copy_bordered(uint8_t *src,
-                                  int src_w,
-                                  int src_h,
-                                  BorderedPlane *dst,
-                                  int dst_w,
-                                  int dst_h,
-                                  int border)
+static void nlmeans_border(uint8_t *src,
+                           int src_w,
+                           int src_h,
+                           BorderedPlane *dst,
+                           int dst_w,
+                           int dst_h,
+                           int border)
 {
 
     uint8_t *mem   = malloc(dst_w * dst_h * sizeof(uint8_t));
@@ -475,13 +475,13 @@ static int hb_nlmeans_work(hb_filter_object_t *filter,
         int border = ((pv->range + 2) / 2 + 15) /16*16;
         int tmp_w = in->plane[c].stride + 2*border;
         int tmp_h = in->plane[c].height + 2*border;
-        nlmeans_copy_bordered(in->plane[c].data,
-                              in->plane[c].stride,
-                              in->plane[c].height,
-                              &pv->frame_tmp[c][0],
-                              tmp_w,
-                              tmp_h,
-                              border);
+        nlmeans_border(in->plane[c].data,
+                       in->plane[c].stride,
+                       in->plane[c].height,
+                       &pv->frame_tmp[c][0],
+                       tmp_w,
+                       tmp_h,
+                       border);
         if (pv->prefilter > 0)
         {
             nlmeans_prefilter(&pv->frame_tmp[c][0],
