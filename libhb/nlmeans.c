@@ -264,8 +264,8 @@ static void nlmeans_plane(BorderedPlane *plane_tmp,
                 memset(integral-1 - integral_stride, 0, (w+1) * sizeof(uint32_t));
                 for (int y = 0; y < h; y++)
                 {
-                    uint8_t  *p1  = src_pre + y*src_w;
-                    uint8_t  *p2  = compare_pre + (y+dy) * compare_w + dx;
+                    const uint8_t *p1 = src_pre + y*src_w;
+                    const uint8_t *p2 = compare_pre + (y+dy) * compare_w + dx;
                     uint32_t *out = integral + (y*integral_stride) - 1;
 
                     *out++ = 0;
@@ -293,8 +293,8 @@ static void nlmeans_plane(BorderedPlane *plane_tmp,
                 // TODO: Parallelize this
                 for (int y = 0; y <= h-n; y++)
                 {
-                    uint32_t *integral_ptr1 = integral + (y  -1)*integral_stride - 1;
-                    uint32_t *integral_ptr2 = integral + (y+n-1)*integral_stride - 1;
+                    const uint32_t *integral_ptr1 = integral + (y  -1)*integral_stride - 1;
+                    const uint32_t *integral_ptr2 = integral + (y+n-1)*integral_stride - 1;
 
                     for (int x = 0; x <= w-n; x++)
                     {
