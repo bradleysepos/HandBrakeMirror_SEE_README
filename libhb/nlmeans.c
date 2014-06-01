@@ -407,6 +407,7 @@ static int hb_nlmeans_init(hb_filter_object_t *filter,
         if (pv->prefilter[c]   == -1) { pv->prefilter[c]   = c ? NLMEANS_PREFILTER_LUMA_DEFAULT   : NLMEANS_PREFILTER_CHROMA_DEFAULT; }
 
         // Sanitize
+        if (pv->strength[c] < 0)        { pv->strength[c] = 0; }
         if (pv->origin_tune[c] < 0.01)  { pv->origin_tune[c] = 0.01; } // avoid black artifacts
         if (pv->origin_tune[c] > 1)     { pv->origin_tune[c] = 1; }
         if (pv->patch_size[c] % 2 == 0) { pv->patch_size[c]--; }
