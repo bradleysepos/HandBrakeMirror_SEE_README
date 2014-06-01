@@ -11,12 +11,18 @@
 #include "hb.h"
 #include "hbffmpeg.h"
 
-#define NLMEANS_STRENGTH_DEFAULT    8
-#define NLMEANS_ORIGIN_TUNE_DEFAULT 1
-#define NLMEANS_PATCH_DEFAULT       7
-#define NLMEANS_RANGE_DEFAULT       3
-#define NLMEANS_FRAMES_DEFAULT      2
-#define NLMEANS_PREFILTER_DEFAULT   0
+#define NLMEANS_STRENGTH_LUMA_DEFAULT      8
+#define NLMEANS_STRENGTH_CHROMA_DEFAULT    8
+#define NLMEANS_ORIGIN_TUNE_LUMA_DEFAULT   1
+#define NLMEANS_ORIGIN_TUNE_CHROMA_DEFAULT 1
+#define NLMEANS_PATCH_SIZE_LUMA_DEFAULT    7
+#define NLMEANS_PATCH_SIZE_CHROMA_DEFAULT  7
+#define NLMEANS_RANGE_LUMA_DEFAULT         3
+#define NLMEANS_RANGE_CHROMA_DEFAULT       3
+#define NLMEANS_FRAMES_LUMA_DEFAULT        2
+#define NLMEANS_FRAMES_CHROMA_DEFAULT      2
+#define NLMEANS_PREFILTER_LUMA_DEFAULT     0
+#define NLMEANS_PREFILTER_CHROMA_DEFAULT   0
 
 #define NLMEANS_FRAMES_MAX 32
 #define NLMEANS_EXPSIZE    128
@@ -40,12 +46,12 @@ struct PixelSum
 
 struct hb_filter_private_s
 {
-    double strength;    // averaging weight decay, larger produces smoother output
-    double origin_tune; // weight tuning for origin patch, 0.00..1.00
-    int    patch;       // pixel context region width  (must be odd)
-    int    range;       // spatial search window width (must be odd)
-    int    frames;      // temporal search depth in frames
-    int    prefilter;   // prefilter type, can improve weight analysis
+    double strength[3];    // averaging weight decay, larger produces smoother output
+    double origin_tune[3]; // weight tuning for origin patch, 0.00..1.00
+    int    patch_size[3];  // pixel context region width  (must be odd)
+    int    range[3];       // spatial search window width (must be odd)
+    int    frames[3];      // temporal search depth in frames
+    int    prefilter[3];   // prefilter type, can improve weight analysis
 
     BorderedPlane frame_tmp[3][32];
     int           frame_ready[3][32];
@@ -355,53 +361,59 @@ static int hb_nlmeans_init(hb_filter_object_t *filter,
     filter->private_data = calloc(sizeof(struct hb_filter_private_s), 1);
     hb_filter_private_t *pv = filter->private_data;
 
-    pv->strength    = NLMEANS_STRENGTH_DEFAULT;
-    pv->origin_tune = NLMEANS_ORIGIN_TUNE_DEFAULT;
-    pv->patch       = NLMEANS_PATCH_DEFAULT;
-    pv->range       = NLMEANS_RANGE_DEFAULT;
-    pv->frames      = NLMEANS_FRAMES_DEFAULT;
-    pv->prefilter   = NLMEANS_PREFILTER_DEFAULT;
-
-    if (filter->settings)
+    // Mark parameters unset
+    for (int c = 0; c < 3; c++)
     {
-        sscanf(filter->settings, "%lf:%lf:%d:%d:%d:%d", &pv->strength, &pv->origin_tune, &pv->patch, &pv->range, &pv->frames, &pv->prefilter);
+        pv->strength[c]    = -1;
+        pv->origin_tune[c] = -1;
+        pv->patch_size[c]  = -1;
+        pv->range[c]       = -1;
+        pv->frames[c]      = -1;
+        pv->prefilter[c]   = -1;
     }
 
-    if (pv->origin_tune < 0.01)
+    // Read user parameters
+    if (filter->settings != NULL)
     {
-        pv->origin_tune = 0.01; // avoid black artifacts
+        sscanf(filter->settings, "%lf:%lf:%d:%d:%d:%d:%lf:%lf:%d:%d:%d:%d:%lf:%lf:%d:%d:%d:%d",
+               &pv->strength[0], &pv->origin_tune[0], &pv->patch_size[0], &pv->range[0], &pv->frames[0], &pv->prefilter[0],
+               &pv->strength[1], &pv->origin_tune[1], &pv->patch_size[1], &pv->range[1], &pv->frames[1], &pv->prefilter[1],
+               &pv->strength[2], &pv->origin_tune[2], &pv->patch_size[2], &pv->range[2], &pv->frames[2], &pv->prefilter[2]);
     }
-    if (pv->origin_tune > 1)
+
+    // Cascade values
+    // Cr not set; inherit Cb. Cb not set; inherit Y. Y not set; defaults.
+    for (int c = 1; c < 3; c++)
     {
-        pv->origin_tune = 1;
-    }
-    if (pv->patch % 2 == 0)
-    {
-        pv->patch--;
-    }
-    if (pv->patch < 1)
-    {
-        pv->patch = 1;
-    }
-    if (pv->range % 2 == 0)
-    {
-        pv->range--;
-    }
-    if (pv->range < 1)
-    {
-        pv->range = 1;
-    }
-    if (pv->frames < 1)
-    {
-        pv->frames = 1;
-    }
-    if (pv->frames > NLMEANS_FRAMES_MAX)
-    {
-        pv->frames = NLMEANS_FRAMES_MAX;
+        if (pv->strength[c]    == -1) { pv->strength[c]    = pv->strength[c-1]; }
+        if (pv->origin_tune[c] == -1) { pv->origin_tune[c] = pv->origin_tune[c-1]; }
+        if (pv->patch_size[c]  == -1) { pv->patch_size[c]  = pv->patch_size[c-1]; }
+        if (pv->range[c]       == -1) { pv->range[c]       = pv->range[c-1]; }
+        if (pv->frames[c]      == -1) { pv->frames[c]      = pv->frames[c-1]; }
+        if (pv->prefilter[c]   == -1) { pv->prefilter[c]   = pv->prefilter[c-1]; }
     }
 
     for (int c = 0; c < 3; c++)
     {
+        // Replace NULL values with defaults
+        if (pv->strength[c]    == -1) { pv->strength[c]    = c ? NLMEANS_STRENGTH_LUMA_DEFAULT    : NLMEANS_STRENGTH_CHROMA_DEFAULT; }
+        if (pv->origin_tune[c] == -1) { pv->origin_tune[c] = c ? NLMEANS_ORIGIN_TUNE_LUMA_DEFAULT : NLMEANS_ORIGIN_TUNE_CHROMA_DEFAULT; }
+        if (pv->patch_size[c]  == -1) { pv->patch_size[c]  = c ? NLMEANS_PATCH_SIZE_LUMA_DEFAULT  : NLMEANS_PATCH_SIZE_CHROMA_DEFAULT; }
+        if (pv->range[c]       == -1) { pv->range[c]       = c ? NLMEANS_RANGE_LUMA_DEFAULT       : NLMEANS_RANGE_CHROMA_DEFAULT; }
+        if (pv->frames[c]      == -1) { pv->frames[c]      = c ? NLMEANS_FRAMES_LUMA_DEFAULT      : NLMEANS_FRAMES_CHROMA_DEFAULT; }
+        if (pv->prefilter[c]   == -1) { pv->prefilter[c]   = c ? NLMEANS_PREFILTER_LUMA_DEFAULT   : NLMEANS_PREFILTER_CHROMA_DEFAULT; }
+
+        // Sanitize
+        if (pv->origin_tune[c] < 0.01)  { pv->origin_tune[c] = 0.01; } // avoid black artifacts
+        if (pv->origin_tune[c] > 1)     { pv->origin_tune[c] = 1; }
+        if (pv->patch_size[c] % 2 == 0) { pv->patch_size[c]--; }
+        if (pv->patch_size[c] < 1)      { pv->patch_size[c] = 1; }
+        if (pv->range[c] % 2 == 0)      { pv->range[c]--; }
+        if (pv->range[c] < 1)           { pv->range[c] = 1; }
+        if (pv->frames[c] < 1)          { pv->frames[c] = 1; }
+        if (pv->frames[c] > NLMEANS_FRAMES_MAX) { pv->frames[c] = NLMEANS_FRAMES_MAX; }
+
+        // Mark buffer empty
         for (int f = 0; f < NLMEANS_FRAMES_MAX; f++)
         {
             pv->frame_ready[c][f] = 0;
@@ -422,7 +434,7 @@ static void hb_nlmeans_close(hb_filter_object_t *filter)
 
     for (int c = 0; c < 3; c++)
     {
-        for (int f = 0; f < pv->frames; f++)
+        for (int f = 0; f < pv->frames[c]; f++)
         {
             if (pv->frame_tmp[c][f].mem_pre != NULL &&
                 pv->frame_tmp[c][f].mem_pre != pv->frame_tmp[c][f].mem)
@@ -461,29 +473,31 @@ static int hb_nlmeans_work(hb_filter_object_t *filter,
     for (int c = 0; c < 3; c++)
     {
 
+        int frames = pv->frames[c];
+
         // Release last frame in buffer
-        if (pv->frame_tmp[c][pv->frames-1].mem_pre != NULL &&
-            pv->frame_tmp[c][pv->frames-1].mem_pre != pv->frame_tmp[c][pv->frames-1].mem)
+        if (pv->frame_tmp[c][frames-1].mem_pre != NULL &&
+            pv->frame_tmp[c][frames-1].mem_pre != pv->frame_tmp[c][frames-1].mem)
         {
-            free(pv->frame_tmp[c][pv->frames-1].mem_pre);
-            pv->frame_tmp[c][pv->frames-1].mem_pre = NULL;
+            free(pv->frame_tmp[c][frames-1].mem_pre);
+            pv->frame_tmp[c][frames-1].mem_pre = NULL;
         }
-        if (pv->frame_tmp[c][pv->frames-1].mem != NULL)
+        if (pv->frame_tmp[c][frames-1].mem != NULL)
         {
-            free(pv->frame_tmp[c][pv->frames-1].mem);
-            pv->frame_tmp[c][pv->frames-1].mem = NULL;
+            free(pv->frame_tmp[c][frames-1].mem);
+            pv->frame_tmp[c][frames-1].mem = NULL;
         }
-        pv->frame_ready[c][pv->frames-1] = 0;
+        pv->frame_ready[c][frames-1] = 0;
 
         // Shift frames in buffer down one level
-        for (int f = pv->frames-1; f > 0; f--)
+        for (int f = frames-1; f > 0; f--)
         {
             pv->frame_tmp[c][f]   = pv->frame_tmp[c][f-1];
             pv->frame_ready[c][f] = pv->frame_ready[c][f-1];
         }
 
         // Extend copy of plane with extra border and place in buffer
-        int border = ((pv->range + 2) / 2 + 15) /16*16;
+        int border = ((pv->range[c] + 2) / 2 + 15) /16*16;
         int tmp_w = in->plane[c].stride + 2*border;
         int tmp_h = in->plane[c].height + 2*border;
         nlmeans_border(in->plane[c].data,
@@ -493,10 +507,10 @@ static int hb_nlmeans_work(hb_filter_object_t *filter,
                        tmp_w,
                        tmp_h,
                        border);
-        if (pv->prefilter > 0)
+        if (pv->prefilter[c] > 0)
         {
             nlmeans_prefilter(&pv->frame_tmp[c][0],
-                              pv->prefilter);
+                              pv->prefilter[c]);
         }
         pv->frame_ready[c][0] = 1;
 
@@ -506,10 +520,10 @@ static int hb_nlmeans_work(hb_filter_object_t *filter,
                       out->plane[c].data,
                       in->plane[c].stride,
                       in->plane[c].height,
-                      pv->strength,
-                      pv->origin_tune,
-                      pv->patch,
-                      pv->range);
+                      pv->strength[c],
+                      pv->origin_tune[c],
+                      pv->patch_size[c],
+                      pv->range[c]);
 
     }
 
