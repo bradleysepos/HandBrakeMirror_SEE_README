@@ -105,8 +105,8 @@ static void nlmeans_border(uint8_t *src,
     {
         for (int y = -border; y < src_h + border; y++)
         {
-            *(image - (k-1)     + y*dst_w) = image[y*dst_w];
-            *(image + (k+src_w) + y*dst_w) = image[y*dst_w + (src_w-1)];
+            *(image - k - 1     + y*dst_w) = image[y*dst_w];
+            *(image + k + src_w + y*dst_w) = image[y*dst_w + src_w - 1];
         }
     }
 
