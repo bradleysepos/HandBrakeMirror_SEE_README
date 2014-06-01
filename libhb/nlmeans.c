@@ -99,7 +99,7 @@ static void nlmeans_border(uint8_t *src,
     for (int k = 0; k < border; k++)
     {
         memcpy(image - (k+1)    *dst_w, src,                   src_w);
-        memcpy(image + (src_h+k)*dst_w, src + (src_h-1)*src_w, src_w);
+        memcpy(image + (k+src_h)*dst_w, src + (src_h-1)*src_w, src_w);
     }
     for (int k = 0; k < border; k++)
     {
@@ -265,7 +265,7 @@ static void nlmeans_plane(BorderedPlane *plane_tmp,
                 for (int y = 0; y < h; y++)
                 {
                     const uint8_t *p1 = src_pre + y*src_w;
-                    const uint8_t *p2 = compare_pre + (y+dy) * compare_w + dx;
+                    const uint8_t *p2 = compare_pre + (y+dy)*compare_w + dx;
                     uint32_t *out = integral + (y*integral_stride) - 1;
 
                     *out++ = 0;
