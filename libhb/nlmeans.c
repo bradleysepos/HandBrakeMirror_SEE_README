@@ -473,6 +473,12 @@ static int hb_nlmeans_work(hb_filter_object_t *filter,
     for (int c = 0; c < 3; c++)
     {
 
+        if (pv->strength[c] == 0)
+        {
+            out->plane[c].data = in->plane[c].data;
+            continue;
+        }
+
         int frames = pv->frames[c];
 
         // Release last frame in buffer
