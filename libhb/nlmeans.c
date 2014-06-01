@@ -342,11 +342,14 @@ static void nlmeans_plane(BorderedPlane *plane_tmp,
     }
 
     // Copy main image
+    uint8_t result;
     for (int y = n_half; y < h-n_half; y++)
     {
         for (int x = n_half; x < w-n_half; x++)
         {
-            *(dst + y*w + x) = tmp_data[y*w + x].pixel_sum / tmp_data[y*w + x].weight_sum;
+            //*(dst + y*w + x) = (uint8_t)(tmp_data[y*w + x].pixel_sum / tmp_data[y*w + x].weight_sum);
+            result = (uint8_t)(tmp_data[y*w + x].pixel_sum / tmp_data[y*w + x].weight_sum);
+            *(dst + y*w + x) = result ? result : *(src + y*src_w + x);
         }
     }
 
