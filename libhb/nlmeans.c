@@ -219,11 +219,11 @@ static void nlmeans_plane(BorderedPlane *plane_tmp,
 
     // Precompute exponential table
     float exptable[NLMEANS_EXPSIZE];
-    float weight_factor       = 1.0/n/n / (h_param * h_param);
-    float min_weight_in_table = 0.0005;
-    float stretch             = NLMEANS_EXPSIZE / (-log(min_weight_in_table));
-    float weight_fact_table   = weight_factor * stretch;
-    int diff_max              = NLMEANS_EXPSIZE / weight_fact_table;
+    const float weight_factor       = 1.0/n/n / (h_param * h_param);
+    const float min_weight_in_table = 0.0005;
+    const float stretch             = NLMEANS_EXPSIZE / (-log(min_weight_in_table));
+    const float weight_fact_table   = weight_factor * stretch;
+    const int   diff_max            = NLMEANS_EXPSIZE / weight_fact_table;
     for (int i = 0; i < NLMEANS_EXPSIZE; i++)
     {
         exptable[i] = exp(-i/stretch);
