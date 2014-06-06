@@ -24,6 +24,11 @@
 #define NLMEANS_PREFILTER_LUMA_DEFAULT     0
 #define NLMEANS_PREFILTER_CHROMA_DEFAULT   0
 
+#define NLMEANS_PREFILTER_MODE_MEAN3X3    1
+#define NLMEANS_PREFILTER_MODE_MEAN5X5    2
+#define NLMEANS_PREFILTER_MODE_REDUCE25 128
+#define NLMEANS_PREFILTER_MODE_REDUCE50 256
+
 #define NLMEANS_FRAMES_MAX 32
 #define NLMEANS_EXPSIZE    128
 
@@ -124,20 +129,16 @@ static void nlmeans_filter_mean(uint8_t *src,
                                 uint8_t *dst,
                                 int w,
                                 int h,
-                                int border,
                                 int size)
 {
-
-    int w_cropped = w - 2*border;
-    int h_cropped = h - 2*border;
 
     // Mean filter
     uint16_t pixel_sum;
     int offset_min = -((size - 1) /2);
     int offset_max =   (size + 1) /2;
-    for (int y = 0; y < h_cropped; y++)
+    for (int y = 0; y < h; y++)
     {
-        for (int x = 0; x < w_cropped; x++)
+        for (int x = 0; x < w; x++)
         {
             pixel_sum = 0;
             for (int k = offset_min; k < offset_max; k++)
@@ -157,36 +158,73 @@ static void nlmeans_prefilter(BorderedPlane *src,
                               int filter_type)
 {
 
-    // Source image
-    uint8_t *mem   = src->mem;
-    uint8_t *image = src->image;
-    int w          = src->w;
-    int h          = src->h;
-    int border     = src->border;
-
-    // Duplicate plane
-    uint8_t *mem_pre = malloc(w * h * sizeof(uint8_t));
-    uint8_t *image_pre = mem_pre + border + w*border;
-    for (int y = 0; y < h; y++)
+    if (filter_type & NLMEANS_PREFILTER_MODE_MEAN3X3 ||
+        filter_type & NLMEANS_PREFILTER_MODE_MEAN5X5)
     {
-        memcpy(mem_pre + y*w, mem + y*w, w);
-    }
 
-    // Filter plane; should already have at least 2px extra border on each side
-    switch (filter_type)
-    {
-        case 1:
+        // Source image
+        uint8_t *mem   = src->mem;
+        uint8_t *image = src->image;
+        int w          = src->w;
+        int h          = src->h;
+        int border     = src->border;
+        int w_cropped  = w - 2*border;
+        int h_cropped  = h - 2*border;
+
+        // Duplicate plane
+        uint8_t *mem_pre = malloc(w * h * sizeof(uint8_t));
+        uint8_t *image_pre = mem_pre + border + w*border;
+        for (int y = 0; y < h; y++)
+        {
+            memcpy(mem_pre + y*w, mem + y*w, w);
+        }
+
+        // Filter plane; should already have at least 2px extra border on each side
+        if (filter_type & NLMEANS_PREFILTER_MODE_MEAN3X3)
+        {
             // Mean 3x3
-            nlmeans_filter_mean(image, image_pre, w, h, border, 3);
-            break;
-        case 2:
+            nlmeans_filter_mean(image, image_pre, w_cropped, h_cropped, 3);
+        }
+        else if (filter_type & NLMEANS_PREFILTER_MODE_MEAN5X5)
+        {
             // Mean 5x5
-            nlmeans_filter_mean(image, image_pre, w, h, border, 5);
-            break;
-    }
+            nlmeans_filter_mean(image, image_pre, w_cropped, h_cropped, 5);
+        }
 
-    src->mem_pre   = mem_pre;
-    src->image_pre = image_pre;
+        // Blend source and destination for lesser effect
+        int wet = 1;
+        int dry = 0;
+        if (filter_type & NLMEANS_PREFILTER_MODE_REDUCE50 &&
+            filter_type & NLMEANS_PREFILTER_MODE_REDUCE25)
+        {
+            wet = 1;
+            dry = 3;
+        }
+        else if (filter_type & NLMEANS_PREFILTER_MODE_REDUCE50)
+        {
+            wet = 1;
+            dry = 1;
+        }
+        else if (filter_type & NLMEANS_PREFILTER_MODE_REDUCE25)
+        {
+            wet = 3;
+            dry = 1;
+        }
+        if (dry > 0)
+        {
+            for (int y = 0; y < h_cropped; y++)
+            {
+                for (int x = 0; x < w_cropped; x++)
+                {
+                    *(image_pre + w*y + x) = (uint8_t)((wet * *(image_pre + w*y + x) + dry * *(image + w*y + x)) / (wet + dry));
+                }
+            }
+        }
+
+        src->mem_pre   = mem_pre;
+        src->image_pre = image_pre;
+
+    }
 
 }
 
@@ -517,11 +555,7 @@ static int hb_nlmeans_work(hb_filter_object_t *filter,
                        tmp_w,
                        tmp_h,
                        border);
-        if (pv->prefilter[c] > 0)
-        {
-            nlmeans_prefilter(&pv->frame_tmp[c][0],
-                              pv->prefilter[c]);
-        }
+        nlmeans_prefilter(&pv->frame_tmp[c][0], pv->prefilter[c]);
         pv->frame_ready[c][0] = 1;
 
         // Process current plane
