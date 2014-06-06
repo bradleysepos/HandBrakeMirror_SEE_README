@@ -62,6 +62,8 @@ static int    denoise               = 0;
 static char * denoise_opt           = 0;
 static int    nlmeans               = 0;
 static char * nlmeans_opt           = 0;
+static int    nlmeans_tune          = 0;
+static char * nlmeans_tune_opt      = 0;
 static int    detelecine            = 0;
 static char * detelecine_opt        = 0;
 static int    decomb                = 0;
@@ -3472,8 +3474,14 @@ if (hb_qsv_available())
      "          <SL:SCb:SCr:TL:TCb:TCr>\n"
      "          (default: 4:3:3:6:4.5:4.5)\n"
      "    --nlmeans               Denoise video with nlmeans filter\n"
+     "          <ultralight/light/medium/strong> or omitted\n"
+     "           or\n"
      "          <SY:OTY:PSY:RY:FY:PY:Sb:OTb:PSb:Rb:Fb:Pb:Sr:OTr:PSr:Rr:Fr:Pr>\n"
      "          (default 8:1:7:3:2:0)\n"
+     "    --nlmeans-tune          Tune nlmeans filter to content type\n"
+     "                            Note: only works in conjunction with presets\n"
+     "                            ultralight/light/medium/strong.\n"
+     "          <none/film/grain/highmotion/animation> or omitted (default none)\n"
      "    -7, --deblock           Deblock video with pp7 filter\n"
      "          <QP:M>            (default 5:2)\n"
      "        --rotate            Flips images axes\n"
@@ -3705,7 +3713,8 @@ static int ParseOptions( int argc, char ** argv )
     #define QSV_BASELINE         295
     #define QSV_ASYNC_DEPTH      296
     #define QSV_IMPLEMENTATION   297
-    #define NLMEANS_FILTER       298
+    #define FILTER_NLMEANS       298
+    #define FILTER_NLMEANS_TUNE  299
 
     for( ;; )
     {
@@ -3764,7 +3773,8 @@ static int ParseOptions( int argc, char ** argv )
             { "deinterlace", optional_argument, NULL,    'd' },
             { "deblock",     optional_argument, NULL,    '7' },
             { "denoise",     optional_argument, NULL,    '8' },
-            { "nlmeans",     optional_argument, NULL,    NLMEANS_FILTER },
+            { "nlmeans",     optional_argument, NULL,    FILTER_NLMEANS },
+            { "nlmeans-tune",optional_argument, NULL,    FILTER_NLMEANS_TUNE },
             { "detelecine",  optional_argument, NULL,    '9' },
             { "decomb",      optional_argument, NULL,    '5' },
             { "grayscale",   no_argument,       NULL,    'g' },
@@ -4121,12 +4131,31 @@ static int ParseOptions( int argc, char ** argv )
                 }
                 denoise = 1;
                 break;
-            case NLMEANS_FILTER:
-                if( optarg != NULL )
+            case FILTER_NLMEANS:
+                if(optarg != NULL)
                 {
-                    nlmeans_opt = strdup( optarg );
+                    nlmeans_opt = strdup(optarg);
                 }
                 nlmeans = 1;
+                break;
+            case FILTER_NLMEANS_TUNE:
+                if(optarg != NULL)
+                {
+                    if (!strcmp(optarg, "none") ||
+                        !strcmp(optarg, "film") ||
+                        !strcmp(optarg, "grain") ||
+                        !strcmp(optarg, "highmotion") ||
+                        !strcmp(optarg, "animation"))
+                    {
+                        nlmeans_tune_opt = strdup(optarg);
+                    }
+                    else
+                    {
+                        fprintf(stderr, "invalid nlmeans tune (%s)\n", optarg);
+                        return -1;
+                    }
+                }
+                nlmeans_tune = 1;
                 break;
             case '9':
                 if( optarg != NULL )
@@ -4427,6 +4456,153 @@ static int ParseOptions( int argc, char ** argv )
             default:
                 fprintf( stderr, "unknown option (%s)\n", argv[cur_optind] );
                 return -1;
+        }
+
+    }
+
+    // Rectify nlmeans and nlmeans_tune
+    if (nlmeans == 1 && nlmeans_opt != NULL)
+    {
+        if (!strcmp(nlmeans_opt, "ultralight") ||
+            !strcmp(nlmeans_opt, "light") ||
+            !strcmp(nlmeans_opt, "medium") ||
+            !strcmp(nlmeans_opt, "strong"))
+        {
+            char   opt[1024];
+            double strength[2],
+                   origin_tune[2];
+            int    patch_size[2],
+                   range[2],
+                   frames[2],
+                   prefilter[2];
+
+            if (nlmeans_tune != 1 || nlmeans_tune_opt == NULL)
+            {
+                nlmeans_tune_opt = "none";
+            }
+
+            if (!strcmp(nlmeans_tune_opt, "none"))
+            {
+                strength[0]    = strength[1]    = 6;
+                origin_tune[0] = origin_tune[1] = 1;
+                patch_size[0]  = patch_size[1]  = 7;
+                range[0]       = range[1]       = 3;
+                frames[0]      = frames[1]      = 2;
+                prefilter[0]   = prefilter[1]   = 0;
+                if (!strcmp(nlmeans_opt, "ultralight"))
+                {
+                    strength[0] = strength[1] = 1.5;
+                }
+                else if (!strcmp(nlmeans_opt, "light"))
+                {
+                    strength[0] = strength[1] = 3;
+                }
+                else if (!strcmp(nlmeans_opt, "strong"))
+                {
+                    strength[0] = strength[1] = 10;
+                }
+            }
+            else if (!strcmp(nlmeans_tune_opt, "film"))
+            {
+                strength[0]    = 6; strength[1] = 8;
+                origin_tune[0] = origin_tune[1] = 0.8;
+                patch_size[0]  = patch_size[1]  = 7;
+                range[0]       = range[1]       = 3;
+                frames[0]      = frames[1]      = 2;
+                prefilter[0]   = prefilter[1]   = 0;
+                if (!strcmp(nlmeans_opt, "ultralight"))
+                {
+                    strength[0]    = 1.5;   strength[1]  = 2.4;
+                    origin_tune[0] = 0.9; origin_tune[1] = 0.9;
+                }
+                else if (!strcmp(nlmeans_opt, "light"))
+                {
+                    strength[0]    = 3;   strength[1]    = 4;
+                    origin_tune[0] = 0.9; origin_tune[1] = 0.9;
+                }
+                else if (!strcmp(nlmeans_opt, "strong"))
+                {
+                    strength[0]    = 8;   strength[1]    = 10;
+                    origin_tune[0] = 0.6; origin_tune[1] = 0.6;
+                }
+            }
+            else if (!strcmp(nlmeans_tune_opt, "grain"))
+            {
+                strength[0]    = 0; strength[1] = 6;
+                origin_tune[0] = origin_tune[1] = 0.8;
+                patch_size[0]  = patch_size[1]  = 7;
+                range[0]       = range[1]       = 3;
+                frames[0]      = frames[1]      = 2;
+                prefilter[0]   = prefilter[1]   = 0;
+                if (!strcmp(nlmeans_opt, "ultralight"))
+                {
+                    strength[0]    = 0;   strength[1]    = 2.4;
+                    origin_tune[0] = 0.9; origin_tune[1] = 0.9;
+                }
+                else if (!strcmp(nlmeans_opt, "light"))
+                {
+                    strength[0]    = 0;   strength[1]    = 3.5;
+                    origin_tune[0] = 0.9; origin_tune[1] = 0.9;
+                }
+                else if (!strcmp(nlmeans_opt, "strong"))
+                {
+                    strength[0]    = 0;   strength[1]    = 8;
+                    origin_tune[0] = 0.6; origin_tune[1] = 0.6;
+                }
+            }
+            else if (!strcmp(nlmeans_tune_opt, "highmotion"))
+            {
+                strength[0]    = 6;   strength[1]    = 6;
+                origin_tune[0] = 0.8; origin_tune[1] = 0.7;
+                patch_size[0]  = 7;   patch_size[1]  = 7;
+                range[0]       = 3;   range[1]       = 5;
+                frames[0]      = 2;   frames[1]      = 1;
+                prefilter[0]   = 0;   prefilter[1]   = 0;
+                if (!strcmp(nlmeans_opt, "ultralight"))
+                {
+                    strength[0]    = 1.5;   strength[1]  = 2.4;
+                    origin_tune[0] = 0.9; origin_tune[1] = 0.9;
+                }
+                else if (!strcmp(nlmeans_opt, "light"))
+                {
+                    strength[0]    = 3;   strength[1]    = 3.25;
+                    origin_tune[0] = 0.9; origin_tune[1] = 0.8;
+                }
+                else if (!strcmp(nlmeans_opt, "strong"))
+                {
+                    strength[0]    = 8;   strength[1]    = 6.75;
+                    origin_tune[0] = 0.6; origin_tune[1] = 0.5;
+                }
+            }
+            else if (!strcmp(nlmeans_tune_opt, "animation"))
+            {
+                strength[0]    = 5; strength[1] = 4;
+                origin_tune[0] = origin_tune[1] = 0.15;
+                patch_size[0]  = patch_size[1]  = 5;
+                range[0]       = range[1]       = 7;
+                frames[0]      = frames[1]      = 4;
+                prefilter[0]   = prefilter[1]   = 0;
+                if (!strcmp(nlmeans_opt, "ultralight"))
+                {
+                    strength[0] = 2.5; strength[1] = 2;
+                    frames[0]   = 2;   frames[1]   = 2;
+                }
+                else if (!strcmp(nlmeans_opt, "light"))
+                {
+                    strength[0] = 3; strength[1] = 2.25;
+                    frames[0]   = 3; frames[1]   = 3;
+                }
+                else if (!strcmp(nlmeans_opt, "strong"))
+                {
+                    strength[0] = 10; strength[1] = 8;
+                }
+            }
+
+            sprintf(opt, "%lf:%lf:%d:%d:%d:%d:%lf:%lf:%d:%d:%d:%d",
+                    strength[0], origin_tune[0], patch_size[0], range[0], frames[0], prefilter[0],
+                    strength[1], origin_tune[1], patch_size[1], range[1], frames[1], prefilter[1]);
+            nlmeans_opt = strdup(opt);
+
         }
     }
 
