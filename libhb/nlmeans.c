@@ -91,12 +91,39 @@ hb_filter_object_t hb_filter_nlmeans =
 };
 
 static void nlmeans_border(uint8_t *src,
-                           int src_w,
-                           int src_h,
-                           BorderedPlane *dst,
-                           int dst_w,
-                           int dst_h,
+                           int w,
+                           int h,
                            int border)
+{
+
+    uint8_t *image = src + border + w*border;
+    int iw     = w - 2*border;
+    int ih     = h - 2*border;
+
+    // Create faux borders using edge pixels
+    for (int k = 0; k < border; k++)
+    {
+        memcpy(image - (k+1) *w, image,             iw);
+        memcpy(image + (k+ih)*w, image + (ih-1)*iw, iw);
+    }
+    for (int k = 0; k < border; k++)
+    {
+        for (int y = -border; y < ih + border; y++)
+        {
+            *(image - k - 1  + y*w) = image[y*w];
+            *(image + k + iw + y*w) = image[y*w + iw - 1];
+        }
+    }
+
+}
+
+static void nlmeans_alloc(uint8_t *src,
+                          int src_w,
+                          int src_h,
+                          BorderedPlane *dst,
+                          int dst_w,
+                          int dst_h,
+                          int border)
 {
 
     uint8_t *mem   = malloc(dst_w * dst_h * sizeof(uint8_t));
@@ -108,28 +135,15 @@ static void nlmeans_border(uint8_t *src,
         memcpy(image + y*dst_w, src + y*src_w, src_w);
     }
 
-    // Copy borders
-    for (int k = 0; k < border; k++)
-    {
-        memcpy(image - (k+1)    *dst_w, src,                   src_w);
-        memcpy(image + (k+src_h)*dst_w, src + (src_h-1)*src_w, src_w);
-    }
-    for (int k = 0; k < border; k++)
-    {
-        for (int y = -border; y < src_h + border; y++)
-        {
-            *(image - k - 1     + y*dst_w) = image[y*dst_w];
-            *(image + k + src_w + y*dst_w) = image[y*dst_w + src_w - 1];
-        }
-    }
-
     dst->mem       = mem;
-    dst->mem_pre   = mem;
     dst->image     = image;
-    dst->image_pre = image;
     dst->w         = dst_w;
     dst->h         = dst_h;
     dst->border    = border;
+
+    nlmeans_border(dst->mem, dst->w, dst->h, dst->border);
+    dst->mem_pre   = dst->mem;
+    dst->image_pre = dst->image;
 
 }
 
@@ -634,13 +648,13 @@ static int hb_nlmeans_work(hb_filter_object_t *filter,
         int border = ((pv->range[c] + 2) / 2 + 15) /16*16;
         int tmp_w = in->plane[c].stride + 2*border;
         int tmp_h = in->plane[c].height + 2*border;
-        nlmeans_border(in->plane[c].data,
-                       in->plane[c].stride,
-                       in->plane[c].height,
-                       &pv->frame_tmp[c][0],
-                       tmp_w,
-                       tmp_h,
-                       border);
+        nlmeans_alloc(in->plane[c].data,
+                      in->plane[c].stride,
+                      in->plane[c].height,
+                      &pv->frame_tmp[c][0],
+                      tmp_w,
+                      tmp_h,
+                      border);
         nlmeans_prefilter(&pv->frame_tmp[c][0], pv->prefilter[c]);
         pv->frame_ready[c][0] = 1;
 
