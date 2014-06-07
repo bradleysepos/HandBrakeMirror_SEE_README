@@ -466,20 +466,18 @@ static void nlmeans_plane(BorderedPlane *plane_tmp,
     }
 
     // Copy border area
+    for (int y = 0; y < n_half; y++)
     {
-        for (int y = 0; y < n_half; y++)
-        {
-            memcpy(dst + y*w, src + y*src_w, w);
-        }
-        for (int y = h-n_half; y < h; y++)
-        {
-            memcpy(dst + y*w, src + y*src_w, w);
-        }
-        for (int y = n_half; y < h-n_half; y++)
-        {
-            memcpy(dst + y*w,            src + y*src_w,            n_half);
-            memcpy(dst + y*w + w-n_half, src + y*src_w + w-n_half, n_half);
-        }
+        memcpy(dst + y*w, src + y*src_w, w);
+    }
+    for (int y = h-n_half; y < h; y++)
+    {
+        memcpy(dst + y*w, src + y*src_w, w);
+    }
+    for (int y = n_half; y < h-n_half; y++)
+    {
+        memcpy(dst + y*w,            src + y*src_w,            n_half);
+        memcpy(dst + y*w + w-n_half, src + y*src_w + w-n_half, n_half);
     }
 
     // Copy main image
