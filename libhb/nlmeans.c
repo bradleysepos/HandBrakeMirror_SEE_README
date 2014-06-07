@@ -129,26 +129,30 @@ static void nlmeans_filter_mean(uint8_t *src,
                                 uint8_t *dst,
                                 int w,
                                 int h,
+                                int border,
                                 int size)
 {
 
     // Mean filter
-    uint16_t pixel_sum;
+    int w_cropped  = w - 2*border;
+    int h_cropped  = h - 2*border;
     int offset_min = -((size - 1) /2);
     int offset_max =   (size + 1) /2;
-    for (int y = 0; y < h; y++)
+    uint16_t pixel_sum;
+    double pixel_weight = 1.0 / (size * size);
+    for (int y = 0; y < h_cropped; y++)
     {
-        for (int x = 0; x < w; x++)
+        for (int x = 0; x < w_cropped; x++)
         {
             pixel_sum = 0;
             for (int k = offset_min; k < offset_max; k++)
             {
                 for (int j = offset_min; j < offset_max; j++)
                 {
-                    pixel_sum = pixel_sum + src[w*(y+j) + (x+k)];
+                    pixel_sum = pixel_sum + *(src + w*(y+j) + (x+k));
                 }
             }
-            *(dst + w*y + x) = (uint8_t)(pixel_sum / (size * size));
+            *(dst + w*y + x) = (uint8_t)(pixel_sum * pixel_weight);
         }
     }
 
@@ -168,8 +172,6 @@ static void nlmeans_prefilter(BorderedPlane *src,
         int w          = src->w;
         int h          = src->h;
         int border     = src->border;
-        int w_cropped  = w - 2*border;
-        int h_cropped  = h - 2*border;
 
         // Duplicate plane
         uint8_t *mem_pre = malloc(w * h * sizeof(uint8_t));
@@ -183,12 +185,12 @@ static void nlmeans_prefilter(BorderedPlane *src,
         if (filter_type & NLMEANS_PREFILTER_MODE_MEAN3X3)
         {
             // Mean 3x3
-            nlmeans_filter_mean(image, image_pre, w_cropped, h_cropped, 3);
+            nlmeans_filter_mean(image, image_pre, w, h, border, 3);
         }
         else if (filter_type & NLMEANS_PREFILTER_MODE_MEAN5X5)
         {
             // Mean 5x5
-            nlmeans_filter_mean(image, image_pre, w_cropped, h_cropped, 5);
+            nlmeans_filter_mean(image, image_pre, w, h, border, 5);
         }
 
         // Blend source and destination for lesser effect
