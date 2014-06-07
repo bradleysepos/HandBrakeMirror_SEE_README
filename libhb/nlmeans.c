@@ -96,8 +96,8 @@ static void nlmeans_border(uint8_t *src,
 {
 
     uint8_t *image = src + border + w*border;
-    int iw     = w - 2*border;
-    int ih     = h - 2*border;
+    int iw = w - 2*border;
+    int ih = h - 2*border;
 
     // Create faux borders using edge pixels
     for (int k = 0; k < border; k++)
@@ -155,8 +155,8 @@ static void nlmeans_filter_mean(uint8_t *src,
 {
 
     // Mean filter
-    int iw  = w - 2*border;
-    int ih  = h - 2*border;
+    int iw = w - 2*border;
+    int ih = h - 2*border;
     int offset_min = -((size - 1) /2);
     int offset_max =   (size + 1) /2;
     uint16_t pixel_sum;
@@ -186,8 +186,8 @@ static void nlmeans_filter_edgeboost(uint8_t *src,
                                     int border)
 {
 
-    int iw  = w - 2*border;
-    int ih  = h - 2*border;
+    int iw = w - 2*border;
+    int ih = h - 2*border;
 
     // Sobel kernel
     //int kernel_size = 3;
