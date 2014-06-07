@@ -321,8 +321,12 @@ static void nlmeans_prefilter(BorderedPlane *src,
             }
         }
 
+        // Assign result
         src->mem_pre   = mem_pre;
         src->image_pre = image_pre;
+
+        // Recreate borders
+        nlmeans_border(mem_pre, w, h, border);
 
     }
 
