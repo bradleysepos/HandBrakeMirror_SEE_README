@@ -555,6 +555,7 @@ static int hb_nlmeans_init(hb_filter_object_t *filter,
         if (pv->range[c] < 1)           { pv->range[c] = 1; }
         if (pv->frames[c] < 1)          { pv->frames[c] = 1; }
         if (pv->frames[c] > NLMEANS_FRAMES_MAX) { pv->frames[c] = NLMEANS_FRAMES_MAX; }
+        if (pv->prefilter[c] < 0)       { pv->prefilter[c] = 0; }
 
         // Mark buffer empty
         for (int f = 0; f < NLMEANS_FRAMES_MAX; f++)
