@@ -10,7 +10,6 @@
 
 #include "hb.h"
 #include "hbffmpeg.h"
-#include <math.h>
 
 #define NLMEANS_STRENGTH_LUMA_DEFAULT      8
 #define NLMEANS_STRENGTH_CHROMA_DEFAULT    8
