@@ -156,15 +156,15 @@ static void nlmeans_filter_mean(uint8_t *src,
 {
 
     // Mean filter
-    int w_cropped  = w - 2*border;
-    int h_cropped  = h - 2*border;
+    int iw  = w - 2*border;
+    int ih  = h - 2*border;
     int offset_min = -((size - 1) /2);
     int offset_max =   (size + 1) /2;
     uint16_t pixel_sum;
     double pixel_weight = 1.0 / (size * size);
-    for (int y = 0; y < h_cropped; y++)
+    for (int y = 0; y < ih; y++)
     {
-        for (int x = 0; x < w_cropped; x++)
+        for (int x = 0; x < iw; x++)
         {
             pixel_sum = 0;
             for (int k = offset_min; k < offset_max; k++)
@@ -187,8 +187,8 @@ static void nlmeans_filter_edgeboost(uint8_t *src,
                                     int border)
 {
 
-    int w_cropped  = w - 2*border;
-    int h_cropped  = h - 2*border;
+    int iw  = w - 2*border;
+    int ih  = h - 2*border;
 
     // Sobel kernel
     //int kernel_size = 3;
@@ -209,10 +209,10 @@ static void nlmeans_filter_edgeboost(uint8_t *src,
     int offset_max =   (kernel_size + 1) /2;
     uint16_t pixel1;
     uint16_t pixel2;
-    uint8_t *mask = malloc(w_cropped * h_cropped * sizeof(uint8_t));
-    for (int y = 0; y < h_cropped; y++)
+    uint8_t *mask = malloc(iw * ih * sizeof(uint8_t));
+    for (int y = 0; y < ih; y++)
     {
-        for (int x = 0; x < w_cropped; x++)
+        for (int x = 0; x < iw; x++)
         {
             pixel1 = 0;
             pixel2 = 0;
@@ -228,13 +228,13 @@ static void nlmeans_filter_edgeboost(uint8_t *src,
             pixel2 = pixel2 > 0 ? pixel2 : -pixel2;
             pixel1 = (uint16_t)(((double)pixel1 * kernel_coef) + 128);
             pixel2 = (uint16_t)(((double)pixel2 * kernel_coef) + 128);
-            *(mask + w_cropped*y + x) = (uint8_t)(pixel1 + pixel2);
-            if (*(mask + w_cropped*y + x) > 160)
+            *(mask + iw*y + x) = (uint8_t)(pixel1 + pixel2);
+            if (*(mask + iw*y + x) > 160)
             {
                 *(dst + w*y + x) = (3 * *(src + w*y + x) + 1 * *(dst + w*y + x)) /4;
                 //*(dst + w*y + x) = 235;
             }
-            else if (*(mask + w_cropped*y + x) > 88)
+            else if (*(mask + iw*y + x) > 88)
             {
                 *(dst + w*y + x) = (2 * *(src + w*y + x) + 3 * *(dst + w*y + x)) /5;
                 //*(dst + w*y + x) = 128;
