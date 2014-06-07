@@ -35,6 +35,7 @@
 #define NLMEANS_PREFILTER_MODE_REDUCE25    256
 #define NLMEANS_PREFILTER_MODE_REDUCE50    512
 #define NLMEANS_PREFILTER_MODE_EDGEBOOST  1024
+#define NLMEANS_PREFILTER_MODE_PASSTHRU   2048
 
 #define NLMEANS_FRAMES_MAX 32
 #define NLMEANS_EXPSIZE    128
@@ -112,6 +113,25 @@ static void nlmeans_border(uint8_t *src,
             *(image - k - 1  + y*w) = image[y*w];
             *(image + k + iw + y*w) = image[y*w + iw - 1];
         }
+    }
+
+}
+
+static void nlmeans_deborder(uint8_t *src,
+                             uint8_t *dst,
+                             int w,
+                             int h,
+                             int border)
+{
+
+    uint8_t *image = src + border + w*border;
+    int iw = w - 2*border;
+    int ih = h - 2*border;
+
+    // Copy main image
+    for (int y = 0; y < ih; y++)
+    {
+        memcpy(dst + y*iw, image + y*w, iw);
     }
 
 }
@@ -659,6 +679,12 @@ static int hb_nlmeans_work(hb_filter_object_t *filter,
                       border);
         nlmeans_prefilter(&pv->frame_tmp[c][0], pv->prefilter[c]);
         pv->frame_ready[c][0] = 1;
+
+        if (pv->prefilter[c] & NLMEANS_PREFILTER_MODE_PASSTHRU)
+        {
+            nlmeans_deborder(pv->frame_tmp[c][0].mem_pre, out->plane[c].data, tmp_w, tmp_h, border);
+            continue;
+        }
 
         // Process current plane
         nlmeans_plane(pv->frame_tmp[c],
