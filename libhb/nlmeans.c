@@ -10,6 +10,7 @@
 
 #include "hb.h"
 #include "hbffmpeg.h"
+#include <math.h>
 
 #define NLMEANS_STRENGTH_LUMA_DEFAULT      8
 #define NLMEANS_STRENGTH_CHROMA_DEFAULT    8
@@ -24,10 +25,11 @@
 #define NLMEANS_PREFILTER_LUMA_DEFAULT     0
 #define NLMEANS_PREFILTER_CHROMA_DEFAULT   0
 
-#define NLMEANS_PREFILTER_MODE_MEAN3X3    1
-#define NLMEANS_PREFILTER_MODE_MEAN5X5    2
-#define NLMEANS_PREFILTER_MODE_REDUCE25 128
-#define NLMEANS_PREFILTER_MODE_REDUCE50 256
+#define NLMEANS_PREFILTER_MODE_MEAN3X3       1
+#define NLMEANS_PREFILTER_MODE_MEAN5X5       2
+#define NLMEANS_PREFILTER_MODE_REDUCE25    128
+#define NLMEANS_PREFILTER_MODE_REDUCE50    256
+#define NLMEANS_PREFILTER_MODE_EDGEBOOST  1024
 
 #define NLMEANS_FRAMES_MAX 32
 #define NLMEANS_EXPSIZE    128
@@ -158,6 +160,76 @@ static void nlmeans_filter_mean(uint8_t *src,
 
 }
 
+static void nlmeans_filter_edgeboost(uint8_t *src,
+                                    uint8_t *dst,
+                                    int w,
+                                    int h,
+                                    int border)
+{
+
+    int w_cropped  = w - 2*border;
+    int h_cropped  = h - 2*border;
+
+    // Sobel kernel
+    //int kernel_size = 3;
+    //int kernel[3][3] = {{-1, 0, 1},
+    //                    {-2, 0, 2},
+    //                    {-1, 0, 1}};
+    //double kernel_coef = 1.0 / 2.0;
+
+    // Custom kernel
+    int kernel_size = 3;
+    int kernel[3][3] = {{-31, 0, 31},
+                        {-44, 0, 44},
+                        {-31, 0, 31}};
+    double kernel_coef = 1.0 / 27.0;
+
+    // Detect edges
+    int offset_min = -((kernel_size - 1) /2);
+    int offset_max =   (kernel_size + 1) /2;
+    uint16_t pixel1;
+    uint16_t pixel2;
+    uint8_t *mask = malloc(w_cropped * h_cropped * sizeof(uint8_t));
+    for (int y = 0; y < h_cropped; y++)
+    {
+        for (int x = 0; x < w_cropped; x++)
+        {
+            pixel1 = 0;
+            pixel2 = 0;
+            for (int k = offset_min; k < offset_max; k++)
+            {
+                for (int j = offset_min; j < offset_max; j++)
+                {
+                    pixel1 += kernel[j+1][k+1] * *(src + w*(y+j) + (x+k));
+                    pixel2 += kernel[k+1][j+1] * *(src + w*(y+j) + (x+k));
+                }
+            }
+            pixel1 = pixel1 > 0 ? pixel1 : -pixel1;
+            pixel2 = pixel2 > 0 ? pixel2 : -pixel2;
+            pixel1 = (uint16_t)(((double)pixel1 * kernel_coef) + 128);
+            pixel2 = (uint16_t)(((double)pixel2 * kernel_coef) + 128);
+            *(mask + w_cropped*y + x) = (uint8_t)(pixel1 + pixel2);
+            if (*(mask + w_cropped*y + x) > 160)
+            {
+                *(dst + w*y + x) = (3 * *(src + w*y + x) + 1 * *(dst + w*y + x)) /4;
+                //*(dst + w*y + x) = 235;
+            }
+            else if (*(mask + w_cropped*y + x) > 88)
+            {
+                *(dst + w*y + x) = (2 * *(src + w*y + x) + 3 * *(dst + w*y + x)) /5;
+                //*(dst + w*y + x) = 128;
+            }
+            else
+            {
+                //*(dst + w*y + x) = 16;
+            }
+        }
+    }
+
+    free(mask);
+
+}
+
 static void nlmeans_prefilter(BorderedPlane *src,
                               int filter_type)
 {
@@ -193,6 +265,12 @@ static void nlmeans_prefilter(BorderedPlane *src,
             nlmeans_filter_mean(image, image_pre, w, h, border, 5);
         }
 
+        // Restore edges
+        if (filter_type & NLMEANS_PREFILTER_MODE_EDGEBOOST)
+        {
+            nlmeans_filter_edgeboost(image, image_pre, w, h, border);
+        }
+
         // Blend source and destination for lesser effect
         int wet = 1;
         int dry = 0;
@@ -214,11 +292,11 @@ static void nlmeans_prefilter(BorderedPlane *src,
         }
         if (dry > 0)
         {
-            for (int y = 0; y < h_cropped; y++)
+            for (int y = 0; y < h; y++)
             {
-                for (int x = 0; x < w_cropped; x++)
+                for (int x = 0; x < w; x++)
                 {
-                    *(image_pre + w*y + x) = (uint8_t)((wet * *(image_pre + w*y + x) + dry * *(image + w*y + x)) / (wet + dry));
+                    *(mem_pre + w*y + x) = (uint8_t)((wet * *(mem_pre + w*y + x) + dry * *(mem + w*y + x)) / (wet + dry));
                 }
             }
         }
