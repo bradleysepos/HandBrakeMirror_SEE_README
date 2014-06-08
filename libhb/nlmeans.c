@@ -101,18 +101,18 @@ static void nlmeans_border(uint8_t *src,
     int ih = h - 2*border;
 
     // Create faux borders using edge pixels
-    for (int k = 0; k < border; k++)
+    for (int y = 0; y < ih; y++)
     {
-        memcpy(image - (k+1) *w, image,             iw);
-        memcpy(image + (k+ih)*w, image + (ih-1)*iw, iw);
-    }
-    for (int k = 0; k < border; k++)
-    {
-        for (int y = -border; y < ih + border; y++)
+        for (int x = 0; x < border; x++)
         {
-            *(image - k - 1  + y*w) = image[y*w];
-            *(image + k + iw + y*w) = image[y*w + iw - 1];
+            *(image + y*w - x - 1)  = *(image + y*w + x);
+            *(image + y*w + x + iw) = *(image + y*w - x + (iw-1));
         }
+    }
+    for (int y = 0; y < border; y++)
+    {
+        memcpy(image - border -  (y+1)*w, image - border +        y*w, w);
+        memcpy(image - border + (y+ih)*w, image - border + (ih-y-1)*w, w);
     }
 
 }
@@ -485,19 +485,19 @@ static void nlmeans_plane(BorderedPlane *plane_tmp,
         }
     }
 
-    // Copy border area
+    // Copy edges
+    for (int y = 0; y < h; y++)
+    {
+        for (int x = 0; x < n_half; x++)
+        {
+            *(dst + y*w + x)         = *(src + y*src_w - x - 1);
+            *(dst + y*w - x + (w-1)) = *(src + y*src_w + x + w);
+        }
+    }
     for (int y = 0; y < n_half; y++)
     {
-        memcpy(dst + y*w, src + y*src_w, w);
-    }
-    for (int y = h-n_half; y < h; y++)
-    {
-        memcpy(dst + y*w, src + y*src_w, w);
-    }
-    for (int y = n_half; y < h-n_half; y++)
-    {
-        memcpy(dst + y*w,            src + y*src_w,            n_half);
-        memcpy(dst + y*w + w-n_half, src + y*src_w + w-n_half, n_half);
+        memcpy(dst +       y*w, src - (y+1)*src_w, w);
+        memcpy(dst + (h-y-1)*w, src + (y+h)*src_w, w);
     }
 
     // Copy main image
