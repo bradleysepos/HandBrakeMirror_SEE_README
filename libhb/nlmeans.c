@@ -64,7 +64,7 @@ struct hb_filter_private_s
     int    patch_size[3];  // pixel context region width  (must be odd)
     int    range[3];       // spatial search window width (must be odd)
     int    frames[3];      // temporal search depth in frames
-    int    prefilter[3];   // prefilter type, can improve weight analysis
+    int    prefilter[3];   // prefilter mode, can improve weight analysis
 
     BorderedPlane frame_tmp[3][32];
     int           frame_ready[3][32];
