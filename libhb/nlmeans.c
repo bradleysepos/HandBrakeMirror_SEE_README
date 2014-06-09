@@ -668,21 +668,21 @@ static int hb_nlmeans_work(hb_filter_object_t *filter,
 
         // Extend copy of plane with extra border and place in buffer
         int border = ((pv->range[c] + 2) / 2 + 15) /16*16;
-        int tmp_w = in->plane[c].stride + 2*border;
-        int tmp_h = in->plane[c].height + 2*border;
+        int w = in->plane[c].stride + 2*border;
+        int h = in->plane[c].height + 2*border;
         nlmeans_alloc(in->plane[c].data,
                       in->plane[c].stride,
                       in->plane[c].height,
                       &pv->frame_tmp[c][0],
-                      tmp_w,
-                      tmp_h,
+                      w,
+                      h,
                       border);
         nlmeans_prefilter(&pv->frame_tmp[c][0], pv->prefilter[c]);
         pv->frame_ready[c][0] = 1;
 
         if (pv->prefilter[c] & NLMEANS_PREFILTER_MODE_PASSTHRU)
         {
-            nlmeans_deborder(pv->frame_tmp[c][0].mem_pre, out->plane[c].data, tmp_w, tmp_h, border);
+            nlmeans_deborder(pv->frame_tmp[c][0].mem_pre, out->plane[c].data, w, h, border);
             continue;
         }
 
