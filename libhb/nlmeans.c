@@ -450,7 +450,7 @@ static void nlmeans_plane(BorderedPlane *plane_tmp,
                     }
                 }
 
-                // Average displacements
+                // Average displacement
                 // TODO: Parallelize this
                 for (int y = 0; y <= h-n; y++)
                 {
