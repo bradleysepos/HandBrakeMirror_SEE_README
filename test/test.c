@@ -4459,7 +4459,21 @@ static int ParseOptions( int argc, char ** argv )
 
     }
 
-    // Rectify nlmeans and nlmeans_tune
+    /* NL-means presets (--nlmeans) and tunes (--nlmeans-tune)
+     *
+     * Presets adjust strength:
+     * ultralight - visually transparent
+     * light
+     * medium
+     * strong
+     *
+     * Tunes adjust settings to the specified content type:
+     * none
+     * film       - most content, live action
+     * grain      - like film but preserves luma grain
+     * highmotion - like film but avoids color smearing with stronger settings
+     * animation  - cel animation such as cartoons, anime
+     */
     if (nlmeans == 1 && nlmeans_opt != NULL)
     {
         if (!strcmp(nlmeans_opt, "ultralight") ||
