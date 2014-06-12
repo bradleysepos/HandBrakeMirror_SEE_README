@@ -61,9 +61,9 @@ static char * deblock_opt           = 0;
 static int    denoise               = 0;
 static char * denoise_opt           = 0;
 static int    nlmeans               = 0;
-static char * nlmeans_opt           = 0;
+static char * nlmeans_opt           = NULL;
 static int    nlmeans_tune          = 0;
-static char * nlmeans_tune_opt      = 0;
+static char * nlmeans_tune_opt      = NULL;
 static int    detelecine            = 0;
 static char * detelecine_opt        = 0;
 static int    decomb                = 0;
@@ -3774,7 +3774,7 @@ static int ParseOptions( int argc, char ** argv )
             { "deblock",     optional_argument, NULL,    '7' },
             { "denoise",     optional_argument, NULL,    '8' },
             { "nlmeans",     optional_argument, NULL,    FILTER_NLMEANS },
-            { "nlmeans-tune",optional_argument, NULL,    FILTER_NLMEANS_TUNE },
+            { "nlmeans-tune",required_argument, NULL,    FILTER_NLMEANS_TUNE },
             { "detelecine",  optional_argument, NULL,    '9' },
             { "decomb",      optional_argument, NULL,    '5' },
             { "grayscale",   no_argument,       NULL,    'g' },
@@ -4134,26 +4134,25 @@ static int ParseOptions( int argc, char ** argv )
             case FILTER_NLMEANS:
                 if(optarg != NULL)
                 {
+                    free(nlmeans_opt);
                     nlmeans_opt = strdup(optarg);
                 }
                 nlmeans = 1;
                 break;
             case FILTER_NLMEANS_TUNE:
-                if(optarg != NULL)
+                if (!strcmp(optarg, "none") ||
+                    !strcmp(optarg, "film") ||
+                    !strcmp(optarg, "grain") ||
+                    !strcmp(optarg, "highmotion") ||
+                    !strcmp(optarg, "animation"))
                 {
-                    if (!strcmp(optarg, "none") ||
-                        !strcmp(optarg, "film") ||
-                        !strcmp(optarg, "grain") ||
-                        !strcmp(optarg, "highmotion") ||
-                        !strcmp(optarg, "animation"))
-                    {
-                        nlmeans_tune_opt = strdup(optarg);
-                    }
-                    else
-                    {
-                        fprintf(stderr, "invalid nlmeans tune (%s)\n", optarg);
-                        return -1;
-                    }
+                    free(nlmeans_tune_opt);
+                    nlmeans_tune_opt = strdup(optarg);
+                }
+                else
+                {
+                    fprintf(stderr, "invalid nlmeans tune (%s)\n", optarg);
+                    return -1;
                 }
                 nlmeans_tune = 1;
                 break;
@@ -4476,12 +4475,7 @@ static int ParseOptions( int argc, char ** argv )
                    frames[2],
                    prefilter[2];
 
-            if (nlmeans_tune != 1 || nlmeans_tune_opt == NULL)
-            {
-                nlmeans_tune_opt = "none";
-            }
-
-            if (!strcmp(nlmeans_tune_opt, "none"))
+            if (nlmeans_tune != 1 || !strcmp(nlmeans_tune_opt, "none"))
             {
                 strength[0]    = strength[1]    = 6;
                 origin_tune[0] = origin_tune[1] = 1;
@@ -4601,6 +4595,8 @@ static int ParseOptions( int argc, char ** argv )
             sprintf(opt, "%lf:%lf:%d:%d:%d:%d:%lf:%lf:%d:%d:%d:%d",
                     strength[0], origin_tune[0], patch_size[0], range[0], frames[0], prefilter[0],
                     strength[1], origin_tune[1], patch_size[1], range[1], frames[1], prefilter[1]);
+
+            free(nlmeans_opt);
             nlmeans_opt = strdup(opt);
 
         }
