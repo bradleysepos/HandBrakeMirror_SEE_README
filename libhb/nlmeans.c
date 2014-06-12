@@ -293,15 +293,15 @@ static void nlmeans_prefilter(BorderedPlane *src,
         }
 
         // Filter plane; should already have at least 2px extra border on each side
-        if (filter_type & NLMEANS_PREFILTER_MODE_MEAN3X3)
-        {
-            // Mean 3x3
-            nlmeans_filter_mean(image, image_pre, w, h, border, 3);
-        }
-        else if (filter_type & NLMEANS_PREFILTER_MODE_MEAN5X5)
+        if (filter_type & NLMEANS_PREFILTER_MODE_MEAN5X5)
         {
             // Mean 5x5
             nlmeans_filter_mean(image, image_pre, w, h, border, 5);
+        }
+        else if (filter_type & NLMEANS_PREFILTER_MODE_MEAN3X3)
+        {
+            // Mean 3x3
+            nlmeans_filter_mean(image, image_pre, w, h, border, 3);
         }
 
         // Restore edges
