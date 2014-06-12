@@ -8,6 +8,48 @@
    For full terms see the file COPYING file or visit http://www.gnu.org/licenses/gpl-2.0.html
  */
 
+/* Usage
+ *
+ * Parameters:
+ *     lumaY_strength   : lumaY_origin_tune   : lumaY_patch_size   : lumaY_range   : lumaY_frames   : lumaY_prefilter   :
+ *     chromaB_strength : chromaB_origin_tune : chromaB_patch_size : chromaB_range : chromaB_frames : chromaB_prefilter :
+ *     chromaR_strength : chromaR_origin_tune : chromaR_patch_size : chromaR_range : chromaR_frames : chromaR_prefilter
+ *
+ * Defaults:
+ *     8:1:7:3:2:0 for each channel (equivalent to 8:1:7:3:2:0:8:1:7:3:2:0:8:1:7:3:2:0)
+ *
+ * Parameters cascade, e.g. 6:0.8:7:3:3:0:4:1 sets:
+ *     strength 6, origin tune 0.8 for luma
+ *     patch size 7, range 3, frames 3, prefilter 0 for all channels
+ *     strength 4, origin tune 1 for both chroma channels
+ *
+ * Strength is relative and must be adjusted; ALL parameters affect overall strength.
+ * Lower origin tune improves results for noisier input or animation (film 0.5-1, animation 0.15-0.5).
+ * Large patch size (>9) may greatly reduce quality by clobbering detail.
+ * Larger search range increases quality; however, computation time increases exponentially.
+ * Large number of frames (film >3, animation >6) may cause temporal smearing.
+ * Prefiltering can potentially improve weight decisions, yielding better results for difficult sources.
+ *
+ * Prefilter enum combos:
+ *     1: Mean 3x3
+ *     2: Mean 5x5
+ *     3: Mean 5x5 (overrides Mean 3x3)
+ *   257: Mean 3x3 reduced by 25%
+ *   258: Mean 5x5 reduced by 25%
+ *   513: Mean 3x3 reduced by 50%
+ *   514: Mean 5x5 reduced by 50%
+ *   769: Mean 3x3 reduced by 75%
+ *   770: Mean 5x5 reduced by 75%
+ *  1025: Mean 3x3 plus edge boost (restores lost edge detail)
+ *  1026: Mean 5x5 plus edge boost
+ *  1281: Mean 3x3 reduced by 25% plus edge boost
+ *        etc...
+ *  2049: Mean 3x3 passthru (NL-means off, prefilter is the output)
+ *        etc...
+ *  3329: Mean 3x3 reduced by 25% plus edge boost, passthru
+ *        etc...
+ */
+
 #include "hb.h"
 #include "hbffmpeg.h"
 
