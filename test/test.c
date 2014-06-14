@@ -439,6 +439,8 @@ int main( int argc, char ** argv )
     free(advanced_opts);
     free(h264_profile);
     free(h264_level);
+    free(nlmeans_opt);
+    free(nlmeans_tune_opt);
 
     // write a carriage return to stdout
     // avoids overlap / line wrapping when stderr is redirected
