@@ -62,7 +62,6 @@ static int    denoise               = 0;
 static char * denoise_opt           = 0;
 static int    nlmeans               = 0;
 static char * nlmeans_opt           = NULL;
-static int    nlmeans_tune          = 0;
 static char * nlmeans_tune_opt      = NULL;
 static int    detelecine            = 0;
 static char * detelecine_opt        = 0;
@@ -4156,7 +4155,6 @@ static int ParseOptions( int argc, char ** argv )
                     fprintf(stderr, "invalid nlmeans tune (%s)\n", optarg);
                     return -1;
                 }
-                nlmeans_tune = 1;
                 break;
             case '9':
                 if( optarg != NULL )
@@ -4491,7 +4489,7 @@ static int ParseOptions( int argc, char ** argv )
                    frames[2],
                    prefilter[2];
 
-            if (nlmeans_tune != 1 || !strcmp(nlmeans_tune_opt, "none"))
+            if (nlmeans_tune_opt == NULL || !strcmp(nlmeans_tune_opt, "none"))
             {
                 strength[0]    = strength[1]    = 6;
                 origin_tune[0] = origin_tune[1] = 1;
