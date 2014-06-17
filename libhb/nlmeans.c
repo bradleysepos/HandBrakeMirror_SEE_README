@@ -242,10 +242,10 @@ static void nlmeans_filter_mean(uint8_t *src,
 }
 
 static void nlmeans_filter_edgeboost(uint8_t *src,
-                                    uint8_t *dst,
-                                    int w,
-                                    int h,
-                                    int border)
+                                     uint8_t *dst,
+                                     int w,
+                                     int h,
+                                     int border)
 {
 
     int iw = w - 2*border;
@@ -599,7 +599,7 @@ static int hb_nlmeans_init(hb_filter_object_t *filter,
 
     for (int c = 0; c < 3; c++)
     {
-        // Replace NULL values with defaults
+        // Replace unset values with defaults
         if (pv->strength[c]    == -1) { pv->strength[c]    = c ? NLMEANS_STRENGTH_LUMA_DEFAULT    : NLMEANS_STRENGTH_CHROMA_DEFAULT; }
         if (pv->origin_tune[c] == -1) { pv->origin_tune[c] = c ? NLMEANS_ORIGIN_TUNE_LUMA_DEFAULT : NLMEANS_ORIGIN_TUNE_CHROMA_DEFAULT; }
         if (pv->patch_size[c]  == -1) { pv->patch_size[c]  = c ? NLMEANS_PATCH_SIZE_LUMA_DEFAULT  : NLMEANS_PATCH_SIZE_CHROMA_DEFAULT; }
