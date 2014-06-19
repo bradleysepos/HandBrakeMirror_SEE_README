@@ -251,13 +251,6 @@ static void nlmeans_filter_edgeboost(uint8_t *src,
     int iw = w - 2*border;
     int ih = h - 2*border;
 
-    // Sobel kernel
-    //int kernel_size = 3;
-    //int kernel[3][3] = {{-1, 0, 1},
-    //                    {-2, 0, 2},
-    //                    {-1, 0, 1}};
-    //double kernel_coef = 1.0 / 2.0;
-
     // Custom kernel
     int kernel_size = 3;
     int kernel[3][3] = {{-31, 0, 31},
@@ -548,7 +541,6 @@ static void nlmeans_plane(BorderedPlane *plane_tmp,
     {
         for (int x = n_half; x < w-n_half; x++)
         {
-            //*(dst + y*w + x) = (uint8_t)(tmp_data[y*w + x].pixel_sum / tmp_data[y*w + x].weight_sum);
             result = (uint8_t)(tmp_data[y*w + x].pixel_sum / tmp_data[y*w + x].weight_sum);
             *(dst + y*w + x) = result ? result : *(src + y*src_w + x);
         }
