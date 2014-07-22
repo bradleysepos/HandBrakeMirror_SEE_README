@@ -1232,6 +1232,7 @@ void hb_filter_close( hb_filter_object_t ** );
 char * hb_generate_filter_settings(int filter_id, const char *preset,
                                                   const char *tune);
 int    hb_validate_filter_settings(int filter_id, const char *filter_param);
+int    hb_validate_param_string(const char *regex_pattern, const char *param_string);
 
 typedef void hb_error_handler_t( const char *errmsg );
 
