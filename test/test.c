@@ -4307,6 +4307,11 @@ static int ParseOptions( int argc, char ** argv )
             free(nlmeans_opt);
             nlmeans_opt = opt;
         }
+        else if (nlmeans_opt != NULL)
+        {
+            fprintf(stderr, "Invalid parameters for nlmeans (%s).", nlmeans_opt);
+            return -1;
+        }
     }
     if (denoise)
     {
@@ -4316,6 +4321,11 @@ static int ParseOptions( int argc, char ** argv )
         {
             free(denoise_opt);
             denoise_opt = opt;
+        }
+        else if (denoise_opt != NULL)
+        {
+            fprintf(stderr, "Invalid parameters for hqdn3d (%s).", denoise_opt);
+            return -1;
         }
     }
 

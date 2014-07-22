@@ -9,6 +9,7 @@
  */
 
 #include "hb.h"
+#include <regex.h>
 
 /* NL-means presets and tunes
  *
@@ -162,7 +163,7 @@ static char * generate_nlmeans_settings(const char *preset, const char *tune)
         }
         else
         {
-            hb_log("Unrecognized nlmeans tune (%s).\n", tune);
+            fprintf(stderr, "Unrecognized nlmeans tune (%s).\n", tune);
             return NULL;
         }
 
@@ -179,7 +180,7 @@ static char * generate_nlmeans_settings(const char *preset, const char *tune)
         opt = strdup(preset);
         if (tune != NULL)
         {
-            hb_log("Custom nlmeans parameters specified; ignoring nlmeans tune (%s).\n", tune);
+            fprintf(stderr, "Custom nlmeans parameters specified; ignoring nlmeans tune (%s).\n", tune);
         }
     }
 
@@ -196,6 +197,9 @@ static char * generate_nlmeans_settings(const char *preset, const char *tune)
  */
 static char * generate_hqdn3d_settings(const char *preset, const char *tune)
 {
+    if (preset == NULL)
+        return NULL;
+
     if (!strcasecmp(preset, "strong"))
         return strdup("7:7:7:5:5:5");
     else if (!strcasecmp(preset, "medium"))
@@ -208,19 +212,80 @@ static char * generate_hqdn3d_settings(const char *preset, const char *tune)
         return strdup(preset);
 }
 
-char * hb_generate_filter_settings(int filter_id, const char *preset, const char *tune)
+static char * validate_param_string(char *regex_pattern, char *param_string)
 {
+    regex_t regex_temp;
+    int     regex_result;
+
+    regex_result = regcomp(&regex_temp, regex_pattern, REG_EXTENDED);
+    if (regex_result != 0)
+    {
+        fprintf(stderr, "validate_param_string: Error compiling regex for pattern (%s).\n", param_string);
+        regfree(&regex_temp);
+        return NULL;
+    }
+
+    regex_result = regexec(&regex_temp, param_string, 0, NULL, 0);
+    regfree(&regex_temp);
+    if (regex_result != 0)
+    {
+        return NULL;
+    }
+
+    return param_string;
+}
+
+char * hb_validate_filter_settings(int filter_id, const char *filter_param)
+{
+    // Regex matches "number" followed by one or more ":number", where number is uint or ufloat
+    const char *hb_colon_separated_params_regex = "^((([0-9]+(\.[0-9]+)?)|(\.[0-9]+))((:(([0-9]+(\.[0-9]+)?)|(\.[0-9]+)))+)?)$";
+
+    char *regex_pattern = NULL;
+    char *regex_result  = NULL;
+
     switch (filter_id)
     {
         case HB_FILTER_NLMEANS:
-            return generate_nlmeans_settings(preset, tune);
         case HB_FILTER_HQDN3D:
-            return generate_hqdn3d_settings(preset, tune);
+            regex_pattern = hb_colon_separated_params_regex;
+            break;
         default:
-            hb_log("hb_generate_filter_settings: Unrecognized filter %d\n",
+            fprintf(stderr, "hb_validate_filter_settings: Unrecognized filter (%d).\n",
                    filter_id);
             break;
     }
+
+    if (regex_pattern != NULL)
+    {
+        return validate_param_string(regex_pattern, filter_param);
+    }
+
+    return NULL;
+}
+
+char * hb_generate_filter_settings(int filter_id, const char *preset, const char *tune)
+{
+    char *filter_param = NULL;
+
+    switch (filter_id)
+    {
+        case HB_FILTER_NLMEANS:
+            filter_param = generate_nlmeans_settings(preset, tune);
+            break;
+        case HB_FILTER_HQDN3D:
+            filter_param = generate_hqdn3d_settings(preset, tune);
+            break;
+        default:
+            fprintf(stderr, "hb_generate_filter_settings: Unrecognized filter (%d).\n",
+                   filter_id);
+            break;
+    }
+
+    if (filter_param != NULL)
+    {
+        return hb_validate_filter_settings(filter_id, filter_param);
+    }
+
     return NULL;
 }
 
