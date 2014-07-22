@@ -212,55 +212,56 @@ static char * generate_hqdn3d_settings(const char *preset, const char *tune)
         return strdup(preset);
 }
 
-static char * validate_param_string(char *regex_pattern, char *param_string)
+int hb_validate_param_string(const char *regex_pattern, const char *param_string)
 {
     regex_t regex_temp;
-    int     regex_result;
 
-    regex_result = regcomp(&regex_temp, regex_pattern, REG_EXTENDED);
-    if (regex_result != 0)
+    if (regcomp(&regex_temp, regex_pattern, REG_EXTENDED) == 0)
     {
-        fprintf(stderr, "validate_param_string: Error compiling regex for pattern (%s).\n", param_string);
-        regfree(&regex_temp);
-        return NULL;
+        if (regexec(&regex_temp, param_string, 0, NULL, 0) == 0)
+        {
+            regfree(&regex_temp);
+            return 0;
+        }
+    }
+    else
+    {
+        fprintf(stderr, "hb_validate_param_string: Error compiling regex for pattern (%s).\n", param_string);
     }
 
-    regex_result = regexec(&regex_temp, param_string, 0, NULL, 0);
     regfree(&regex_temp);
-    if (regex_result != 0)
-    {
-        return NULL;
-    }
-
-    return param_string;
+    return 1;
 }
 
-char * hb_validate_filter_settings(int filter_id, const char *filter_param)
+int hb_validate_filter_settings(int filter_id, const char *filter_param)
 {
     // Regex matches "number" followed by one or more ":number", where number is uint or ufloat
-    const char *hb_colon_separated_params_regex = "^((([0-9]+(\.[0-9]+)?)|(\.[0-9]+))((:(([0-9]+(\.[0-9]+)?)|(\.[0-9]+)))+)?)$";
+    const char *hb_colon_separated_params_regex = "^((([0-9]+([.][0-9]+)?)|([.][0-9]+))((:(([0-9]+([.][0-9]+)?)|([.][0-9]+)))+)?)$";
 
     char *regex_pattern = NULL;
-    char *regex_result  = NULL;
 
     switch (filter_id)
     {
         case HB_FILTER_NLMEANS:
         case HB_FILTER_HQDN3D:
+            if (filter_param == NULL)
+            {
+                return 0;
+            }
             regex_pattern = hb_colon_separated_params_regex;
             break;
         default:
             fprintf(stderr, "hb_validate_filter_settings: Unrecognized filter (%d).\n",
                    filter_id);
+            return 1;
             break;
     }
 
-    if (regex_pattern != NULL)
+    if (hb_validate_param_string(regex_pattern, filter_param) == 0)
     {
-        return validate_param_string(regex_pattern, filter_param);
+        return 0;
     }
-
-    return NULL;
+    return 1;
 }
 
 char * hb_generate_filter_settings(int filter_id, const char *preset, const char *tune)
@@ -281,11 +282,10 @@ char * hb_generate_filter_settings(int filter_id, const char *preset, const char
             break;
     }
 
-    if (filter_param != NULL)
+    if (hb_validate_filter_settings(filter_id, filter_param) == 0)
     {
-        return hb_validate_filter_settings(filter_id, filter_param);
+        return filter_param;
     }
-
     return NULL;
 }
 

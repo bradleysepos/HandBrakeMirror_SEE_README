@@ -1231,6 +1231,7 @@ hb_list_t *hb_filter_list_copy(const hb_list_t *src);
 void hb_filter_close( hb_filter_object_t ** );
 char * hb_generate_filter_settings(int filter_id, const char *preset,
                                                   const char *tune);
+int    hb_validate_filter_settings(int filter_id, const char *filter_param);
 
 typedef void hb_error_handler_t( const char *errmsg );
 
