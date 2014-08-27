@@ -392,7 +392,7 @@ namespace HandBrake.ApplicationServices.Utilities
             }
 
             // NL Means
-            if (task.Denoise == Denoise.NlMeans)
+            if (task.Denoise == Denoise.NLMeans)
             {
                 switch (task.DenoisePreset) // Denoise
                 {
@@ -497,7 +497,7 @@ namespace HandBrake.ApplicationServices.Utilities
             if (task.TwoPass)
                 query += " -2 ";
 
-            if (task.TurboFirstPass)
+            if (task.TurboFirstPass && task.VideoEncoder == VideoEncoder.X264)
                 query += " -T ";
 
             if (task.Framerate.HasValue)
@@ -713,11 +713,11 @@ namespace HandBrake.ApplicationServices.Utilities
 
                 if (firstLoop)
                 {
-                    audioItems = string.IsNullOrEmpty(trackName) ? "\"\"" : string.Format("\"{0}\"", trackName.Trim());
+                    audioItems = string.IsNullOrEmpty(trackName) ? "\\\"\\\"" : string.Format("\\\"{0}\\\"", trackName.Trim());
                     firstLoop = false;
                 }
                 else
-                    audioItems += "," + (string.IsNullOrEmpty(trackName) ? "\"\"" : string.Format("\"{0}\"", trackName.Trim()));
+                    audioItems += "," + (string.IsNullOrEmpty(trackName) ? "\\\"\\\"" : string.Format("\\\"{0}\\\"", trackName.Trim()));
             }
             if (foundTrackName)
                 query += string.Format(" --aname={0}", audioItems);

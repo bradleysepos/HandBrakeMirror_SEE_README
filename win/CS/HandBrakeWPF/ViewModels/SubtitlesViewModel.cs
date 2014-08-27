@@ -494,8 +494,6 @@ namespace HandBrakeWPF.ViewModels
 
         #region Implemented Interfaces
 
-        #region ITabInterface
-
         /// <summary>
         /// Setup this tab for the specified preset.
         /// </summary>
@@ -557,8 +555,6 @@ namespace HandBrakeWPF.ViewModels
 
         #endregion
 
-        #endregion
-
         #region Methods
 
         /// <summary>
@@ -594,7 +590,7 @@ namespace HandBrakeWPF.ViewModels
 
             if ((source.SubtitleType == SubtitleType.PGS || source.SubtitleType == SubtitleType.VobSub || source.SubtitleType == SubtitleType.ForeignAudioSearch)
                 && this.Task != null
-                && (this.Task.OutputFormat == OutputFormat.Mp4 || this.Task.OutputFormat == OutputFormat.M4V))
+                && this.Task.OutputFormat == OutputFormat.Mp4)
             {
                 if (track.CanBeBurned)
                 {

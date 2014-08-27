@@ -281,6 +281,11 @@ namespace HandBrakeWPF.ViewModels
         private bool showAdvancedTab;
 
         /// <summary>
+        /// The enable static preview.
+        /// </summary>
+        private bool enableStaticPreview;
+
+        /// <summary>
         /// The remove punctuation.
         /// </summary>
         private bool removePunctuation;
@@ -1129,6 +1134,22 @@ namespace HandBrakeWPF.ViewModels
             }
         }
 
+        /// <summary>
+        /// Gets or sets a value indicating whether enable static preview.
+        /// </summary>
+        public bool EnableStaticPreview
+        {
+            get
+            {
+                return this.enableStaticPreview;
+            }
+            set
+            {
+                this.enableStaticPreview = value;
+                this.NotifyOfPropertyChange(() => this.EnableStaticPreview);
+            }
+        }
+
         #endregion
 
         #region Video
@@ -1572,6 +1593,8 @@ namespace HandBrakeWPF.ViewModels
             // Use dvdnav
             this.DisableLibdvdNav = userSettingService.GetUserSetting<bool>(UserSettingConstants.DisableLibDvdNav);
 
+            this.EnableStaticPreview = userSettingService.GetUserSetting<bool>(UserSettingConstants.EnableStaticPreview);            
+
             int port;
             int.TryParse(userSettingService.GetUserSetting<string>(UserSettingConstants.ServerPort), out port);
             this.ServerPort = port;
@@ -1629,7 +1652,7 @@ namespace HandBrakeWPF.ViewModels
             userSettingService.SetUserSetting(UserSettingConstants.PreviewScanCount, this.SelectedPreviewCount);
             userSettingService.SetUserSetting(UserSettingConstants.X264Step, double.Parse(this.SelectedGranulairty, CultureInfo.InvariantCulture));
             userSettingService.SetUserSetting(UserSettingConstants.ShowAdvancedTab, this.ShowAdvancedTab);
-            userSettingService.SetUserSetting(UserSettingConstants.ShowAdvancedTab, this.ShowAdvancedTab);
+            userSettingService.SetUserSetting(UserSettingConstants.EnableStaticPreview, this.EnableStaticPreview);
 
             int value;
             if (int.TryParse(this.MinLength.ToString(CultureInfo.InvariantCulture), out value))
@@ -1674,6 +1697,8 @@ namespace HandBrakeWPF.ViewModels
         {
             if (info.TotalBytes == 0 || info.BytesRead == 0)
             {
+                this.UpdateAvailable = false;
+                this.UpdateMessage = info.WasSuccessful ? "Update Downloaded" : "Update Service Unavailable. You can try downloading the update from https://handbrake.fr";
                 return;
             }
 
@@ -1694,7 +1719,7 @@ namespace HandBrakeWPF.ViewModels
         private void DownloadComplete(DownloadStatus info)
         {
             this.UpdateAvailable = false;
-            this.UpdateMessage = info.WasSuccessful ? "Update Downloaded" : "Update Failed. You can try downloading the update from http://handbrake.fr";
+            this.UpdateMessage = info.WasSuccessful ? "Update Downloaded" : "Update Failed. You can try downloading the update from https://handbrake.fr";
 
             Process.Start(Path.Combine(Path.GetTempPath(), "handbrake-setup.exe"));
             Execute.OnUIThread(() => Application.Current.Shutdown());

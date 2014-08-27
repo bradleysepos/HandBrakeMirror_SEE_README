@@ -33,6 +33,7 @@
 #include "callbacks.h"
 #include "subtitlehandler.h"
 #include "audiohandler.h"
+#include "videohandler.h"
 #include "x264handler.h"
 #include "preview.h"
 #include "values.h"
@@ -693,6 +694,7 @@ ghb_vquality_default(signal_user_data_t *ud)
 
     switch (vcodec)
     {
+    case HB_VCODEC_X265:
     case HB_VCODEC_X264:
         return 20;
     case HB_VCODEC_THEORA:
@@ -2012,18 +2014,26 @@ ghb_lookup_queue_title(int title_id, int *index)
 }
 
 static void
-x264_tune_opts_set(GtkBuilder *builder, const gchar *name)
+video_tune_opts_set(signal_user_data_t *ud, const gchar *name)
 {
     GtkTreeIter iter;
     GtkListStore *store;
     gint ii, count = 0;
 
-    const char * const *tunes;
-    tunes = hb_video_encoder_get_tunes(HB_VCODEC_X264);
-    while (tunes && tunes[count]) count++;
+    // Check if encoder has been set yet.
+    // If not, bail
+    GValue *value = ghb_dict_lookup(ud->settings, "VideoEncoder");
+    if (value == NULL) return;
 
-    g_debug("x264_tune_opts_set ()\n");
-    GtkComboBox *combo = GTK_COMBO_BOX(GHB_WIDGET(builder, name));
+    int encoder = ghb_get_video_encoder(ud->settings);
+    const char * const *tunes;
+    tunes = hb_video_encoder_get_tunes(encoder);
+
+    while (tunes && tunes[count]) count++;
+    if (count == 0) return;
+
+    g_debug("video_tune_opts_set ()\n");
+    GtkComboBox *combo = GTK_COMBO_BOX(GHB_WIDGET(ud->builder, name));
     store = GTK_LIST_STORE(gtk_combo_box_get_model (combo));
     gtk_list_store_clear(store);
 
@@ -2053,18 +2063,26 @@ x264_tune_opts_set(GtkBuilder *builder, const gchar *name)
 }
 
 static void
-h264_profile_opts_set(GtkBuilder *builder, const gchar *name)
+video_profile_opts_set(signal_user_data_t *ud, const gchar *name)
 {
     GtkTreeIter iter;
     GtkListStore *store;
     gint ii, count = 0;
 
-    const char * const *profiles;
-    profiles = hb_video_encoder_get_profiles(HB_VCODEC_X264);
-    while (profiles && profiles[count]) count++;
+    // Check if encoder has been set yet.
+    // If not, bail
+    GValue *value = ghb_dict_lookup(ud->settings, "VideoEncoder");
+    if (value == NULL) return;
 
-    g_debug("h264_profile_opts_set ()\n");
-    GtkComboBox *combo = GTK_COMBO_BOX(GHB_WIDGET(builder, name));
+    int encoder = ghb_get_video_encoder(ud->settings);
+    const char * const *profiles;
+    profiles = hb_video_encoder_get_profiles(encoder);
+
+    while (profiles && profiles[count]) count++;
+    if (count == 0) return;
+
+    g_debug("video_profile_opts_set ()\n");
+    GtkComboBox *combo = GTK_COMBO_BOX(GHB_WIDGET(ud->builder, name));
     store = GTK_LIST_STORE(gtk_combo_box_get_model (combo));
     gtk_list_store_clear(store);
 
@@ -2082,18 +2100,26 @@ h264_profile_opts_set(GtkBuilder *builder, const gchar *name)
 }
 
 static void
-h264_level_opts_set(GtkBuilder *builder, const gchar *name)
+video_level_opts_set(signal_user_data_t *ud, const gchar *name)
 {
     GtkTreeIter iter;
     GtkListStore *store;
     gint ii, count = 0;
 
-    const char * const *levels;
-    levels = hb_video_encoder_get_levels(HB_VCODEC_X264);
-    while (levels && levels[count]) count++;
+    // Check if encoder has been set yet.
+    // If not, bail
+    GValue *value = ghb_dict_lookup(ud->settings, "VideoEncoder");
+    if (value == NULL) return;
 
-    g_debug("h264_level_opts_set ()\n");
-    GtkComboBox *combo = GTK_COMBO_BOX(GHB_WIDGET(builder, name));
+    int encoder = ghb_get_video_encoder(ud->settings);
+    const char * const *levels;
+    levels = hb_video_encoder_get_levels(encoder);
+
+    while (levels && levels[count]) count++;
+    if (count == 0) return;
+
+    g_debug("video_level_opts_set ()\n");
+    GtkComboBox *combo = GTK_COMBO_BOX(GHB_WIDGET(ud->builder, name));
     store = GTK_LIST_STORE(gtk_combo_box_get_model (combo));
     gtk_list_store_clear(store);
 
@@ -2565,9 +2591,9 @@ ghb_update_ui_combo_box(
         small_opts_set(ud->builder, "x264_subme", &subme_opts);
         small_opts_set(ud->builder, "x264_analyse", &analyse_opts);
         small_opts_set(ud->builder, "x264_trellis", &trellis_opts);
-        x264_tune_opts_set(ud->builder, "x264Tune");
-        h264_profile_opts_set(ud->builder, "h264Profile");
-        h264_level_opts_set(ud->builder, "h264Level");
+        video_tune_opts_set(ud, "VideoTune");
+        video_profile_opts_set(ud, "VideoProfile");
+        video_level_opts_set(ud, "VideoLevel");
         container_opts_set(ud->builder, "FileFormat");
     }
     else
@@ -2596,12 +2622,12 @@ ghb_update_ui_combo_box(
             subtitle_track_opts_set(ud->builder, "SubtitleTrack", user_data);
         else if (strcmp(name, "AudioTrack") == 0)
             audio_track_opts_set(ud->builder, "AudioTrack", user_data);
-        else if (strcmp(name, "x264Tune") == 0)
-            x264_tune_opts_set(ud->builder, "x264Tune");
-        else if (strcmp(name, "h264Profile") == 0)
-            h264_profile_opts_set(ud->builder, "h264Profile");
-        else if (strcmp(name, "h264Level") == 0)
-            h264_level_opts_set(ud->builder, "h264Level");
+        else if (strcmp(name, "VideoTune") == 0)
+            video_tune_opts_set(ud, "VideoTune");
+        else if (strcmp(name, "VideoProfile") == 0)
+            video_profile_opts_set(ud, "VideoProfile");
+        else if (strcmp(name, "VideoLevel") == 0)
+            video_level_opts_set(ud, "VideoLevel");
         else if (strcmp(name, "FileFormat") == 0)
             container_opts_set(ud->builder, "FileFormat");
         else
@@ -2630,9 +2656,9 @@ init_ui_combo_boxes(GtkBuilder *builder)
     init_combo_box(builder, "VideoEncoder");
     init_combo_box(builder, "AudioEncoder");
     init_combo_box(builder, "AudioEncoderFallback");
-    init_combo_box(builder, "x264Tune");
-    init_combo_box(builder, "h264Profile");
-    init_combo_box(builder, "h264Level");
+    init_combo_box(builder, "VideoTune");
+    init_combo_box(builder, "VideoProfile");
+    init_combo_box(builder, "VideoLevel");
     init_combo_box(builder, "FileFormat");
     for (ii = 0; combo_name_map[ii].name != NULL; ii++)
     {
@@ -2652,10 +2678,6 @@ ghb_build_advanced_opts_string(GValue *settings)
         case HB_VCODEC_X264:
             return ghb_settings_get_string(settings, "x264Option");
 
-        case HB_VCODEC_FFMPEG_MPEG2:
-        case HB_VCODEC_FFMPEG_MPEG4:
-            return ghb_settings_get_string(settings, "lavcOption");
-
         default:
             return NULL;
     }
@@ -2667,9 +2689,11 @@ void ghb_set_video_encoder_opts(hb_job_t *job, GValue *js)
 
     switch (vcodec)
     {
+        case HB_VCODEC_X265:
         case HB_VCODEC_X264:
         {
-            if (ghb_settings_get_boolean(js, "x264UseAdvancedOptions"))
+            if (vcodec == HB_VCODEC_X264 &&
+                ghb_settings_get_boolean(js, "x264UseAdvancedOptions"))
             {
                 char *opts = ghb_settings_get_string(js, "x264Option");
                 hb_job_set_encoder_options(job, opts);
@@ -2678,21 +2702,24 @@ void ghb_set_video_encoder_opts(hb_job_t *job, GValue *js)
             else
             {
                 GString *str = g_string_new("");
-                char *preset = ghb_settings_get_string(js, "x264Preset");
-                char *tune = ghb_settings_get_string(js, "x264Tune");
-                char *profile = ghb_settings_get_string(js, "h264Profile");
-                char *level = ghb_settings_get_string(js, "h264Level");
-                char *opts = ghb_settings_get_string(js, "x264OptionExtra");
+                char *preset = ghb_settings_get_string(js, "VideoPreset");
+                char *tune = ghb_settings_get_string(js, "VideoTune");
+                char *profile = ghb_settings_get_string(js, "VideoProfile");
+                char *level = ghb_settings_get_string(js, "VideoLevel");
+                char *opts = ghb_settings_get_string(js, "VideoOptionExtra");
                 char *tunes;
 
                 g_string_append_printf(str, "%s", tune);
-                if (ghb_settings_get_boolean(js, "x264FastDecode"))
+                if (vcodec == HB_VCODEC_X264)
                 {
-                    g_string_append_printf(str, "%s%s", str->str[0] ? "," : "", "fastdecode");
-                }
-                if (ghb_settings_get_boolean(js, "x264ZeroLatency"))
-                {
-                    g_string_append_printf(str, "%s%s", str->str[0] ? "," : "", "zerolatency");
+                    if (ghb_settings_get_boolean(js, "x264FastDecode"))
+                    {
+                        g_string_append_printf(str, "%s%s", str->str[0] ? "," : "", "fastdecode");
+                    }
+                    if (ghb_settings_get_boolean(js, "x264ZeroLatency"))
+                    {
+                        g_string_append_printf(str, "%s%s", str->str[0] ? "," : "", "zerolatency");
+                    }
                 }
                 tunes = g_string_free(str, FALSE);
 
@@ -2721,7 +2748,7 @@ void ghb_set_video_encoder_opts(hb_job_t *job, GValue *js)
         case HB_VCODEC_FFMPEG_MPEG2:
         case HB_VCODEC_FFMPEG_MPEG4:
         {
-            gchar *opts = ghb_settings_get_string(js, "lavcOption");
+            gchar *opts = ghb_settings_get_string(js, "VideoOptionExtra");
             if (opts != NULL && opts[0])
             {
                 hb_job_set_encoder_options(job, opts);
@@ -3519,6 +3546,8 @@ ghb_set_scale_settings(GValue *settings, gint mode)
 
     // First configure widgets
     mod = ghb_settings_combo_int(settings, "PictureModulus");
+    if (mod <= 0)
+        mod = 16;
     keep_aspect = ghb_settings_get_boolean(settings, "PictureKeepRatio");
     autocrop = ghb_settings_get_boolean(settings, "PictureAutoCrop");
     autoscale = ghb_settings_get_boolean(settings, "autoscale");
@@ -4141,82 +4170,6 @@ ghb_validate_audio(GValue *settings)
     return TRUE;
 }
 
-gboolean
-ghb_validate_vquality(GValue *settings)
-{
-    gint vcodec;
-    gchar *message;
-    gint min, max;
-
-    vcodec = ghb_settings_video_encoder_codec(settings, "VideoEncoder");
-    gdouble vquality;
-    vquality = ghb_settings_get_double(settings, "VideoQualitySlider");
-    if (ghb_settings_get_boolean(settings, "vquality_type_constant"))
-    {
-        switch (vcodec)
-        {
-            case HB_VCODEC_X264:
-            {
-                min = 16;
-                max = 30;
-            } break;
-
-            case HB_VCODEC_FFMPEG_MPEG2:
-            case HB_VCODEC_FFMPEG_MPEG4:
-            {
-                min = 1;
-                max = 8;
-            } break;
-
-            case HB_VCODEC_THEORA:
-            case HB_VCODEC_FFMPEG_VP8:
-            {
-                min = 0;
-                max = 63;
-            } break;
-
-            default:
-            {
-                min = 48;
-                max = 62;
-            } break;
-        }
-        if (vcodec == HB_VCODEC_X264 && vquality == 0.0)
-        {
-            message = g_strdup_printf(
-                        _("Warning: lossless h.264 selected\n\n"
-                        "Lossless h.264 is not well supported by\n"
-                        "many players and editors.\n\n"
-                        "It will produce enormous output files.\n\n"
-                        "Are you sure you wish to use this setting?"));
-            if (!ghb_message_dialog(GTK_MESSAGE_QUESTION, message,
-                                    _("Cancel"), _("Continue")))
-            {
-                g_free(message);
-                return FALSE;
-            }
-            g_free(message);
-            ghb_settings_set_string(settings, "h264Profile", "auto");
-        }
-        else if (vquality < min || vquality > max)
-        {
-            message = g_strdup_printf(
-                        _("Interesting video quality choice: %d\n\n"
-                        "Typical values range from %d to %d.\n\n"
-                        "Are you sure you wish to use this setting?"),
-                        (gint)vquality, min, max);
-            if (!ghb_message_dialog(GTK_MESSAGE_QUESTION, message,
-                                    _("Cancel"), _("Continue")))
-            {
-                g_free(message);
-                return FALSE;
-            }
-            g_free(message);
-        }
-    }
-    return TRUE;
-}
-
 static void
 add_job(hb_handle_t *h, GValue *js, gint unique_id, int titleindex)
 {
@@ -4795,8 +4748,8 @@ add_job(hb_handle_t *h, GValue *js, gint unique_id, int titleindex)
         /*
          * If turbo options have been selected then set job->fastfirstpass
          */
-        if( ghb_settings_get_boolean(js, "VideoTurboTwoPass") &&
-            job->vcodec == HB_VCODEC_X264 )
+        if(ghb_settings_get_boolean(js, "VideoTurboTwoPass") &&
+           (job->vcodec == HB_VCODEC_X264 || job->vcodec == HB_VCODEC_X265))
         {
             job->fastfirstpass = 1;
         }
@@ -5046,29 +4999,26 @@ ghb_get_preview_image(
     uiGeo.par.num = 1;
     uiGeo.par.den = 1;
 
-    // Populate job with things needed by hb_get_preview
-    hb_job_t *job = hb_job_init((hb_title_t*)title);
-    job->width = uiGeo.width;
-    job->height = uiGeo.height;
-    job->deinterlace = deinterlace;
-    memcpy(job->crop, uiGeo.crop, sizeof(int[4]));
+    GdkPixbuf *preview;
+    hb_image_t *image;
+    image = hb_get_preview2(h_scan, title->index, index, &uiGeo, deinterlace);
 
-    // Make sure we have a big enough buffer to receive the image from libhb
-    guint8 *buffer = g_malloc(uiGeo.width * uiGeo.height * 4);
-
-    hb_get_preview( h_scan, job, index, buffer );
-    hb_job_close( &job );
+    if (image == NULL)
+    {
+        preview = gdk_pixbuf_new(GDK_COLORSPACE_RGB, FALSE, 8,
+                                 title->width, title->height);
+        return preview;
+    }
 
     // Create an GdkPixbuf and copy the libhb image into it, converting it from
     // libhb's format something suitable.
     // The image data returned by hb_get_preview is 4 bytes per pixel,
     // BGRA format. Alpha is ignored.
-    GdkPixbuf *preview;
     preview = gdk_pixbuf_new(GDK_COLORSPACE_RGB, FALSE, 8,
-                             uiGeo.width, uiGeo.height);
+                             image->width, image->height);
     guint8 *pixels = gdk_pixbuf_get_pixels(preview);
 
-    guint8 *src_line = buffer;
+    guint8 *src_line = image->data;
     guint8 *dst = pixels;
 
     gint ii, jj;
@@ -5076,11 +5026,11 @@ ghb_get_preview_image(
     gint stride = gdk_pixbuf_get_rowstride(preview);
     guint8 *tmp;
 
-    for (ii = 0; ii < uiGeo.height; ii++)
+    for (ii = 0; ii < image->height; ii++)
     {
         guint32 *src = (guint32*)src_line;
         tmp = dst;
-        for (jj = 0; jj < uiGeo.width; jj++)
+        for (jj = 0; jj < image->width; jj++)
         {
             tmp[0] = src[0] >> 16;
             tmp[1] = src[0] >> 8;
@@ -5088,7 +5038,7 @@ ghb_get_preview_image(
             tmp += channels;
             src++;
         }
-        src_line += uiGeo.width * 4;
+        src_line += image->plane[0].stride;
         dst += stride;
     }
     gint w = ghb_settings_get_int(ud->settings, "scale_width");
@@ -5107,8 +5057,8 @@ ghb_get_preview_image(
     *out_width = w;
     *out_height = h;
 
-    int previewWidth = uiGeo.width;
-    int previewHeight = uiGeo.height;
+    int previewWidth = image->width;
+    int previewHeight = image->height;
 
     // If the preview is too large to fit the screen, reduce it's size.
     if (ghb_settings_get_boolean(ud->prefs, "reduce_hd_preview"))
@@ -5167,6 +5117,7 @@ ghb_get_preview_image(
         // Right
         hash_pixbuf(preview, previewWidth-c3, c0, c3, h, 32, 1);
     }
+    hb_image_close(&image);
     return preview;
 }
 

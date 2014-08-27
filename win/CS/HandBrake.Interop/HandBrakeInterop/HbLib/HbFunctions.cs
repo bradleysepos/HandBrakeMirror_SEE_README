@@ -114,6 +114,9 @@ namespace HandBrake.Interop.HbLib
 		[DllImport("hb.dll", EntryPoint = "hb_set_anamorphic_size", CallingConvention = CallingConvention.Cdecl)]
 		public static extern void hb_set_anamorphic_size(ref hb_job_s job, ref int output_width, ref int output_height, ref int output_par_width, ref int output_par_height);
 
+        [DllImport("hb.dll", EntryPoint = "hb_set_anamorphic_size2", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void hb_set_anamorphic_size2(ref hb_geometry_s sourceGeometry, ref hb_ui_geometry_s uiGeometry, ref hb_geometry_s result);
+        
 
 		/// Return Type: int
 		///param0: hb_handle_t*
@@ -443,6 +446,12 @@ namespace HandBrake.Interop.HbLib
 		/// hb_filter_object_t * hb_filter_init( int filter_id );
 		[DllImport("hb.dll", EntryPoint = "hb_filter_init", CallingConvention = CallingConvention.Cdecl)]
 		public static extern IntPtr hb_filter_init(int filter_id);
+
+		[DllImport("hb.dll", EntryPoint = "hb_generate_filter_settings", CallingConvention = CallingConvention.Cdecl)]
+		public static extern IntPtr hb_generate_filter_settings(
+			int filter_id,
+			[In] [MarshalAs(UnmanagedType.LPStr)] string preset,
+			[In] [MarshalAs(UnmanagedType.LPStr)] string tune);
 
 		[DllImport("hb.dll", EntryPoint = "hb_x264_encopt_name", CallingConvention = CallingConvention.Cdecl)]
 		public static extern IntPtr hb_x264_encopt_name(IntPtr name);

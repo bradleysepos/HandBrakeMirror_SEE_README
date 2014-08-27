@@ -822,8 +822,8 @@ class Project( Action ):
             self.build = time.strftime('%Y%m%d') + '99'
             self.title = '%s rev%d (%s)' % (self.name,repo.rev,self.build)
 
-        self.url_appcast = 'http://handbrake.fr/appcast%s%s.xml' % (url_ctype,url_arch)
-        self.url_appnote = 'http://handbrake.fr/appcast/%s.html' % (url_ntype)
+        self.url_appcast = 'https://handbrake.fr/appcast%s%s.xml' % (url_ctype,url_arch)
+        self.url_appnote = 'https://handbrake.fr/appcast/%s.html' % (url_ntype)
 
         self.msg_end = '%s (%s)' % (self.name,repo.type)
         self.fail = False
@@ -1208,7 +1208,8 @@ def createCLI():
     grp.add_option( '--enable-hwd', default=False, action='store_true', help=h )
     
     h = IfHost( 'enable use of x265 encoding', '*-*-*', none=optparse.SUPPRESS_HELP ).value
-    grp.add_option( '--enable-x265', default=False, action='store_true', help=h )
+    grp.add_option( '--enable-x265', default=True, action='store_true', help=h )
+    grp.add_option( '--disable-x265', dest="enable_x265", action='store_false' )
 
     h = IfHost( 'enable use of fdk-aac encoder', '*-*-*', none=optparse.SUPPRESS_HELP ).value
     grp.add_option( '--enable-fdk-aac', dest="enable_fdk_aac", default=not host.match( '*-*-darwin*' ), action='store_true', help=h )
@@ -1217,18 +1218,6 @@ def createCLI():
     h = IfHost( 'enable use of libav aac encoder', '*-*-*', none=optparse.SUPPRESS_HELP ).value
     grp.add_option( '--enable-libav-aac', dest="enable_libav_aac", default=not host.match( '*-*-darwin*' ), action='store_true', help=h )
     grp.add_option( '--disable-libav-aac', dest="enable_libav_aac", action='store_false' )
-
-    h = IfHost( 'enable use of mp4v2 muxer', '*-*-*', none=optparse.SUPPRESS_HELP ).value
-    grp.add_option( '--enable-mp4v2', dest="enable_mp4v2", default=True, action='store_true', help=h )
-    grp.add_option( '--disable-mp4v2', dest="enable_mp4v2", action='store_false' )
-
-    h = IfHost( 'enable use of libmkv muxer', '*-*-*', none=optparse.SUPPRESS_HELP ).value
-    grp.add_option( '--enable-libmkv', dest="enable_libmkv", default=True, action='store_true', help=h )
-    grp.add_option( '--disable-libmkv', dest="enable_libmkv", action='store_false' )
-
-    h = IfHost( 'enable use of avformat muxer', '*-*-*', none=optparse.SUPPRESS_HELP ).value
-    grp.add_option( '--enable-avformat', dest="enable_avformat", default=True, action='store_true', help=h )
-    grp.add_option( '--disable-avformat', dest="enable_avformat", action='store_false' )
 
     cli.add_option_group( grp )
 
@@ -1259,6 +1248,8 @@ def createCLI():
     grp.add_option( '--enable-local-yasm', default=False, action='store_true', help=h )
     h = IfHost( 'Build and use local autotools', '*-*-*', none=optparse.SUPPRESS_HELP ).value
     grp.add_option( '--enable-local-autotools', default=False, action='store_true', help=h )
+    h = IfHost( 'Build and use local cmake', '*-*-*', none=optparse.SUPPRESS_HELP ).value
+    grp.add_option( '--enable-local-cmake', default=False, action='store_true', help=h )
     h = IfHost( 'Build and use local pkg-config', '*-*-darwin*', none=optparse.SUPPRESS_HELP ).value
     grp.add_option( '--enable-local-pkgconfig', default=False, action='store_true', help=h )
 
@@ -1430,6 +1421,7 @@ try:
         yasm     = ToolProbe( 'YASM.exe',     'yasm', abort=False, minversion=[1,2,0] )
         autoconf = ToolProbe( 'AUTOCONF.exe', 'autoconf', abort=False )
         automake = ToolProbe( 'AUTOMAKE.exe', 'automake', abort=False )
+        cmake    = ToolProbe( 'CMAKE.exe',    'cmake', abort=False )
         libtool  = ToolProbe( 'LIBTOOL.exe',  'libtool', abort=False )
         pkgconfig = ToolProbe( 'PKGCONFIG.exe', 'pkg-config', abort=False )
 
@@ -1502,6 +1494,11 @@ try:
     if not options.enable_local_autotools and (Tools.autoconf.fail or Tools.automake.fail or Tools.libtool.fail):
         stdout.write( 'note: enabling local autotools\n' )
         options.enable_local_autotools = True
+
+    ## enable local cmake when cmake probe fails
+    if not options.enable_local_cmake and (Tools.cmake.fail):
+        stdout.write( 'note: enabling local cmake\n' )
+        options.enable_local_cmake = True
 
     ## enable local pkg-config when probe fails
     if not options.enable_local_pkgconfig and Tools.pkgconfig.fail:
@@ -1671,6 +1668,7 @@ int main ()
     doc.addBlank()
     doc.add( 'FEATURE.local_yasm', int( options.enable_local_yasm ))
     doc.add( 'FEATURE.local_autotools', int( options.enable_local_autotools ))
+    doc.add( 'FEATURE.local_cmake', int( options.enable_local_cmake ))
     doc.add( 'FEATURE.local_pkgconfig', int( options.enable_local_pkgconfig ))
     doc.add( 'FEATURE.asm',        'disabled' )
     doc.add( 'FEATURE.gtk',        int( not options.disable_gtk ))
@@ -1679,9 +1677,6 @@ int main ()
     doc.add( 'FEATURE.gst',        int( not options.disable_gst ))
     doc.add( 'FEATURE.fdk_aac',    int( options.enable_fdk_aac ))
     doc.add( 'FEATURE.libav_aac',  int( options.enable_libav_aac ))
-    doc.add( 'FEATURE.mp4v2',      int( options.enable_mp4v2 ))
-    doc.add( 'FEATURE.libmkv',     int( options.enable_libmkv ))
-    doc.add( 'FEATURE.avformat',   int( options.enable_avformat ))
     doc.add( 'FEATURE.qsv',        int( options.enable_qsv ))
     doc.add( 'FEATURE.hwd',        int( options.enable_hwd ))
     doc.add( 'FEATURE.xcode',      int( not (Tools.xcodebuild.fail or options.disable_xcode or options.cross) ))

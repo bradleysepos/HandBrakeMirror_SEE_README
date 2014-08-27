@@ -15,6 +15,7 @@ namespace HandBrakeWPF.Converters.Filters
     using System.Linq;
     using System.Windows.Data;
 
+    using HandBrake.ApplicationServices.Model.Encoding;
     using HandBrake.Interop.Model.Encoding;
 
     /// <summary>
@@ -51,7 +52,7 @@ namespace HandBrakeWPF.Converters.Filters
                     return new List<DenoisePreset> { DenoisePreset.Weak, DenoisePreset.Medium, DenoisePreset.Strong, DenoisePreset.Custom };
                 }
 
-                if (denoiseChoice == Denoise.NlMeans)
+                if (denoiseChoice == Denoise.NLMeans)
                 {
                     return new List<DenoisePreset> { DenoisePreset.Ultralight, DenoisePreset.Light, DenoisePreset.Medium, DenoisePreset.Strong };
                 } 

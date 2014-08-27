@@ -9,12 +9,17 @@
 #import "HBOutputPanelController.h"
 #import "HBPreferencesController.h"
 #import "HBDVDDetector.h"
-#import "HBPresets.h"
+#import "HBPresetsManager.h"
+#import "HBPreset.h"
 #import "HBPreviewController.h"
-#import "DockTextField.h"
+#import "HBDockTile.h"
 #import "HBUtilities.h"
 
-unsigned int maximumNumberOfAllowedAudioTracks = 1024;
+#import "HBPresetsViewController.h"
+
+#import "HBAudioDefaults.h"
+#import "HBSubtitlesDefaults.h"
+
 NSString *HBContainerChangedNotification       = @"HBContainerChangedNotification";
 NSString *keyContainerTag                      = @"keyContainerTag";
 NSString *HBTitleChangedNotification           = @"HBTitleChangedNotification";
@@ -22,9 +27,6 @@ NSString *keyTitleTag                          = @"keyTitleTag";
 
 NSString *dragDropFiles                        = @"dragDropFiles";
 
-#define DragDropSimplePboardType                 @"MyCustomOutlineViewPboardType"
-
-NSString *dockTilePercentFormat                = @"%2.1f%%";
 // DockTile update freqency in total percent increment
 #define dockTileUpdateFrequency                  0.1f
 
@@ -39,71 +41,68 @@ static NSString *        ShowPreviewIdentifier              = @"Show Preview Win
 static NSString *        ShowActivityIdentifier             = @"Debug Output Item Identifier";
 static NSString *        ChooseSourceIdentifier             = @"Choose Source Item Identifier";
 
+@interface HBController () <HBPresetsViewControllerDelegate>
+
+// The current selected preset.
+@property (nonatomic, retain) HBPreset *selectedPreset;
+
+@end
 
 /*******************************
  * HBController implementation *
  *******************************/
 @implementation HBController
 
-+ (unsigned int) maximumNumberOfAllowedAudioTracks	{	return maximumNumberOfAllowedAudioTracks;	}
-
-- (id)init
+- (instancetype)init
 {
     self = [super init];
-    if( !self )
+    if (self)
     {
-        return nil;
+        // Register the defaults preferences
+        [HBPreferencesController registerUserDefaults];
+
+        /* Check for and create the App Support Preview directory if necessary */
+        NSString *previewDirectory = [[HBUtilities appSupportPath] stringByAppendingPathComponent:@"Previews"];
+        if (![[NSFileManager defaultManager] fileExistsAtPath:previewDirectory])
+        {
+            [[NSFileManager defaultManager] createDirectoryAtPath:previewDirectory
+                                      withIntermediateDirectories:YES
+                                                       attributes:nil
+                                                            error:NULL];
+        }
+
+        // Inits the controllers
+        outputPanel = [[HBOutputPanelController alloc] init];
+        fPictureController = [[HBPictureController alloc] init];
+        fQueueController = [[HBQueueController alloc] init];
+
+        // we init the HBPresetsManager class
+        NSURL *presetsURL = [NSURL fileURLWithPath:[[HBUtilities appSupportPath] stringByAppendingPathComponent:@"UserPresets.plist"]];
+        presetManager = [[HBPresetsManager alloc] initWithURL:presetsURL];
+        _selectedPreset = presetManager.defaultPreset;
+
+        // Load the dockTile and instiante initial text fields
+        dockTile = [[HBDockTile alloc] initWithDockTile:[[NSApplication sharedApplication] dockTile]
+                                                  image:[[NSApplication sharedApplication] applicationIconImage]];
+
+        [dockTile updateDockIcon:-1.0 withETA:@""];
+
+        // Lets report the HandBrake version number here to the activity log and text log file
+        NSString *versionStringFull = [[NSString stringWithFormat:@"Handbrake Version: %@",
+                                        [[[NSBundle mainBundle] infoDictionary] objectForKey:@"CFBundleShortVersionString"]]
+                                       stringByAppendingString:[NSString stringWithFormat: @" (%@)", [[[NSBundle mainBundle] infoDictionary] objectForKey:@"CFBundleVersion"]]];
+        [HBUtilities writeToActivityLog: "%s", [versionStringFull UTF8String]];
+
+        // Init libhb with check for updates libhb style set to "0" so its ignored and lets sparkle take care of it
+        int loggingLevel = [[[NSUserDefaults standardUserDefaults] objectForKey:@"LoggingLevel"] intValue];
+        fHandle = hb_init(loggingLevel, 0);
+
+        // Optional dvd nav UseDvdNav
+        hb_dvd_set_dvdnav([[[NSUserDefaults standardUserDefaults] objectForKey:@"UseDvdNav"] boolValue]);
+
+        // Init a separate instance of libhb for user scanning and setting up jobs
+        fQueueEncodeLibhb = hb_init(loggingLevel, 0);
     }
-
-    fApplicationIcon = [[NSImage alloc] initWithContentsOfFile:[[NSBundle mainBundle] pathForImageResource:@"HandBrake.icns"]];
-
-    if( fApplicationIcon != nil )
-        [NSApp setApplicationIconImage:fApplicationIcon];
-    
-    [HBPreferencesController registerUserDefaults];
-    fHandle = NULL;
-    fQueueEncodeLibhb = NULL;
-
-    /* Check for and create the App Support Preview directory if necessary */
-    NSString *PreviewDirectory = [[HBUtilities appSupportPath] stringByAppendingPathComponent:@"Previews"];
-    if( ![[NSFileManager defaultManager] fileExistsAtPath:PreviewDirectory] )
-    {
-        [[NSFileManager defaultManager] createDirectoryAtPath:PreviewDirectory
-                                  withIntermediateDirectories:YES
-                                                   attributes:nil
-                                                        error:NULL];
-    }                                                            
-    outputPanel = [[HBOutputPanelController alloc] init];
-    fPictureController = [[HBPictureController alloc] init];
-    fQueueController = [[HBQueueController alloc] init];
-    /* we init the HBPresets class which currently is only used
-     * for updating built in presets, may move more functionality
-     * there in the future
-     */
-    fPresetsBuiltin = [[HBPresets alloc] init];
-    fPreferencesController = [[HBPreferencesController alloc] init];
-    /* Lets report the HandBrake version number here to the activity log and text log file */
-    NSString *versionStringFull = [[NSString stringWithFormat: @"Handbrake Version: %@", [[[NSBundle mainBundle] infoDictionary] objectForKey:@"CFBundleShortVersionString"]] stringByAppendingString: [NSString stringWithFormat: @" (%@)", [[[NSBundle mainBundle] infoDictionary] objectForKey:@"CFBundleVersion"]]];
-    [HBUtilities writeToActivityLog: "%s", [versionStringFull UTF8String]];
-    
-    /* Load the dockTile and instiante initial text fields */
-    dockTile = [[NSApplication sharedApplication] dockTile];
-    NSImageView *iv = [[NSImageView alloc] init];
-    [iv setImage:[[NSApplication sharedApplication] applicationIconImage]];
-    [dockTile setContentView:iv];
-    [iv release];
-    
-    /* We can move the specific values out from here by subclassing NSDockTile and package everything in here */
-    /* If colors are to be chosen once and for all, we can also remove the instantiation with numerical values */
-    percentField = [[DockTextField alloc] initWithFrame:NSMakeRect(0.0f, 32.0f, [dockTile size].width, 30.0f)];
-    [percentField changeGradientColors:[NSColor colorWithDeviceRed:0.4f green:0.6f blue:0.4f alpha:1.0f] endColor:[NSColor colorWithDeviceRed:0.2f green:0.4f blue:0.2f alpha:1.0f]];
-    [iv addSubview:percentField];
-    
-    timeField = [[DockTextField alloc] initWithFrame:NSMakeRect(0.0f, 0.0f, [dockTile size].width, 30.0f)];
-    [timeField changeGradientColors:[NSColor colorWithDeviceRed:0.6f green:0.4f blue:0.4f alpha:1.0f] endColor:[NSColor colorWithDeviceRed:0.4f green:0.2f blue:0.2f alpha:1.0f]];
-    [iv addSubview:timeField];
-    
-    [self updateDockIcon:-1.0 withETA:@""];
 
     return self;
 }
@@ -172,14 +171,6 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
 
 - (void) applicationDidFinishLaunching: (NSNotification *) notification
 {
-    /* Init libhb with check for updates libhb style set to "0" so its ignored and lets sparkle take care of it */
-    int loggingLevel = [[[NSUserDefaults standardUserDefaults] objectForKey:@"LoggingLevel"] intValue];
-    fHandle = hb_init(loggingLevel, 0);
-    /* Optional dvd nav UseDvdNav*/
-    hb_dvd_set_dvdnav([[[NSUserDefaults standardUserDefaults] objectForKey:@"UseDvdNav"] boolValue]);
-    /* Init a separate instance of libhb for user scanning and setting up jobs */
-    fQueueEncodeLibhb = hb_init(loggingLevel, 0);
-    
 	// Set the Growl Delegate
     [GrowlApplicationBridge setGrowlDelegate: self];
     /* Init others controllers */
@@ -189,54 +180,8 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
     [fQueueController   setHandle: fQueueEncodeLibhb];
     [fQueueController   setHBController: self];
 
-    // Set up the chapters title view
-    fChapterTitlesController = [[HBChapterTitlesController alloc] init];
-    [fChaptersTitlesView addSubview: [fChapterTitlesController view]];
-
-    // make sure we automatically resize the controller's view to the current window size
-	[[fChapterTitlesController view] setFrame: [fChaptersTitlesView bounds]];
-    [[fChapterTitlesController view] setAutoresizingMask:( NSViewWidthSizable | NSViewHeightSizable )];
-
-    // setup the subtitles view
-    fSubtitlesViewController = [[HBSubtitlesController alloc] init];
-	[fSubtitlesView addSubview: [fSubtitlesViewController view]];
-
-    // make sure we automatically resize the controller's view to the current window size
-	[[fSubtitlesViewController view] setFrame: [fSubtitlesView bounds]];
-    [[fSubtitlesViewController view] setAutoresizingMask:( NSViewWidthSizable | NSViewHeightSizable )];
-
-	// setup the audio controller
-    fAudioController = [[HBAudioController alloc] init];
-    [fAudioController setHBController: self];
-	[fAudioView addSubview: [fAudioController view]];
-
-    // make sure we automatically resize the controller's view to the current window size
-	[[fAudioController view] setFrame: [fAudioView bounds]];
-    [[fAudioController view] setAutoresizingMask:( NSViewWidthSizable | NSViewHeightSizable )];
-
-    // setup the advanced view controller
-    fAdvancedOptions = [[HBAdvancedController alloc] init];
-	[fAdvancedView addSubview: [fAdvancedOptions view]];
-
-    // make sure we automatically resize the controller's view to the current window size
-	[[fAudioController view] setFrame: [fAudioView bounds]];
-    [[fAudioController view] setAutoresizingMask:( NSViewWidthSizable | NSViewHeightSizable )];
-
-    // setup the video view controller
-    fVideoController = [[HBVideoController alloc] init];
-    fVideoController.fAdvancedOptions = fAdvancedOptions;
-    fVideoController.fHBController = self;
-	[fVideoView addSubview: [fVideoController view]];
-
-    // make sure we automatically resize the controller's view to the current window size
-	[[fVideoController view] setFrame: [fVideoView bounds]];
-    [[fVideoController view] setAutoresizingMask:( NSViewWidthSizable | NSViewHeightSizable )];
-
 	[[NSNotificationCenter defaultCenter] addObserver: self selector: @selector(autoSetM4vExtension:) name: HBMixdownChangedNotification object: nil];
 	[[NSNotificationCenter defaultCenter] addObserver: self selector: @selector(updateMp4Checkboxes:) name: HBVideoEncoderChangedNotification object: nil];
-
-    [fPresetsOutlineView setAutosaveName:@"Presets View"];
-    [fPresetsOutlineView setAutosaveExpandedItems:YES];
     
     dockIconProgress = 0;
     
@@ -316,29 +261,28 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
          * fWorkingCount = 0;
          */
         
-        /*On Screen Notification*/
-        NSString * alertTitle;
-        
-        /* We check to see if there is already another instance of hb running.
+        /* On Screen Notification
+         * We check to see if there is already another instance of hb running.
          * Note: hbInstances == 1 means we are the only instance of HandBrake.app
          */
         if (hbInstanceNum > 1)
         {
-            alertTitle = [NSString stringWithFormat:
-                          NSLocalizedString(@"There is already an instance of HandBrake running.", @"")];
-            NSBeginCriticalAlertSheet(
-                                      alertTitle,
-                                      NSLocalizedString(@"Reload Queue", nil),
-                                      nil,
-                                      nil,
-                                      fWindow, self,
-                                      nil, @selector(didDimissReloadQueue:returnCode:contextInfo:), nil,
-                                      NSLocalizedString(@" HandBrake will now load up the existing queue.", nil));    
+            NSAlert *alert = [[NSAlert alloc] init];
+            [alert setMessageText:NSLocalizedString(@"There is already an instance of HandBrake running.", @"")];
+            [alert setInformativeText:NSLocalizedString(@"HandBrake will now load up the existing queue.", nil)];
+            [alert addButtonWithTitle:NSLocalizedString(@"Reload Queue", nil)];
+            [alert beginSheetModalForWindow:fWindow
+                              modalDelegate:self
+                             didEndSelector:@selector(didDimissReloadQueue:returnCode:contextInfo:)
+                                contextInfo:nil];
+            [alert release];
         }
         else
         {
             if (fWorkingCount > 0 || fPendingCount > 0)
             {
+                NSString *alertTitle;
+
                 if (fWorkingCount > 0)
                 {
                     alertTitle = [NSString stringWithFormat:
@@ -351,16 +295,19 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
                                   NSLocalizedString(@"HandBrake Has Detected %d Pending Item(s) In Your Queue.", @""),
                                   fPendingCount];
                 }
-                
-                NSBeginCriticalAlertSheet(
-                                          alertTitle,
-                                          NSLocalizedString(@"Reload Queue", nil),
-                                          nil,
-                                          NSLocalizedString(@"Empty Queue", nil),
-                                          fWindow, self,
-                                          nil, @selector(didDimissReloadQueue:returnCode:contextInfo:), nil,
-                                          NSLocalizedString(@" Do you want to reload them ?", nil));
-                
+
+                NSAlert *alert = [[NSAlert alloc] init];
+                [alert setMessageText:alertTitle];
+                [alert setInformativeText:NSLocalizedString(@"Do you want to reload them ?", nil)];
+                [alert addButtonWithTitle:NSLocalizedString(@"Reload Queue", nil)];
+                [alert addButtonWithTitle:NSLocalizedString(@"Empty Queue", nil)];
+                [alert setAlertStyle:NSCriticalAlertStyle];
+                [alert beginSheetModalForWindow:fWindow
+                                  modalDelegate:self
+                                 didEndSelector:@selector(didDimissReloadQueue:returnCode:contextInfo:)
+                                    contextInfo:nil];
+                [alert release];
+
                 // After handling the previous queue (reload or empty), if there is files waiting for scanning
                 // we will process them
                 if (dragDropFilesId)
@@ -516,9 +463,9 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
 {
     
     [HBUtilities writeToActivityLog: "didDimissReloadQueue number of hb instances:%d", hbInstanceNum];
-    if (returnCode == NSAlertOtherReturn)
+    if (returnCode == NSAlertSecondButtonReturn)
     {
-        [HBUtilities writeToActivityLog: "didDimissReloadQueue NSAlertOtherReturn Chosen"];
+        [HBUtilities writeToActivityLog: "didDimissReloadQueue NSAlertSecondButtonReturn Chosen"];
         [self clearQueueAllItems];
         
         /* We show whichever open source window specified in LaunchSourceBehavior preference key */
@@ -534,7 +481,7 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
     }
     else
     {
-        [HBUtilities writeToActivityLog: "didDimissReloadQueue First Button Chosen"];
+        [HBUtilities writeToActivityLog: "didDimissReloadQueue NSAlertFirstButtonReturn Chosen"];
         if (hbInstanceNum == 1)
         {
             
@@ -548,37 +495,51 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
 - (NSApplicationTerminateReply) applicationShouldTerminate: (NSApplication *) app
 {
     hb_state_t s;
-    hb_get_state( fQueueEncodeLibhb, &s );
-    
-    if ( s.state != HB_STATE_IDLE )
+    hb_get_state2(fQueueEncodeLibhb, &s);
+
+    if (s.state != HB_STATE_IDLE)
     {
-        NSInteger result = NSRunCriticalAlertPanel(
-                                             NSLocalizedString(@"Are you sure you want to quit HandBrake?", nil),
-                                             NSLocalizedString(@"If you quit HandBrake your current encode will be reloaded into your queue at next launch. Do you want to quit anyway?", nil),
-                                             NSLocalizedString(@"Quit", nil), NSLocalizedString(@"Don't Quit", nil), nil, @"A movie" );
-        
-        if (result == NSAlertDefaultReturn)
+        NSAlert *alert = [[NSAlert alloc] init];
+        [alert setMessageText:NSLocalizedString(@"Are you sure you want to quit HandBrake?", nil)];
+        [alert setInformativeText:NSLocalizedString(@"If you quit HandBrake your current encode will be reloaded into your queue at next launch. Do you want to quit anyway?", nil)];
+        [alert addButtonWithTitle:NSLocalizedString(@"Quit", nil)];
+        [alert addButtonWithTitle:NSLocalizedString(@"Don't Quit", nil)];
+        [alert setAlertStyle:NSCriticalAlertStyle];
+
+        NSInteger result = [alert runModal];
+        [alert release];
+
+        if (result == NSAlertFirstButtonReturn)
         {
             return NSTerminateNow;
         }
         else
+        {
             return NSTerminateCancel;
+        }
     }
-    
+
     // Warn if items still in the queue
-    else if ( fPendingCount > 0 )
+    else if (fPendingCount > 0)
     {
-        NSInteger result = NSRunCriticalAlertPanel(
-                                             NSLocalizedString(@"Are you sure you want to quit HandBrake?", nil),
-                                             NSLocalizedString(@"There are pending encodes in your queue. Do you want to quit anyway?",nil),
-                                             NSLocalizedString(@"Quit", nil), NSLocalizedString(@"Don't Quit", nil), nil);
-        
-        if ( result == NSAlertDefaultReturn )
+        NSAlert *alert = [[NSAlert alloc] init];
+        [alert setMessageText:NSLocalizedString(@"Are you sure you want to quit HandBrake?", nil)];
+        [alert setInformativeText:NSLocalizedString(@"There are pending encodes in your queue. Do you want to quit anyway?",nil)];
+        [alert addButtonWithTitle:NSLocalizedString(@"Quit", nil)];
+        [alert addButtonWithTitle:NSLocalizedString(@"Don't Quit", nil)];
+        [alert setAlertStyle:NSCriticalAlertStyle];
+        NSInteger result = [alert runModal];
+        [alert release];
+        if (result == NSAlertFirstButtonReturn)
+        {
             return NSTerminateNow;
+        }
         else
+        {
             return NSTerminateCancel;
+        }
     }
-    
+
     return NSTerminateNow;
 }
 
@@ -587,7 +548,10 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
     // When the application is closed and we still have some files in the dragDropFiles array
     // it's highly probable that the user throw a lot of files and just want to reset this
     [[NSUserDefaults standardUserDefaults] removeObjectForKey:dragDropFiles];
-    
+
+    [presetManager savePresets];
+    [presetManager release];
+
     [self closeQueueFSEvent];
     [currentQueueEncodeNameString release];
     [browsedSourceDisplayName release];
@@ -595,12 +559,11 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
 	[fQueueController release];
     [fPreviewController release];
     [fPictureController release];
-    [fApplicationIcon release];
+    [dockTile release];
 
     hb_close(&fHandle);
     hb_close(&fQueueEncodeLibhb);
     hb_global_close();
-
 }
 
 
@@ -609,19 +572,6 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
     [fWindow center];
     [fWindow setExcludedFromWindowsMenu:NO];
 
-    /* lets setup our presets drawer for drag and drop here */
-    [fPresetsOutlineView registerForDraggedTypes: [NSArray arrayWithObject:DragDropSimplePboardType] ];
-    [fPresetsOutlineView setDraggingSourceOperationMask:NSDragOperationEvery forLocal:YES];
-    [fPresetsOutlineView setVerticalMotionCanBeginDrag: YES];
-    
-    /* Initialize currentScanCount so HB can use it to
-     evaluate successive scans */
-	currentScanCount = 0;
-    
-    
-    /* Init UserPresets .plist */
-	[self loadPresets];
-	
     fRipIndicatorShown = NO;  // initially out of view in the nib
     
     /* For 64 bit builds, the threaded animation in the progress
@@ -637,36 +587,38 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
 
     [fScanIndicator setUsesThreadedAnimation:NO];
     [fRipIndicator setUsesThreadedAnimation:NO];
-  
-    
-    
+
+    [fPresetDrawer setDelegate:self];
+    NSSize drawerSize = NSSizeFromString([[NSUserDefaults standardUserDefaults]
+                                           stringForKey:@"Drawer Size"]);
+    if (drawerSize.width)
+        [fPresetDrawer setContentSize: drawerSize];
+
 	/* Show/Dont Show Presets drawer upon launch based
      on user preference DefaultPresetsDrawerShow*/
-	if( [[NSUserDefaults standardUserDefaults] boolForKey:@"DefaultPresetsDrawerShow"] > 0 )
+	if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DefaultPresetsDrawerShow"])
 	{
-        [fPresetDrawer setDelegate:self];
-        NSSize drawerSize = NSSizeFromString( [[NSUserDefaults standardUserDefaults]
-                                               stringForKey:@"Drawer Size"] );
-        if( drawerSize.width )
-            [fPresetDrawer setContentSize: drawerSize];
 		[fPresetDrawer open];
 	}
-    
-    /* Initially set the dvd angle widgets to hidden (dvdnav only) */
-    [fSrcAngleLabel setHidden:YES];
-    [fSrcAnglePopUp setHidden:YES];
-    
+
     /* Setup the start / stop popup */
     [fEncodeStartStopPopUp removeAllItems];
     [fEncodeStartStopPopUp addItemWithTitle: @"Chapters"];
     [fEncodeStartStopPopUp addItemWithTitle: @"Seconds"];
     [fEncodeStartStopPopUp addItemWithTitle: @"Frames"];
-    /* Align the start / stop widgets with the chapter popups */
-    [fSrcTimeStartEncodingField setFrameOrigin:[fSrcChapterStartPopUp frame].origin];
-    [fSrcTimeEndEncodingField setFrameOrigin:[fSrcChapterEndPopUp frame].origin];
+
+    // Align the start / stop widgets with the chapter popups
+    NSPoint startPoint = [fSrcChapterStartPopUp frame].origin;
+    startPoint.y += 2;
+
+    NSPoint endPoint = [fSrcChapterEndPopUp frame].origin;
+    endPoint.y += 2;
+
+    [fSrcTimeStartEncodingField setFrameOrigin:startPoint];
+    [fSrcTimeEndEncodingField setFrameOrigin:endPoint];
     
-    [fSrcFrameStartEncodingField setFrameOrigin:[fSrcChapterStartPopUp frame].origin];
-    [fSrcFrameEndEncodingField setFrameOrigin:[fSrcChapterEndPopUp frame].origin];
+    [fSrcFrameStartEncodingField setFrameOrigin:startPoint];
+    [fSrcFrameEndEncodingField setFrameOrigin:endPoint];
     
     /* Destination box*/
     NSMenuItem *menuItem;
@@ -696,13 +648,76 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
     
 	[self setupToolbar];
 
-	/* lets get our default prefs here */
-	[self getDefaultPresets:nil];
-	/* lets initialize the current successful scancount here to 0 */
-	currentSuccessfulScanCount = 0;
-    
     /* Register HBController's Window as a receiver for files/folders drag & drop operations */
     [fWindow registerForDraggedTypes:[NSArray arrayWithObject:NSFilenamesPboardType]];
+
+    // Set up the preset drawer
+    fPresetsView = [[HBPresetsViewController alloc] initWithPresetManager:presetManager];
+    [fPresetDrawer setContentView:[fPresetsView view]];
+    fPresetsView.delegate = self;
+    [[fPresetDrawer contentView] setAutoresizingMask:( NSViewWidthSizable | NSViewHeightSizable )];
+
+    // Set up the chapters title view
+    fChapterTitlesController = [[HBChapterTitlesController alloc] init];
+    [fChaptersTitlesTab setView:[fChapterTitlesController view]];
+
+    // setup the subtitles view
+    fSubtitlesViewController = [[HBSubtitlesController alloc] init];
+	[fSubtitlesTab setView:[fSubtitlesViewController view]];
+
+	// setup the audio controller
+    fAudioController = [[HBAudioController alloc] init];
+	[fAudioTab setView:[fAudioController view]];
+
+    // setup the advanced view controller
+    fAdvancedOptions = [[HBAdvancedController alloc] init];
+	[fAdvancedTab setView:[fAdvancedOptions view]];
+
+    // setup the video view controller
+    fVideoController = [[HBVideoController alloc] init];
+    fVideoController.fAdvancedOptions = fAdvancedOptions;
+    fVideoController.fHBController = self;
+	[fVideoTab setView:[fVideoController view]];
+
+    [[NSUserDefaultsController sharedUserDefaultsController] addObserver:self
+                                                              forKeyPath:@"values.HBShowAdvancedTab"
+                                                                 options:NSKeyValueObservingOptionNew | NSKeyValueObservingOptionInitial
+                                                                 context:NULL];
+
+    [fWindow recalculateKeyViewLoop];
+
+    // Presets initialization
+    [self checkBuiltInsForUpdates];
+    [self buildPresetsMenu];
+
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(buildPresetsMenu) name:HBPresetsChangedNotification object:nil];
+}
+
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context
+{
+    if (context == NULL)
+    {
+        if ([keyPath isEqualToString:@"values.HBShowAdvancedTab"])
+        {
+            if ([[NSUserDefaults standardUserDefaults] boolForKey:@"HBShowAdvancedTab"])
+            {
+                if (![[fMainTabView tabViewItems] containsObject:fAdvancedTab])
+                {
+                    [fMainTabView insertTabViewItem:fAdvancedTab atIndex:3];
+                    [fAdvancedTab release];
+                }
+            }
+            else
+            {
+                [fAdvancedTab retain];
+                [fMainTabView removeTabViewItem:fAdvancedTab];
+            }
+        }
+    }
+    else
+    {
+        [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
+    }
 }
 
 - (void) enableUI: (BOOL) b
@@ -713,8 +728,7 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
         fSrcChapterStartPopUp, fSrcChapterToField,
         fSrcChapterEndPopUp, fSrcDuration1Field, fSrcDuration2Field,
         fDstFormatField, fDstFormatPopUp, fDstFile1Field, fDstFile2Field,
-        fDstBrowseButton, fPresetsAdd, fPresetsDelete, fSrcAngleLabel,
-        fSrcAnglePopUp, fDstMp4LargeFileCheck, fPresetsOutlineView,
+        fDstBrowseButton, fSrcAngleLabel, fSrcAnglePopUp,
         fDstMp4HttpOptFileCheck, fDstMp4iPodFileCheck,
         fEncodeStartStopPopUp, fSrcTimeStartEncodingField,
         fSrcTimeEndEncodingField, fSrcFrameStartEncodingField,
@@ -736,74 +750,20 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
         }
         [controls[i] setEnabled: b];
     }
-   
-    
-	if (b) 
-    {
-        /* we also call calculatePictureSizing here to sense check if we already have vfr selected ??? */
-        [self pictureSettingsDidChange];
-    }
-    else 
-    {
-		[fPresetsOutlineView setEnabled: NO];
-    }
 
-    [fVideoController enableUI:b];
-    [fChapterTitlesController enableUI:b];
-    [fSubtitlesViewController enableUI:b];
-    [fAudioController enableUI:b];
-}
-
-
-/***********************************************************************
- * updateDockIcon
- ***********************************************************************
- * Updates two DockTextFields on the dockTile,
- * one with total percentage, the other one with the ETA.
- * The ETA string is formated by the callers
- **********************************************************************/
-- (void) updateDockIcon: (double) progress withETA:(NSString*)etaStr
-{
-    if (progress < 0.0 || progress > 1.0)
-    {
-        [percentField setHidden:YES];
-        [timeField setHidden:YES];
-    }
-    else
-    {
-        [percentField setTextToDisplay:[NSString stringWithFormat:dockTilePercentFormat,progress * 100]];
-        [percentField setHidden:NO];
-        [timeField setTextToDisplay:etaStr];
-        [timeField setHidden:NO];
-    }
-    
-    [dockTile display];
+    [fPresetsView setUIEnabled:b];
+    [fVideoController setUIEnabled:b];
+    [fAudioController setUIEnabled:b];
+    [fSubtitlesViewController setUIEnabled:b];
+    [fChapterTitlesController setUIEnabled:b];
 }
 
 - (void) updateUI: (NSTimer *) timer
 {
-    
     /* Update UI for fHandle (user scanning instance of libhb ) */
-
-    /* check to see if there has been a new scan done
-     this bypasses the constraints of HB_STATE_WORKING
-     not allowing setting a newly scanned source */
-	int checkScanCount = hb_get_scancount( fHandle );
-	if( checkScanCount > currentScanCount )
-	{
-		currentScanCount = checkScanCount;
-        [fScanIndicator setIndeterminate: NO];
-        [fScanIndicator setDoubleValue: 0.0];
-        [fScanIndicator setHidden: YES];
-        [fScanHorizontalLine setHidden: NO];
-        [[fWindow toolbar] validateVisibleItems];
-
-		[self showNewScan:nil];
-	}
-    
     hb_state_t s;
     hb_get_state( fHandle, &s );
-    
+
     switch( s.state )
     {
         case HB_STATE_IDLE:
@@ -870,24 +830,10 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
             break;
         }
     }
-    
-    
+
     /* Update UI for fQueueEncodeLibhb */
-    // hb_list_t  * list;
-    // list = hb_get_titles( fQueueEncodeLibhb ); //fQueueEncodeLibhb
-    /* check to see if there has been a new scan done
-     this bypasses the constraints of HB_STATE_WORKING
-     not allowing setting a newly scanned source */
-	
-    checkScanCount = hb_get_scancount( fQueueEncodeLibhb );
-	if( checkScanCount > currentScanCount )
-	{
-		currentScanCount = checkScanCount;
-	}
-    
-    //hb_state_t s;
     hb_get_state( fQueueEncodeLibhb, &s );
-    
+
     switch( s.state )
     {
         case HB_STATE_IDLE:
@@ -987,7 +933,8 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
 			/* Update text field */
             if (p.job_cur == 1 && p.job_count > 1)
             {
-                if ([[QueueFileArray objectAtIndex:currentQueueEncodeIndex] objectForKey:@"SubtitleList"] && [[[[[QueueFileArray objectAtIndex:currentQueueEncodeIndex]objectForKey:@"SubtitleList"] objectAtIndex:0] objectForKey:@"subtitleSourceTrackNum"] intValue] == 1)
+                if (QueueFileArray[currentQueueEncodeIndex][@"SubtitleList"] &&
+                    [[QueueFileArray[currentQueueEncodeIndex][@"SubtitleList"] firstObject][keySubTrackIndex] intValue] == -1)
                 {
                     pass_desc = @"(subtitle scan)";   
                 }
@@ -1072,7 +1019,7 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
                 else
                     etaStr = @"~";
                 
-                [self updateDockIcon:progress_total withETA:etaStr];
+                [dockTile updateDockIcon:progress_total withETA:etaStr];
 
                 dockIconProgress += dockTileUpdateFrequency;
             }
@@ -1093,7 +1040,7 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
             [fRipIndicator startAnimation: nil];
             
             /* Update dock icon */
-            [self updateDockIcon:1.0 withETA:@""];
+            [dockTile updateDockIcon:1.0 withETA:@""];
             
 			break;
         }
@@ -1121,7 +1068,7 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
             [[fWindow toolbar] validateVisibleItems];
             
             /* Restore dock icon */
-            [self updateDockIcon:-1.0 withETA:@""];
+            [dockTile updateDockIcon:-1.0 withETA:@""];
             dockIconProgress = 0;
             
             if( fRipIndicatorShown )
@@ -1175,7 +1122,7 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
     // Finally after all UI updates, we look for a next dragDropItem to scan
     // fWillScan will signal that a scan will be launched, so we need to wait
     // the next idle cycle after the scan
-    hb_get_state( fHandle, &s );
+    hb_get_state2( fHandle, &s );
     if (s.state == HB_STATE_IDLE && !fWillScan)
     {
         // Continue to loop on the other drag & drop files if any
@@ -1355,7 +1302,7 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
     {
         hb_state_t s;
         
-        hb_get_state( fHandle, &s );
+        hb_get_state2( fHandle, &s );
         if (s.state == HB_STATE_SCANNING)
         {
             
@@ -1474,24 +1421,17 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
 - (BOOL) validateMenuItem: (NSMenuItem *) menuItem
 {
     SEL action = [menuItem action];
-    
+
     hb_state_t s;
-    hb_get_state2( fHandle, &s );
-    
-    if (fHandle)
+    hb_get_state2( fQueueEncodeLibhb, &s );
+
+    if (fQueueEncodeLibhb)
     {
         if (action == @selector(addToQueue:) || action == @selector(addAllTitlesToQueue:) || action == @selector(showPicturePanel:) || action == @selector(showAddPresetPanel:))
             return SuccessfulScan && [fWindow attachedSheet] == nil;
         
-        if (action == @selector(browseSources:))
-        {
-            if (s.state == HB_STATE_SCANNING)
-                return NO;
-            else
-                return [fWindow attachedSheet] == nil;
-        }
         if (action == @selector(selectDefaultPreset:))
-            return [fPresetsOutlineView selectedRow] >= 0 && [fWindow attachedSheet] == nil;
+            return [fWindow attachedSheet] == nil;
         if (action == @selector(Pause:))
         {
             if (s.state == HB_STATE_WORKING)
@@ -1526,10 +1466,15 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
             else
                 return NO;
         }
-    }
-    if( action == @selector(setDefaultPreset:) )
-    {
-        return [fPresetsOutlineView selectedRow] != -1;
+        if (action == @selector(browseSources:))
+        {
+            hb_get_state2( fHandle, &s );
+
+            if (s.state == HB_STATE_SCANNING)
+                return NO;
+            else
+                return [fWindow attachedSheet] == nil;
+        }
     }
 
     return YES;
@@ -1597,10 +1542,14 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
         [[[NSUserDefaults standardUserDefaults] stringForKey:@"AlertWhenDone"] isEqualToString: @"Alert Window And Growl"] )
     {
         /*On Screen Notification*/
-        NSRunAlertPanel(@"Put down that cocktail…",@"Your HandBrake queue is done!", @"OK", nil, nil);
+        NSAlert *alert = [[NSAlert alloc] init];
+        [alert setMessageText:@"Put down that cocktail…"];
+        [alert setInformativeText:@"Your HandBrake queue is done!"];
         [NSApp requestUserAttention:NSCriticalRequest];
+        [alert runModal];
+        [alert release];
     }
-    
+
     /* If sleep has been selected */
     if( [[[NSUserDefaults standardUserDefaults] stringForKey:@"AlertWhenDone"] isEqualToString: @"Put Computer To Sleep"] )
     {
@@ -1631,7 +1580,7 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
 {
     
     hb_state_t s;
-    hb_get_state( fHandle, &s );
+    hb_get_state2( fHandle, &s );
     if (s.state == HB_STATE_SCANNING)
     {
         [self cancelScanning:nil];
@@ -1674,6 +1623,9 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
     /* User selected a file to open */
 	if( returnCode == NSOKButton )
     {
+        // We started a new scan, so set SuccessfulScan to no for now.
+        SuccessfulScan = NO;
+
             /* Free display name allocated previously by this code */
         [browsedSourceDisplayName release];
        
@@ -1761,8 +1713,10 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
                 }
                 else
                 {
-                    /* The package is not an eyetv package, so we do not call performScan */
-                    [HBUtilities writeToActivityLog:"unable to open package"];
+                    /* The package is not an eyetv package, try to open it anyway */
+                    browsedSourceDisplayName = [[url lastPathComponent] retain];
+                    [HBUtilities writeToActivityLog:"not a known to package"];
+                    [self performScan:[url path] scanTitleNum:0];
                 }
             }
             else // path is not a package, so we treat it as a dvd parent folder or VIDEO_TS folder
@@ -1788,15 +1742,6 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
         }
 
     }
-}
-
-- (IBAction)showAboutPanel:(id)sender
-{
-    NSMutableDictionary* d = [[NSMutableDictionary alloc] initWithObjectsAndKeys:
-        fApplicationIcon, @"ApplicationIcon",
-        nil ];
-    [NSApp orderFrontStandardAboutPanelWithOptions:d];
-    [d release];
 }
 
 /* Here we open the title selection sheet where we can specify an exact title to be scanned */
@@ -1874,16 +1819,22 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
             cancelScanDecrypt = 1;
             [HBUtilities writeToActivityLog: "libdvdcss.2.dylib not found for decrypting physical dvd"];
             NSInteger status;
-            status = NSRunAlertPanel(@"Please note that HandBrake does not support the removal of copy-protection from DVD Discs. You can if you wish install libdvdcss or any other 3rd party software for this function.",
-                                     @"Videolan.org provides libdvdcss if you are not currently using another solution.", @"Get libdvdcss.pkg", @"Cancel Scan", @"Attempt Scan Anyway");
+            NSAlert *alert = [[NSAlert alloc] init];
+            [alert setMessageText:@"Please note that HandBrake does not support the removal of copy-protection from DVD Discs. You can if you wish install libdvdcss or any other 3rd party software for this function."];
+            [alert setInformativeText:@"Videolan.org provides libdvdcss if you are not currently using another solution."];
+            [alert addButtonWithTitle:@"Get libdvdcss.pkg"];
+            [alert addButtonWithTitle:@"Cancel Scan"];
+            [alert addButtonWithTitle:@"Attempt Scan Anyway"];
             [NSApp requestUserAttention:NSCriticalRequest];
-            
-            if (status == NSAlertDefaultReturn)
+            status = [alert runModal];
+            [alert release];
+
+            if (status == NSAlertFirstButtonReturn)
             {
                 /* User chose to go download vlc (as they rightfully should) so we send them to the vlc site */
                 [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"http://download.videolan.org/libdvdcss/1.2.12/macosx/"]];
             }
-            else if (status == NSAlertAlternateReturn)
+            else if (status == NSAlertSecondButtonReturn)
             {
                 /* User chose to cancel the scan */
                 [HBUtilities writeToActivityLog: "Cannot open physical dvd, scan cancelled"];
@@ -1996,13 +1947,7 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
             {
                 [HBUtilities writeToActivityLog: "showNewScan: cannot grok scan status"];
             }
-            
-              /* We increment the successful scancount here by one,
-             which we use at the end of this function to tell the gui
-             if this is the first successful scan since launch and whether
-             or not we should set all settings to the defaults */
-            currentSuccessfulScanCount++;
-            
+
             [[fWindow toolbar] validateVisibleItems];
             
             [fSrcTitlePopUp removeAllItems];
@@ -2078,27 +2023,23 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
                 /* if not then select the main feature title */
                 [fSrcTitlePopUp selectItemAtIndex: feature_title];
             }
-            [self titlePopUpChanged:nil];
-            
+
             SuccessfulScan = YES;
+
+            [self titlePopUpChanged:nil];
+            [self encodeStartStopPopUpChanged:nil];
+
             [self enableUI: YES];
 
-            /* if its the initial successful scan after awakeFromNib */
-            if (currentSuccessfulScanCount == 1)
-            {
-                [self encodeStartStopPopUpChanged:nil];
+            // Open preview window now if it was visible when HB was closed
+            if ([[NSUserDefaults standardUserDefaults] boolForKey:@"PreviewWindowIsOpen"])
+                [self showPreviewWindow:nil];
+
+            // Open picture sizing window now if it was visible when HB was closed
+            if ([[NSUserDefaults standardUserDefaults] boolForKey:@"PictureSizeWindowIsOpen"])
+                [self showPicturePanel:nil];
                 
-                [self selectDefaultPreset:nil];
-                
-                // Open preview window now if it was visible when HB was closed
-                if ([[NSUserDefaults standardUserDefaults] boolForKey:@"PreviewWindowIsOpen"])
-                    [self showPreviewWindow:nil];
-                
-                // Open picture sizing window now if it was visible when HB was closed
-                if ([[NSUserDefaults standardUserDefaults] boolForKey:@"PictureSizeWindowIsOpen"])
-                    [self showPicturePanel:nil];
-                
-            }
+
             if (applyQueueToScan == YES)
             {
                 /* we are a rescan of an existing queue item and need to apply the queued settings to the scan */
@@ -2148,11 +2089,6 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
 - (IBAction) openMainWindow: (id) sender
 {
     [fWindow  makeKeyAndOrderFront:nil];
-}
-
-- (BOOL) windowShouldClose: (id) sender
-{
-    return YES;
 }
 
 - (BOOL)applicationShouldHandleReopen:(NSApplication *)theApplication hasVisibleWindows:(BOOL)flag
@@ -2312,9 +2248,7 @@ fWorkingCount = 0;
      */
 
 	int i = 0;
-    NSEnumerator *enumerator = [QueueFileArray objectEnumerator];
-	id tempObject;
-	while (tempObject = [enumerator nextObject])
+	for (id tempObject in QueueFileArray)
 	{
 		NSDictionary *thisQueueDict = tempObject;
 		if ([[thisQueueDict objectForKey:@"Status"] intValue] == 0) // Completed
@@ -2366,10 +2300,7 @@ fWorkingCount = 0;
     /* initialize nextPendingIndex to -1, this value tells incrementQueueItemDone that there are no pending items in the queue */
     NSInteger nextPendingIndex = -1;
 	BOOL nextPendingFound = NO;
-    NSEnumerator *enumerator = [QueueFileArray objectEnumerator];
-	id tempObject;
-    NSInteger i = 0;
-	while (tempObject = [enumerator nextObject])
+	for (id tempObject in QueueFileArray)
 	{
 		NSDictionary *thisQueueDict = tempObject;
         if ([[thisQueueDict objectForKey:@"Status"] intValue] == 2 && nextPendingFound == NO) // pending		
@@ -2378,23 +2309,19 @@ fWorkingCount = 0;
             nextPendingIndex = [QueueFileArray indexOfObject: tempObject];
             [HBUtilities writeToActivityLog: "getNextPendingQueueIndex next pending encode index is:%d", nextPendingIndex];
 		}
-        i++;
 	}
     return nextPendingIndex;
 }
-
 
 /* This method will set any item marked as encoding back to pending
  * currently used right after a queue reload
  */
 - (void) setQueueEncodingItemsAsPending
 {
-    NSEnumerator *enumerator = [QueueFileArray objectEnumerator];
-	id tempObject;
     NSMutableArray *tempArray;
     tempArray = [NSMutableArray array];
     /* we look here to see if the preset is we move on to the next one */
-    while ( tempObject = [enumerator nextObject] )  
+    for (id tempObject in QueueFileArray)
     {
         /* We want to keep any queue item that is pending or was previously being encoded */
         if ([[tempObject objectForKey:@"Status"] intValue] == 1 || [[tempObject objectForKey:@"Status"] intValue] == 2)
@@ -2420,12 +2347,10 @@ fWorkingCount = 0;
  * this includes both successfully completed encodes as well as cancelled encodes */
 - (void) clearQueueEncodedItems
 {
-    NSEnumerator *enumerator = [QueueFileArray objectEnumerator];
-	id tempObject;
     NSMutableArray *tempArray;
     tempArray = [NSMutableArray array];
     /* we look here to see if the preset is we move on to the next one */
-    while ( tempObject = [enumerator nextObject] )  
+    for (id tempObject in QueueFileArray)
     {
         /* If the queue item is either completed (0) or cancelled (3) from the
          * last session, then we put it in tempArray to be deleted from QueueFileArray.
@@ -2447,12 +2372,10 @@ fWorkingCount = 0;
 /* This method will clear the queue of all encodes. effectively creating an empty queue */
 - (void) clearQueueAllItems
 {
-    NSEnumerator *enumerator = [QueueFileArray objectEnumerator];
-	id tempObject;
     NSMutableArray *tempArray;
     tempArray = [NSMutableArray array];
     /* we look here to see if the preset is we move on to the next one */
-    while ( tempObject = [enumerator nextObject] )  
+    for (id tempObject in QueueFileArray)
     {
         [tempArray addObject:tempObject];
     }
@@ -2485,7 +2408,7 @@ fWorkingCount = 0;
     /* Source and Destination Information */
     
     [queueFileJob setObject:[NSString stringWithUTF8String: title->path] forKey:@"SourcePath"];
-    [queueFileJob setObject:[fSrcDVD2Field stringValue] forKey:@"SourceName"];
+    [queueFileJob setObject:[[fSrcDVD2Field stringValue] lastPathComponent] forKey:@"SourceName"];
     [queueFileJob setObject:[NSNumber numberWithInt:title->index] forKey:@"TitleNumber"];
     [queueFileJob setObject:[NSNumber numberWithInteger:[fSrcAnglePopUp indexOfSelectedItem] + 1] forKey:@"TitleAngle"];
     
@@ -2521,8 +2444,7 @@ fWorkingCount = 0;
     
     /* Lets get the preset info if there is any */
     [queueFileJob setObject:[fPresetSelectedDisplay stringValue] forKey:@"PresetName"];
-    [queueFileJob setObject:[NSNumber numberWithInteger:[fPresetsOutlineView selectedRow]] forKey:@"PresetIndexNum"];
-    
+
     [queueFileJob setObject:[fDstFormatPopUp titleOfSelectedItem] forKey:@"FileFormat"];
     /* Chapter Markers*/
     /* If we are encoding by chapters and we have only one chapter or a title without chapters, set chapter markers to off.
@@ -2543,8 +2465,6 @@ fWorkingCount = 0;
      */
     [queueFileJob setObject:fChapterTitlesController.chapterTitlesArray forKey:@"ChapterNames"];
     
-    /* Allow Mpeg4 64 bit formatting +4GB file sizes */
-	[queueFileJob setObject:[NSNumber numberWithInteger:[fDstMp4LargeFileCheck state]] forKey:@"Mp4LargeFile"];
     /* Mux mp4 with http optimization */
     [queueFileJob setObject:[NSNumber numberWithInteger:[fDstMp4HttpOptFileCheck state]] forKey:@"Mp4HttpOptimize"];
     /* Add iPod uuid atom */
@@ -2568,7 +2488,7 @@ fWorkingCount = 0;
     /* Text summaries of various settings */
     [queueFileJob setObject:[NSString stringWithString:[self pictureSettingsSummary]]
                      forKey:@"PictureSettingsSummary"];
-    [queueFileJob setObject:[NSString stringWithString:[self pictureFiltersSummary]]
+    [queueFileJob setObject:fPictureController.filters.summary
                      forKey:@"PictureFiltersSummary"];
     [queueFileJob setObject:[NSString stringWithString:[self muxerOptionsSummary]]
                      forKey:@"MuxerOptionsSummary"];
@@ -2579,43 +2499,46 @@ fWorkingCount = 0;
     [queueFileJob setObject:[NSNumber numberWithInt:job->crop[1]] forKey:@"PictureBottomCrop"];
 	[queueFileJob setObject:[NSNumber numberWithInt:job->crop[2]] forKey:@"PictureLeftCrop"];
 	[queueFileJob setObject:[NSNumber numberWithInt:job->crop[3]] forKey:@"PictureRightCrop"];
-    
+
     /* Picture Filters */
-    [queueFileJob setObject:[NSNumber numberWithInteger:[fPictureController detelecine]] forKey:@"PictureDetelecine"];
-    [queueFileJob setObject:[fPictureController detelecineCustomString] forKey:@"PictureDetelecineCustom"];
-    
-    [queueFileJob setObject:[NSNumber numberWithInteger:[fPictureController useDecomb]] forKey:@"PictureDecombDeinterlace"];
-    [queueFileJob setObject:[NSNumber numberWithInteger:[fPictureController decomb]] forKey:@"PictureDecomb"];
-    [queueFileJob setObject:[fPictureController decombCustomString] forKey:@"PictureDecombCustom"];
-    
-    [queueFileJob setObject:[NSNumber numberWithInteger:[fPictureController deinterlace]] forKey:@"PictureDeinterlace"];
-    [queueFileJob setObject:[fPictureController deinterlaceCustomString] forKey:@"PictureDeinterlaceCustom"];
-    
-    [queueFileJob setObject:[NSNumber numberWithInteger:[fPictureController denoise]] forKey:@"PictureDenoise"];
-    [queueFileJob setObject:[fPictureController denoiseCustomString] forKey:@"PictureDenoiseCustom"];
-    
-    [queueFileJob setObject:[NSString stringWithFormat:@"%ld",(long)[fPictureController deblock]] forKey:@"PictureDeblock"];
-    
-    [queueFileJob setObject:[NSNumber numberWithInteger:[fPictureController grayscale]] forKey:@"VideoGrayScale"];
-    
-    /* Auto Passthru */
-    [queueFileJob setObject:@(fAudioController.allowAACPassCheck) forKey: @"AudioAllowAACPass"];
-    [queueFileJob setObject:@(fAudioController.allowAC3PassCheck) forKey: @"AudioAllowAC3Pass"];
-    [queueFileJob setObject:@(fAudioController.allowDTSHDPassCheck) forKey: @"AudioAllowDTSHDPass"];
-    [queueFileJob setObject:@(fAudioController.allowDTSPassCheck) forKey: @"AudioAllowDTSPass"];
-    [queueFileJob setObject:@(fAudioController.allowMP3PassCheck) forKey: @"AudioAllowMP3Pass"];
-    // just in case we need it for display purposes
-    [queueFileJob setObject:fAudioController.audioEncoderFallback forKey: @"AudioEncoderFallback"];
-    // actual fallback encoder
-    [queueFileJob setObject:@(fAudioController.audioEncoderFallbackTag) forKey: @"JobAudioEncoderFallback"];
-    
+    HBFilters *filters = fPictureController.filters;
+    queueFileJob[@"PictureDetelecine"] = @(filters.detelecine);
+    queueFileJob[@"PictureDetelecineCustom"] = filters.detelecineCustomString;
+
+    queueFileJob[@"PictureDecombDeinterlace"] = @(filters.useDecomb);
+    queueFileJob[@"PictureDecomb"] = @(filters.decomb);
+    queueFileJob[@"PictureDecombCustom"] = filters.decombCustomString;
+
+    queueFileJob[@"PictureDeinterlace"] = @(filters.deinterlace);
+    queueFileJob[@"PictureDeinterlaceCustom"] = filters.deinterlaceCustomString;
+
+    queueFileJob[@"PictureDenoise"] = filters.denoise;
+    queueFileJob[@"PictureDenoisePreset"] = filters.denoisePreset;
+    queueFileJob[@"PictureDenoiseTune"] = filters.denoiseTune;
+    queueFileJob[@"PictureDenoiseCustom"] = filters.denoiseCustomString;
+
+    queueFileJob[@"PictureDeblock"] = [NSString stringWithFormat:@"%ld",(long)filters.deblock];
+    queueFileJob[@"VideoGrayScale"] = [NSString stringWithFormat:@"%ld",(long)filters.grayscale];
+
+    /* Audio Defaults */
+    NSMutableDictionary *audioDefaults = [NSMutableDictionary dictionary];
+    [fAudioController.settings prepareAudioDefaultsForPreset:audioDefaults];
+    queueFileJob[@"AudioDefaults"] = audioDefaults;
+
     /* Audio */
-    [fAudioController prepareAudioForQueueFileJob: queueFileJob];
-    
+    NSMutableArray *audioArray = [[NSMutableArray alloc] initWithArray:[fAudioController audioTracks] copyItems:YES];
+    [queueFileJob setObject:[NSArray arrayWithArray: audioArray] forKey:@"AudioList"];
+    [audioArray release];
+
+	/* Subtitles Defaults */
+    NSMutableDictionary *subtitlesDefaults = [NSMutableDictionary dictionary];
+    [fSubtitlesViewController.settings prepareSubtitlesDefaultsForPreset:subtitlesDefaults];
+    queueFileJob[@"SubtitlesDefaults"] = subtitlesDefaults;
+
 	/* Subtitles */
-    NSMutableArray *subtitlesArray = [[NSMutableArray alloc] initWithArray:[fSubtitlesViewController subtitleArray] copyItems:YES];
+    NSMutableArray *subtitlesArray = [[NSMutableArray alloc] initWithArray:[fSubtitlesViewController subtitles] copyItems:YES];
     [queueFileJob setObject:[NSArray arrayWithArray: subtitlesArray] forKey:@"SubtitleList"];
-    [subtitlesArray autorelease];
+    [subtitlesArray release];
 
     /* Now we go ahead and set the "job->values in the plist for passing right to fQueueEncodeLibhb */
      
@@ -2888,8 +2811,6 @@ fWorkingCount = 0;
     fChapterTitlesController.createChapterMarkers = [[queueToApply objectForKey:@"ChapterMarkers"] boolValue];
     [fChapterTitlesController addChaptersFromQueue:[queueToApply objectForKey:@"ChapterNames"]];
 
-    /* Allow Mpeg4 64 bit formatting +4GB file sizes */
-    [fDstMp4LargeFileCheck setState:[[queueToApply objectForKey:@"Mp4LargeFile"] intValue]];
     /* Mux mp4 with http optimization */
     [fDstMp4HttpOptFileCheck setState:[[queueToApply objectForKey:@"Mp4HttpOptimize"] intValue]];
 
@@ -2899,18 +2820,16 @@ fWorkingCount = 0;
     /* video encoder */
     [fVideoController applyVideoSettingsFromQueue:queueToApply];
 
-    /* Auto Passthru */
-    fAudioController.allowAACPassCheck = [[queueToApply objectForKey:@"AudioAllowAACPass"] boolValue];
-    fAudioController.allowAC3PassCheck = [[queueToApply objectForKey:@"AudioAllowAC3Pass"] boolValue];
-    fAudioController.allowDTSHDPassCheck = [[queueToApply objectForKey:@"AudioAllowDTSHDPass"] boolValue];
-    fAudioController.allowDTSPassCheck = [[queueToApply objectForKey:@"AudioAllowDTSPass"] boolValue];
-    fAudioController.allowMP3PassCheck = [[queueToApply objectForKey:@"AudioAllowMP3Pass"] boolValue];
-    fAudioController.audioEncoderFallback = [queueToApply objectForKey:@"AudioEncoderFallback"];
+    /* Audio Defaults */
+    [fAudioController.settings applySettingsFromPreset:queueToApply[@"AudioDefaults"]];
 
     /* Audio */
     /* Now lets add our new tracks to the audio list here */
     [fAudioController addTracksFromQueue: queueToApply];
-    
+
+    /* Subtitles Defaults */
+    [fSubtitlesViewController.settings applySettingsFromPreset:queueToApply[@"SubtitlesDefaults"]];
+
     /* Subtitles */
     [fSubtitlesViewController addTracksFromQueue:[queueToApply objectForKey:@"SubtitleList"]];
 
@@ -2948,23 +2867,25 @@ fWorkingCount = 0;
     job->height  = [[queueToApply objectForKey:@"PictureHeight"]  intValue];
 
     /* Filters */
-    
+
+    HBFilters *filters = [fPictureController filters];
+
     /* We only allow *either* Decomb or Deinterlace. So check for the PictureDecombDeinterlace key. */
-    [fPictureController setUseDecomb:1];
-    [fPictureController setDecomb:0];
-    [fPictureController setDeinterlace:0];
-    if ([[queueToApply objectForKey:@"PictureDecombDeinterlace"] intValue] == 1)
+    filters.useDecomb = YES;
+    filters.decomb = 0;
+    filters.deinterlace = 0;
+    if ([queueToApply[@"PictureDecombDeinterlace"] intValue] == 1)
     {
         /* we are using decomb */
         /* Decomb */
-        if ([[queueToApply objectForKey:@"PictureDecomb"] intValue] > 0)
+        if ([queueToApply[@"PictureDecomb"] intValue] > 0)
         {
-            [fPictureController setDecomb:[[queueToApply objectForKey:@"PictureDecomb"] intValue]];
-            
+            filters.decomb = [queueToApply[@"PictureDecomb"] intValue];
+
             /* if we are using "Custom" in the decomb setting, also set the custom string*/
-            if ([[queueToApply objectForKey:@"PictureDecomb"] intValue] == 1)
+            if ([queueToApply[@"PictureDecomb"] intValue] == 1)
             {
-                [fPictureController setDecombCustomString:[queueToApply objectForKey:@"PictureDecombCustom"]];    
+                filters.decombCustomString = queueToApply[@"PictureDecombCustom"];
             }
         }
     }
@@ -2972,99 +2893,61 @@ fWorkingCount = 0;
     {
         /* We are using Deinterlace */
         /* Deinterlace */
-        if ([[queueToApply objectForKey:@"PictureDeinterlace"] intValue] > 0)
+        if ([queueToApply[@"PictureDeinterlace"] intValue] > 0)
         {
-            [fPictureController setUseDecomb:0];
-            [fPictureController setDeinterlace:[[queueToApply objectForKey:@"PictureDeinterlace"] intValue]];
+            filters.useDecomb = NO;
+            filters.deinterlace = [queueToApply[@"PictureDeinterlace"] intValue];
             /* if we are using "Custom" in the deinterlace setting, also set the custom string*/
-            if ([[queueToApply objectForKey:@"PictureDeinterlace"] intValue] == 1)
+            if ([queueToApply[@"PictureDeinterlace"] intValue] == 1)
             {
-                [fPictureController setDeinterlaceCustomString:[queueToApply objectForKey:@"PictureDeinterlaceCustom"]];    
+                filters.deinterlaceCustomString = queueToApply[@"PictureDeinterlaceCustom"];
             }
         }
     }
-    
-    
+
     /* Detelecine */
-    if ([[queueToApply objectForKey:@"PictureDetelecine"] intValue] > 0)
+    if ([queueToApply[@"PictureDetelecine"] intValue] > 0)
     {
-        [fPictureController setDetelecine:[[queueToApply objectForKey:@"PictureDetelecine"] intValue]];
+        filters.detelecine = [queueToApply[@"PictureDetelecine"] intValue];
         /* if we are using "Custom" in the detelecine setting, also set the custom string*/
-        if ([[queueToApply objectForKey:@"PictureDetelecine"] intValue] == 1)
+        if ([queueToApply[@"PictureDetelecine"] intValue] == 1)
         {
-            [fPictureController setDetelecineCustomString:[queueToApply objectForKey:@"PictureDetelecineCustom"]];    
+            filters.detelecineCustomString = queueToApply[@"PictureDetelecineCustom"];
         }
     }
     else
     {
-        [fPictureController setDetelecine:0];
+        filters.detelecine = 0;
     }
-    
+
     /* Denoise */
-    if ([[queueToApply objectForKey:@"PictureDenoise"] intValue] > 0)
-    {
-        [fPictureController setDenoise:[[queueToApply objectForKey:@"PictureDenoise"] intValue]];
-        /* if we are using "Custom" in the denoise setting, also set the custom string*/
-        if ([[queueToApply objectForKey:@"PictureDenoise"] intValue] == 1)
-        {
-            [fPictureController setDenoiseCustomString:[queueToApply objectForKey:@"PictureDenoiseCustom"]];    
-        }
-    }
-    else
-    {
-        [fPictureController setDenoise:0];
-    }   
-    
+    filters.denoise             = queueToApply[@"PictureDenoise"];
+    filters.denoisePreset       = queueToApply[@"PictureDenoisePreset"];
+    filters.denoiseTune         = queueToApply[@"PictureDenoiseTune"];
+    filters.denoiseCustomString = queueToApply[@"PictureDenoiseCustom"];
+
     /* Deblock */
-    if ([[queueToApply objectForKey:@"PictureDeblock"] intValue] == 1)
+    if ([queueToApply[@"PictureDeblock"] intValue] == 1)
     {
         /* if its a one, then its the old on/off deblock, set on to 5*/
-        [fPictureController setDeblock:5];
+        filters.deblock = 5;
     }
     else
     {
         /* use the settings intValue */
-        [fPictureController setDeblock:[[queueToApply objectForKey:@"PictureDeblock"] intValue]];
+        filters.deblock = [queueToApply[@"PictureDeblock"] intValue];
     }
-    
-    if ([[queueToApply objectForKey:@"VideoGrayScale"] intValue] == 1)
-    {
-        [fPictureController setGrayscale:1];
-    }
-    else
-    {
-        [fPictureController setGrayscale:0];
-    }
-    
+
+    filters.grayscale = [queueToApply[@"VideoGrayScale"] boolValue];
+
     /* we call SetTitle: in fPictureController so we get an instant update in the Picture Settings window */
     [fPictureController setTitle:fTitle];
     [self pictureSettingsDidChange];
-    
-    /* somehow we need to figure out a way to tie the queue item to a preset if it used one */
-    //[queueFileJob setObject:[fPresetSelectedDisplay stringValue] forKey:@"PresetName"];
-    //[queueFileJob setObject:[NSNumber numberWithInt:[fPresetsOutlineView selectedRow]] forKey:@"PresetIndexNum"];
-    if ([queueToApply objectForKey:@"PresetIndexNum"]) // This item used a preset so insert that info
-	{
-		/* Deselect the currently selected Preset if there is one*/
-        //[fPresetsOutlineView selectRowIndexes:[NSIndexSet indexSetWithIndex:[[queueToApply objectForKey:@"PresetIndexNum"] intValue]] byExtendingSelection:NO];
-        //[self selectPreset:nil];
-		
-        //[fPresetsOutlineView selectRow:[[queueToApply objectForKey:@"PresetIndexNum"] intValue]];
-		/* Change UI to show "Custom" settings are being used */
-		//[fPresetSelectedDisplay setStringValue: [[queueToApply objectForKey:@"PresetName"] stringValue]];
-	}
-    else
-    {
-        /* Deselect the currently selected Preset if there is one*/
-		[fPresetsOutlineView deselectRow:[fPresetsOutlineView selectedRow]];
-		/* Change UI to show "Custom" settings are being used */
-		[fPresetSelectedDisplay setStringValue: @"Custom"];
-    }
-    
-    /* We need to set this bool back to NO, in case the user wants to do a scan */
-    //applyQueueToScan = NO;
-    
-    /* Not that source is loaded and settings applied, delete the queue item from the queue */
+
+    [fPresetSelectedDisplay setStringValue:queueToApply[@"PresetName"]];
+    [fPresetsView deselect];
+
+    /* Now that source is loaded and settings applied, delete the queue item from the queue */
     [HBUtilities writeToActivityLog: "applyQueueSettingsToMainWindow: deleting queue item:%d",fqueueEditRescanItemNum];
     [self removeQueueFileItem:fqueueEditRescanItemNum];
 }
@@ -3083,7 +2966,6 @@ fWorkingCount = 0;
     hb_title_t * title = (hb_title_t *) hb_list_item( list,
             (int)[fSrcTitlePopUp indexOfSelectedItem] );
     hb_job_t * job = title->job;
-    hb_filter_object_t * filter;
     /* set job->angle for libdvdnav */
     job->angle = (int)[fSrcAnglePopUp indexOfSelectedItem] + 1;
     /* Chapter selection */
@@ -3097,184 +2979,168 @@ fWorkingCount = 0;
     [fVideoController prepareVideoForJobPreview:job andTitle:title];
 
     /* Subtitle settings */
-    NSMutableArray *subtitlesArray = [[NSMutableArray alloc] initWithArray:fSubtitlesViewController.subtitleArray copyItems:YES];
-    
-int subtitle;
-int force;
-int burned;
-int def;
-bool one_burned = FALSE;
-
+    BOOL one_burned = NO;
     int i = 0;
-    NSEnumerator *enumerator = [subtitlesArray objectEnumerator];
-    id tempObject;
-    while (tempObject = [enumerator nextObject])
+
+    for (id subtitleDict in fSubtitlesViewController.subtitles)
     {
-        
-        subtitle = [[tempObject objectForKey:@"subtitleSourceTrackNum"] intValue];
-        force = [[tempObject objectForKey:@"subtitleTrackForced"] intValue];
-        burned = [[tempObject objectForKey:@"subtitleTrackBurned"] intValue];
-        def = [[tempObject objectForKey:@"subtitleTrackDefault"] intValue];
-        
-        /* since the subtitleSourceTrackNum 0 is "None" in our array of the subtitle popups,
-         * we want to ignore it for display as well as encoding.
-         */
-        if (subtitle > 0)
+        int subtitle = [subtitleDict[keySubTrackIndex] intValue];
+        int force = [subtitleDict[keySubTrackForced] intValue];
+        int burned = [subtitleDict[keySubTrackBurned] intValue];
+        int def = [subtitleDict[keySubTrackDefault] intValue];
+
+        // if i is 0, then we are in the first item of the subtitles which we need to
+        // check for the "Foreign Audio Search" which would be keySubTrackIndex of -1
+
+        /* if we are on the first track and using "Foreign Audio Search" */
+        if (i == 0 && subtitle == -1)
         {
-            /* if i is 0, then we are in the first item of the subtitles which we need to 
-             * check for the "Foreign Audio Search" which would be subtitleSourceTrackNum of 1
-             * bearing in mind that for all tracks subtitleSourceTrackNum of 0 is None.
-             */
-            
-            /* if we are on the first track and using "Foreign Audio Search" */ 
-            if (i == 0 && subtitle == 1)
+            [HBUtilities writeToActivityLog: "Foreign Language Search: %d", 1];
+
+            job->indepth_scan = 1;
+
+            if (burned != 1)
             {
-                /* NOTE: Currently foreign language search is borked for preview.
-                 * Commented out but left in for initial commit. */
-                
-                
-                [HBUtilities writeToActivityLog: "Foreign Language Search: %d", 1];
-                
-                job->indepth_scan = 1;
-                
-                if (burned != 1)
-                {
-                    job->select_subtitle_config.dest = PASSTHRUSUB;
-                }
-                else
-                {
-                    job->select_subtitle_config.dest = RENDERSUB;
-                }
-                
-                job->select_subtitle_config.force = force;
-                job->select_subtitle_config.default_track = def;
+                job->select_subtitle_config.dest = PASSTHRUSUB;
             }
             else
             {
-                /* if we are getting the subtitles from an external srt file */
-                if ([[tempObject objectForKey:@"subtitleSourceTrackType"] intValue] == SRTSUB)
-                {
-                    hb_subtitle_config_t sub_config;
-                    
-                    sub_config.offset = [[tempObject objectForKey:@"subtitleTrackSrtOffset"] intValue];
-                    
-                    /* we need to srncpy file path and char code */
-                    strncpy(sub_config.src_filename, [[tempObject objectForKey:@"subtitleSourceSrtFilePath"] UTF8String], 255);
-                    sub_config.src_filename[255] = 0;
-                    strncpy(sub_config.src_codeset, [[tempObject objectForKey:@"subtitleTrackSrtCharCode"] UTF8String], 39);
-                    sub_config.src_codeset[39] = 0;
-                    
-                    if( !burned && hb_subtitle_can_pass( SRTSUB, job->mux ) )
-                    {
-                        sub_config.dest = PASSTHRUSUB;
-                    }
-                    else if( hb_subtitle_can_burn( SRTSUB ) )
-                    {
-                        // Only allow one subtitle to be burned into the video
-                        if( one_burned )
-                            continue;
-                        one_burned = TRUE;
-                        sub_config.dest = RENDERSUB;
-                    }
+                job->select_subtitle_config.dest = RENDERSUB;
+            }
 
-                    sub_config.force = 0;
-                    sub_config.default_track = def;
-                    hb_srt_add( job, &sub_config, [[tempObject objectForKey:@"subtitleTrackSrtLanguageIso3"] UTF8String]);
-                    continue;
-                }
-                
-                /* for the actual source tracks, we must subtract the non source entries so 
-                 * that the menu index matches the source subtitle_list index for convenience */
-                if( i == 0 )
+            job->select_subtitle_config.force = force;
+            job->select_subtitle_config.default_track = def;
+        }
+        else
+        {
+            /* if we are getting the subtitles from an external srt file */
+            if ([subtitleDict[keySubTrackType] intValue] == SRTSUB)
+            {
+                hb_subtitle_config_t sub_config;
+
+                sub_config.offset = [subtitleDict[keySubTrackSrtOffset] intValue];
+
+                /* we need to srncpy file name and codeset */
+                strncpy(sub_config.src_filename, [subtitleDict[keySubTrackSrtFilePath] UTF8String], 255);
+                sub_config.src_filename[255] = 0;
+                strncpy(sub_config.src_codeset, [subtitleDict[keySubTrackSrtCharCode] UTF8String], 39);
+                sub_config.src_codeset[39] = 0;
+
+                if( !burned && hb_subtitle_can_pass( SRTSUB, job->mux ) )
                 {
-                    /* for the first track, the source tracks start at menu index 2 ( None is 0,
-                     * Foreign Language Search is 1) so subtract 2 */
-                    subtitle = subtitle - 2;
+                    sub_config.dest = PASSTHRUSUB;
                 }
-                else
+                else if( hb_subtitle_can_burn( SRTSUB ) )
                 {
-                    /* for all other tracks, the source tracks start at menu index 1 (None is 0)
-                     * so subtract 1. */
-                    subtitle = subtitle - 1;
+                    // Only allow one subtitle to be burned into the video
+                    if( one_burned )
+                        continue;
+                    one_burned = TRUE;
+                    sub_config.dest = RENDERSUB;
                 }
-                
-                /* We are setting a source subtitle so access the source subtitle info */  
-                hb_subtitle_t * subt = (hb_subtitle_t *) hb_list_item( title->list_subtitle, subtitle );
-                
-                if( subt != NULL )
+
+                sub_config.force = 0;
+                sub_config.default_track = def;
+                hb_srt_add( job, &sub_config, [subtitleDict[keySubTrackLanguageIsoCode] UTF8String]);
+                continue;
+            }
+
+            /* We are setting a source subtitle so access the source subtitle info */
+            hb_subtitle_t * subt = (hb_subtitle_t *) hb_list_item( title->list_subtitle, subtitle );
+
+            if( subt != NULL )
+            {
+                hb_subtitle_config_t sub_config = subt->config;
+
+                if( !burned && hb_subtitle_can_pass( subt->source, job->mux ) )
                 {
-                    hb_subtitle_config_t sub_config = subt->config;
-                    
-                    if( !burned && hb_subtitle_can_pass( subt->source, job->mux ) )
-                    {
-                        sub_config.dest = PASSTHRUSUB;
-                    }
-                    else if( hb_subtitle_can_burn( subt->source ) )
-                    {
-                        // Only allow one subtitle to be burned into the video
-                        if( one_burned )
-                            continue;
-                        one_burned = TRUE;
-                        sub_config.dest = RENDERSUB;
-                    }
-                    
-                    sub_config.force = force;
-                    sub_config.default_track = def;
-                    hb_subtitle_add( job, &sub_config, subtitle );
+                    sub_config.dest = PASSTHRUSUB;
                 }
+                else if( hb_subtitle_can_burn( subt->source ) )
+                {
+                    // Only allow one subtitle to be burned into the video
+                    if( one_burned )
+                        continue;
+                    one_burned = TRUE;
+                    sub_config.dest = RENDERSUB;
+                }
+
+                sub_config.force = force;
+                sub_config.default_track = def;
+                hb_subtitle_add( job, &sub_config, subtitle );
             }
         }
         i++;
     }
     if( one_burned )
     {
-        filter = hb_filter_init( HB_FILTER_RENDER_SUB );
+        hb_filter_object_t *filter = hb_filter_init( HB_FILTER_RENDER_SUB );
         hb_add_filter( job, filter, [[NSString stringWithFormat:@"%d:%d:%d:%d",
-                                  job->crop[0], job->crop[1],
-                                  job->crop[2], job->crop[3]] UTF8String] );
+                                      job->crop[0], job->crop[1],
+                                      job->crop[2], job->crop[3]] UTF8String] );
     }
-   
-    
-    
-[subtitlesArray autorelease];
-    
-    
+
     /* Auto Passthru */
     job->acodec_copy_mask = 0;
-    if (fAudioController.allowAACPassCheck)
+    if (fAudioController.settings.allowAACPassthru)
     {
         job->acodec_copy_mask |= HB_ACODEC_FFAAC;
     }
-    if (fAudioController.allowAC3PassCheck)
+    if (fAudioController.settings.allowAC3Passthru)
     {
         job->acodec_copy_mask |= HB_ACODEC_AC3;
     }
-    if (fAudioController.allowDTSHDPassCheck)
+    if (fAudioController.settings.allowDTSHDPassthru)
     {
         job->acodec_copy_mask |= HB_ACODEC_DCA_HD;
     }
-    if (fAudioController.allowDTSPassCheck)
+    if (fAudioController.settings.allowDTSPassthru)
     {
         job->acodec_copy_mask |= HB_ACODEC_DCA;
     }
-    if (fAudioController.allowMP3PassCheck)
+    if (fAudioController.settings.allowMP3Passthru)
     {
         job->acodec_copy_mask |= HB_ACODEC_MP3;
     }
-    job->acodec_fallback = (int)fAudioController.audioEncoderFallbackTag;
-    
-    /* Audio tracks and mixdowns */
-	[fAudioController prepareAudioForJobPreview: job];
+    job->acodec_fallback = fAudioController.settings.encoderFallback;
 
-    
-    
+    // First clear out any audio tracks in the job currently
+    int audiotrack_count = hb_list_count(job->list_audio);
+    for (i = 0; i < audiotrack_count; i++)
+    {
+        hb_audio_t *temp_audio = (hb_audio_t *) hb_list_item(job->list_audio, 0);
+        hb_list_rem(job->list_audio, temp_audio);
+    }
+
+    /* Audio tracks and mixdowns */
+    for (NSDictionary *audioDict in fAudioController.audioTracks)
+    {
+        hb_audio_config_t *audio = (hb_audio_config_t *)calloc(1, sizeof(*audio));
+        hb_audio_config_init(audio);
+        audio->in.track = [audioDict[@"Track"] intValue];
+        /* We go ahead and assign values to our audio->out.<properties> */
+        audio->out.track                     = audio->in.track;
+        audio->out.codec                     = [audioDict[@"JobEncoder"] intValue];
+        audio->out.compression_level         = hb_audio_compression_get_default(audio->out.codec);
+        audio->out.mixdown                   = [audioDict[@"JobMixdown"] intValue];
+        audio->out.normalize_mix_level       = 0;
+        audio->out.bitrate                   = [audioDict[@"JobBitrate"] intValue];
+        audio->out.samplerate                = [audioDict[@"JobSamplerate"] intValue];
+        audio->out.dynamic_range_compression = [audioDict[@"TrackDRCSlider"] floatValue];
+        audio->out.gain                      = [audioDict[@"TrackGainSlider"] floatValue];
+        audio->out.dither_method             = hb_audio_dither_get_default();
+
+        hb_audio_add(job, audio);
+        free(audio);
+    }
+
     /* Filters */
     
     /* Though Grayscale is not really a filter, per se
      * we put it here since its in the filters panel
      */
      
-    if ([fPictureController grayscale])
+    if ([fPictureController.filters grayscale])
     {
         job->grayscale = 1;
     }
@@ -3289,126 +3155,127 @@ bool one_burned = FALSE;
     
 
 	/* Detelecine */
-    filter = hb_filter_init( HB_FILTER_DETELECINE );
-    if ([fPictureController detelecine] == 1)
+    HBFilters *filters = [fPictureController filters];
+    if (filters.detelecine == 1)
     {
+        hb_filter_object_t *filter = hb_filter_init(HB_FILTER_DETELECINE);
         /* use a custom detelecine string */
-        hb_add_filter( job, filter, [[fPictureController detelecineCustomString] UTF8String] );
+        hb_add_filter(job, filter, [filters.detelecineCustomString UTF8String]);
     }
-    else if ([fPictureController detelecine] == 2)
+    else if (filters.detelecine == 2)
     {
         /* Default */
-        hb_add_filter( job, filter, NULL );
+        hb_filter_object_t *filter = hb_filter_init(HB_FILTER_DETELECINE);
+        hb_add_filter(job, filter, NULL);
     }
-    
-    
-    
-    if ([fPictureController useDecomb] == 1)
+    if (filters.useDecomb == YES)
     {
         /* Decomb */
-        filter = hb_filter_init( HB_FILTER_DECOMB );
-        if ([fPictureController decomb] == 1)
+        hb_filter_object_t *filter = hb_filter_init(HB_FILTER_DECOMB);
+        if (filters.decomb == 1)
         {
             /* use a custom decomb string */
-            hb_add_filter( job, filter, [[fPictureController decombCustomString] UTF8String] );
+            hb_add_filter(job, filter, [filters.decombCustomString UTF8String]);
         }
-        else if ([fPictureController decomb] == 2)
+        else if (filters.decomb == 2)
         {
             /* use libhb defaults */
-            hb_add_filter( job, filter, NULL );
+            hb_add_filter(job, filter, NULL);
         }
-        else if ([fPictureController decomb] == 3)
+        else if (filters.decomb == 3)
         {
             /* use old defaults (decomb fast) */
-            hb_add_filter( job, filter, "7:2:6:9:1:80" );
+            hb_add_filter(job, filter, "7:2:6:9:1:80");
         }
-        else if ([fPictureController decomb] == 4)
+        else if (filters.decomb == 4)
         {
             /* decomb 3 with bobbing enabled */
-            hb_add_filter( job, filter, "455" );
+            hb_add_filter(job, filter, "455");
         }
     }
     else
     {
         /* Deinterlace */
-        filter = hb_filter_init( HB_FILTER_DEINTERLACE );
-        if ([fPictureController deinterlace] == 1)
+        hb_filter_object_t *filter = hb_filter_init(HB_FILTER_DEINTERLACE);
+        if (filters.deinterlace == 1)
         {
             /* we add the custom string if present */
-            hb_add_filter( job, filter, [[fPictureController deinterlaceCustomString] UTF8String] );            
+            hb_add_filter(job, filter, [filters.deinterlaceCustomString UTF8String]);
         }
-        else if ([fPictureController deinterlace] == 2)
+        else if (filters.deinterlace == 2)
         {
             /* Run old deinterlacer fd by default */
-            hb_add_filter( job, filter, "0" );
+            hb_add_filter(job, filter, "0");
         }
-        else if ([fPictureController deinterlace] == 3)
+        else if (filters.deinterlace == 3)
         {
             /* Yadif mode 0 (without spatial deinterlacing) */
-            hb_add_filter( job, filter, "1" );            
+            hb_add_filter(job, filter, "1");
         }
-        else if ([fPictureController deinterlace] == 4)
+        else if (filters.deinterlace == 4)
         {
             /* Yadif (with spatial deinterlacing) */
-            hb_add_filter( job, filter, "3" );
+            hb_add_filter(job, filter, "3");
         }
-        else if ([fPictureController deinterlace] == 5)
+        else if (filters.deinterlace == 5)
         {
             /* Yadif (with spatial deinterlacing and bobbing) */
-            hb_add_filter( job, filter, "15" );
+            hb_add_filter(job, filter, "15");
         }
 	}
-    
+
     /* Denoise */
-    filter = hb_filter_init( HB_FILTER_DENOISE );
-	if ([fPictureController denoise] == 1) // custom in popup
-	{
-		/* we add the custom string if present */
-        hb_add_filter( job, filter, [[fPictureController denoiseCustomString] UTF8String] );
-	}
-    else if ([fPictureController denoise] == 2) // Weak in popup
-	{
-        hb_add_filter( job, filter, "2:1:1:2:3:3" );
-	}
-	else if ([fPictureController denoise] == 3) // Medium in popup
-	{
-        hb_add_filter( job, filter, "3:2:2:2:3:3" );
-	}
-	else if ([fPictureController denoise] == 4) // Strong in popup
-	{
-        hb_add_filter( job, filter, "7:7:7:5:5:5" );
-	}
-    
-    
+    if (filters.denoise)
+    {
+        int filter_id = HB_FILTER_HQDN3D;
+        if ([filters.denoise isEqualToString:@"nlmeans"])
+            filter_id = HB_FILTER_NLMEANS;
+
+        if ([filters.denoisePreset isEqualToString:@"custom"])
+        {
+            const char *filter_str;
+            filter_str = [filters.denoiseCustomString UTF8String];
+            hb_filter_object_t *filter = hb_filter_init(filter_id);
+            hb_add_filter(job, filter, filter_str);
+        }
+        else
+        {
+            const char *filter_str, *preset, *tune;
+            preset = [filters.denoisePreset UTF8String];
+            tune = [filters.denoiseTune UTF8String];
+            filter_str = hb_generate_filter_settings(filter_id, preset, tune);
+            hb_filter_object_t *filter = hb_filter_init(filter_id);
+            hb_add_filter(job, filter, filter_str);
+        }
+    }
+
     /* Deblock  (uses pp7 default) */
     /* NOTE: even though there is a valid deblock setting of 0 for the filter, for 
      * the macgui's purposes a value of 0 actually means to not even use the filter
      * current hb_filter_deblock.settings valid ranges are from 5 - 15 
      */
-    filter = hb_filter_init( HB_FILTER_DEBLOCK );
-    if ([fPictureController deblock] != 0)
+    if (filters.deblock != 0)
     {
-        NSString *deblockStringValue = [NSString stringWithFormat: @"%ld",(long)[fPictureController deblock]];
+        hb_filter_object_t *filter = hb_filter_init( HB_FILTER_DEBLOCK );
+        NSString *deblockStringValue = [NSString stringWithFormat: @"%ld",(long)filters.deblock];
         hb_add_filter( job, filter, [deblockStringValue UTF8String] );
     }
 
     /* Add Crop/Scale filter */
-    filter = hb_filter_init( HB_FILTER_CROP_SCALE );
+    hb_filter_object_t *filter = hb_filter_init( HB_FILTER_CROP_SCALE );
     hb_add_filter( job, filter, [[NSString stringWithFormat:@"%d:%d:%d:%d:%d:%d",
                                   job->width,job->height,
                                   job->crop[0], job->crop[1],
                                   job->crop[2], job->crop[3]] UTF8String] );
 }
 
-
 #pragma mark -
 #pragma mark Job Handling
-
 
 - (void) prepareJob
 {
     
-    NSMutableDictionary * queueToApply = [QueueFileArray objectAtIndex:currentQueueEncodeIndex];
+    NSDictionary * queueToApply = [QueueFileArray objectAtIndex:currentQueueEncodeIndex];
     hb_list_t  * list  = hb_get_titles( fQueueEncodeLibhb );
     hb_title_t * title = (hb_title_t *) hb_list_item( list,0 ); // is always zero since now its a single title scan
     hb_job_t * job = title->job;
@@ -3495,11 +3362,9 @@ bool one_burned = FALSE;
          * chapters just come out 001, 002, etc. etc.
          */
          
-        NSMutableArray *ChapterNamesArray = [queueToApply objectForKey:@"ChapterNames"];
+        NSArray *chapterNamesArray = [queueToApply objectForKey:@"ChapterNames"];
         int i = 0;
-        NSEnumerator *enumerator = [ChapterNamesArray objectEnumerator];
-        id tempObject;
-        while (tempObject = [enumerator nextObject])
+        for (id tempObject in chapterNamesArray)
         {
             hb_chapter_t *chapter = (hb_chapter_t *) hb_list_item( job->list_chapter, i );
             if( chapter != NULL )
@@ -3514,7 +3379,7 @@ bool one_burned = FALSE;
         job->chapter_markers = 0;
     }
     
-    if (job->vcodec == HB_VCODEC_X264)
+    if (job->vcodec == HB_VCODEC_X264 || job->vcodec == HB_VCODEC_X265)
     {
         /* iPod 5G atom */
         job->ipod_atom = ([[queueToApply objectForKey:@"Mp4iPodCompatible"]
@@ -3546,23 +3411,23 @@ bool one_burned = FALSE;
         else
         {
             // we are using the x264 preset system
-            if ([(tmpString = [queueToApply objectForKey:@"x264Tune"]) length])
+            if ([(tmpString = [queueToApply objectForKey:@"VideoTune"]) length])
             {
                 encoder_tune = [tmpString UTF8String];
             }
-            if ([(tmpString = [queueToApply objectForKey:@"x264OptionExtra"]) length])
+            if ([(tmpString = [queueToApply objectForKey:@"VideoOptionExtra"]) length])
             {
                 encoder_options = [tmpString UTF8String];
             }
-            if ([(tmpString = [queueToApply objectForKey:@"h264Profile"]) length])
+            if ([(tmpString = [queueToApply objectForKey:@"VideoProfile"]) length])
             {
                 encoder_profile = [tmpString UTF8String];
             }
-            if ([(tmpString = [queueToApply objectForKey:@"h264Level"]) length])
+            if ([(tmpString = [queueToApply objectForKey:@"VideoLevel"]) length])
             {
                 encoder_level = [tmpString UTF8String];
             }
-            encoder_preset = [[queueToApply objectForKey:@"x264Preset"] UTF8String];
+            encoder_preset = [[queueToApply objectForKey:@"VideoPreset"] UTF8String];
         }
         hb_job_set_encoder_preset (job, encoder_preset);
         hb_job_set_encoder_tune   (job, encoder_tune);
@@ -3573,7 +3438,7 @@ bool one_burned = FALSE;
     else if (job->vcodec & HB_VCODEC_FFMPEG_MASK)
     {
         hb_job_set_encoder_options(job,
-                                   [[queueToApply objectForKey:@"lavcOption"]
+                                   [[queueToApply objectForKey:@"VideoOptionExtra"]
                                     UTF8String]);
     }
 
@@ -3641,141 +3506,100 @@ bool one_burned = FALSE;
         job->vbitrate = 0;
         
     }
-    
+
     job->grayscale = [[queueToApply objectForKey:@"VideoGrayScale"] intValue];
-    
 
-
-#pragma mark -
-#pragma mark Process Subtitles to libhb
-
-/* Map the settings in the dictionaries for the SubtitleList array to match title->list_subtitle
- * which means that we need to account for the offset of non source language settings in from
- * the NSPopUpCell menu. For all of the objects in the SubtitleList array this means 0 is "None"
- * from the popup menu, additionally the first track has "Foreign Audio Search" at 1. So we use
- * an int to offset the index number for the objectForKey:@"subtitleSourceTrackNum" to map that
- * to the source tracks position in title->list_subtitle.
- */
-
-int subtitle;
-int force;
-int burned;
-int def;
-bool one_burned = FALSE;
-
+    // Map the settings in the dictionaries for the SubtitleList array to match title->list_subtitle
+    BOOL one_burned = NO;
     int i = 0;
-    NSEnumerator *enumerator = [[queueToApply objectForKey:@"SubtitleList"] objectEnumerator];
-    id tempObject;
-    while (tempObject = [enumerator nextObject])
+
+    NSArray *subtitles = [queueToApply objectForKey:@"SubtitleList"];
+    for (id subtitleDict in subtitles)
     {
-        
-        subtitle = [[tempObject objectForKey:@"subtitleSourceTrackNum"] intValue];
-        force = [[tempObject objectForKey:@"subtitleTrackForced"] intValue];
-        burned = [[tempObject objectForKey:@"subtitleTrackBurned"] intValue];
-        def = [[tempObject objectForKey:@"subtitleTrackDefault"] intValue];
-        
-        /* since the subtitleSourceTrackNum 0 is "None" in our array of the subtitle popups,
-         * we want to ignore it for display as well as encoding.
-         */
-        if (subtitle > 0)
+        int subtitle = [subtitleDict[keySubTrackIndex] intValue];
+        int force = [subtitleDict[keySubTrackForced] intValue];
+        int burned = [subtitleDict[keySubTrackBurned] intValue];
+        int def = [subtitleDict[keySubTrackDefault] intValue];
+
+        // if i is 0, then we are in the first item of the subtitles which we need to
+        // check for the "Foreign Audio Search" which would be keySubTrackIndex of -1
+
+        // if we are on the first track and using "Foreign Audio Search"
+        if (i == 0 && subtitle == -1)
         {
-            /* if i is 0, then we are in the first item of the subtitles which we need to 
-             * check for the "Foreign Audio Search" which would be subtitleSourceTrackNum of 1
-             * bearing in mind that for all tracks subtitleSourceTrackNum of 0 is None.
-             */
-            
-            /* if we are on the first track and using "Foreign Audio Search" */ 
-            if (i == 0 && subtitle == 1)
+            [HBUtilities writeToActivityLog: "Foreign Language Search: %d", 1];
+
+            job->indepth_scan = 1;
+
+            if (burned != 1)
             {
-                [HBUtilities writeToActivityLog: "Foreign Language Search: %d", 1];
-                
-                job->indepth_scan = 1;
-                
-                if (burned != 1)
-                {
-                    job->select_subtitle_config.dest = PASSTHRUSUB;
-                }
-                else
-                {
-                    job->select_subtitle_config.dest = RENDERSUB;
-                }
-                
-                job->select_subtitle_config.force = force;
-                job->select_subtitle_config.default_track = def;
+                job->select_subtitle_config.dest = PASSTHRUSUB;
             }
             else
             {
-                /* if we are getting the subtitles from an external srt file */
-                if ([[tempObject objectForKey:@"subtitleSourceTrackType"] intValue] == SRTSUB)
-                {
-                    hb_subtitle_config_t sub_config;
-                    
-                    sub_config.offset = [[tempObject objectForKey:@"subtitleTrackSrtOffset"] intValue];
-                    
-                    /* we need to srncpy file name and codeset */
-                    strncpy(sub_config.src_filename, [[tempObject objectForKey:@"subtitleSourceSrtFilePath"] UTF8String], 255);
-                    sub_config.src_filename[255] = 0;
-                    strncpy(sub_config.src_codeset, [[tempObject objectForKey:@"subtitleTrackSrtCharCode"] UTF8String], 39);
-                    sub_config.src_codeset[39] = 0;
-                    
-                    if( !burned && hb_subtitle_can_pass( SRTSUB, job->mux ) )
-                    {
-                        sub_config.dest = PASSTHRUSUB;
-                    }
-                    else if( hb_subtitle_can_burn( SRTSUB ) )
-                    {
-                        // Only allow one subtitle to be burned into the video
-                        if( one_burned )
-                            continue;
-                        one_burned = TRUE;
-                        sub_config.dest = RENDERSUB;
-                    }
+                job->select_subtitle_config.dest = RENDERSUB;
+            }
 
-                    sub_config.force = 0;
-                    sub_config.default_track = def;
-                    hb_srt_add( job, &sub_config, [[tempObject objectForKey:@"subtitleTrackSrtLanguageIso3"] UTF8String]);
-                    continue;
-                }
-                
-                /* for the actual source tracks, we must subtract the non source entries so 
-                 * that the menu index matches the source subtitle_list index for convenience */
-                if( i == 0 )
+            job->select_subtitle_config.force = force;
+            job->select_subtitle_config.default_track = def;
+        }
+        else
+        {
+            // if we are getting the subtitles from an external srt file
+            if ([subtitleDict[keySubTrackType] intValue] == SRTSUB)
+            {
+                hb_subtitle_config_t sub_config;
+
+                sub_config.offset = [subtitleDict[keySubTrackSrtOffset] intValue];
+
+                // we need to srncpy file name and codeset
+                strncpy(sub_config.src_filename, [subtitleDict[keySubTrackSrtFilePath] UTF8String], 255);
+                sub_config.src_filename[255] = 0;
+                strncpy(sub_config.src_codeset, [subtitleDict[keySubTrackSrtCharCode] UTF8String], 39);
+                sub_config.src_codeset[39] = 0;
+
+                if( !burned && hb_subtitle_can_pass( SRTSUB, job->mux ) )
                 {
-                    /* for the first track, the source tracks start at menu index 2 ( None is 0,
-                     * Foreign Language Search is 1) so subtract 2 */
-                    subtitle = subtitle - 2;
+                    sub_config.dest = PASSTHRUSUB;
                 }
-                else
+                else if( hb_subtitle_can_burn( SRTSUB ) )
                 {
-                    /* for all other tracks, the source tracks start at menu index 1 (None is 0)
-                     * so subtract 1. */
-                    subtitle = subtitle - 1;
+                    // Only allow one subtitle to be burned into the video
+                    if( one_burned )
+                        continue;
+                    one_burned = TRUE;
+                    sub_config.dest = RENDERSUB;
                 }
-                
-                /* We are setting a source subtitle so access the source subtitle info */  
-                hb_subtitle_t * subt = (hb_subtitle_t *) hb_list_item( title->list_subtitle, subtitle );
-                
-                if( subt != NULL )
+
+                sub_config.force = 0;
+                sub_config.default_track = def;
+                hb_srt_add( job, &sub_config, [subtitleDict[keySubTrackLanguageIsoCode] UTF8String]);
+                continue;
+            }
+
+            /* We are setting a source subtitle so access the source subtitle info */
+            hb_subtitle_t * subt = (hb_subtitle_t *) hb_list_item( title->list_subtitle, subtitle );
+
+            if( subt != NULL )
+            {
+                hb_subtitle_config_t sub_config = subt->config;
+
+                if( !burned && hb_subtitle_can_pass( subt->source, job->mux ) )
                 {
-                    hb_subtitle_config_t sub_config = subt->config;
-                    
-                    if( !burned && hb_subtitle_can_pass( subt->source, job->mux ) )
-                    {
-                        sub_config.dest = PASSTHRUSUB;
-                    }
-                    else if( hb_subtitle_can_burn( subt->source ) )
-                    {
-                        // Only allow one subtitle to be burned into the video
-                        if( one_burned )
-                            continue;
-                        one_burned = TRUE;
-                        sub_config.dest = RENDERSUB;
-                    }
-                    
-                    sub_config.force = force;
-                    sub_config.default_track = def;
-                    hb_subtitle_add( job, &sub_config, subtitle );
+                    sub_config.dest = PASSTHRUSUB;
                 }
+                else if( hb_subtitle_can_burn( subt->source ) )
+                {
+                    // Only allow one subtitle to be burned into the video
+                    if( one_burned )
+                        continue;
+                    one_burned = TRUE;
+                    sub_config.dest = RENDERSUB;
+                }
+
+                sub_config.force = force;
+                sub_config.default_track = def;
+                hb_subtitle_add( job, &sub_config, subtitle );
             }
         }
         i++;
@@ -3788,60 +3612,56 @@ bool one_burned = FALSE;
                                   job->crop[2], job->crop[3]] UTF8String] );
     }
 
-#pragma mark -
+    /* Auto Defaults */
+    NSDictionary *audioDefaults = queueToApply[@"AudioDefaults"];
 
-    /* Auto Passthru */
     job->acodec_copy_mask = 0;
-    if( [[queueToApply objectForKey: @"AudioAllowAACPass"] intValue] == 1 )
+
+    if ([audioDefaults[@"AudioAllowAACPass"] boolValue])
     {
         job->acodec_copy_mask |= HB_ACODEC_FFAAC;
     }
-    if( [[queueToApply objectForKey: @"AudioAllowAC3Pass"] intValue] == 1 )
+    if ([audioDefaults[@"AudioAllowAC3Pass"] boolValue])
     {
         job->acodec_copy_mask |= HB_ACODEC_AC3;
     }
-    if( [[queueToApply objectForKey: @"AudioAllowDTSHDPass"] intValue] == 1 )
+    if ([audioDefaults[@"AudioAllowDTSHDPass"] boolValue])
     {
         job->acodec_copy_mask |= HB_ACODEC_DCA_HD;
     }
-    if( [[queueToApply objectForKey: @"AudioAllowDTSPass"] intValue] == 1 )
+    if ([audioDefaults[@"AudioAllowDTSPass"] boolValue])
     {
         job->acodec_copy_mask |= HB_ACODEC_DCA;
     }
-    if( [[queueToApply objectForKey: @"AudioAllowMP3Pass"] intValue] == 1 )
+    if ([audioDefaults[@"AudioAllowMP3Pass"] boolValue])
     {
         job->acodec_copy_mask |= HB_ACODEC_MP3;
     }
-    job->acodec_fallback = [[queueToApply objectForKey: @"JobAudioEncoderFallback"] intValue];
-    
+    job->acodec_fallback = hb_audio_encoder_get_from_name([audioDefaults[@"AudioEncoderFallback"] UTF8String]);
+
     /* Audio tracks and mixdowns */
     /* Now lets add our new tracks to the audio list here */
-    for (unsigned int counter = 0; counter < maximumNumberOfAllowedAudioTracks; counter++)
+    for (NSDictionary *audioDict in [queueToApply objectForKey:@"AudioList"])
     {
-        NSString *prefix    = [NSString stringWithFormat:@"Audio%d",    counter + 1];
-        NSString *jobPrefix = [NSString stringWithFormat:@"JobAudio%d", counter + 1];
-        if ([[queueToApply objectForKey:[prefix stringByAppendingString:@"Track"]] intValue] > 0)
-        {
-            audio           = (hb_audio_config_t*)calloc(1, sizeof(*audio));
-            hb_audio_config_init(audio);
-            audio->in.track = [[queueToApply objectForKey:[prefix stringByAppendingString:@"Track"]] intValue] - 1;
-            /* We go ahead and assign values to our audio->out.<properties> */
-            audio->out.track                     = audio->in.track;
-            audio->out.codec                     = [[queueToApply objectForKey:[jobPrefix stringByAppendingString:@"Encoder"]]           intValue];
-            audio->out.compression_level         = hb_audio_compression_get_default(audio->out.codec);
-            audio->out.mixdown                   = [[queueToApply objectForKey:[jobPrefix stringByAppendingString:@"Mixdown"]]           intValue];
-            audio->out.normalize_mix_level       = 0;
-            audio->out.bitrate                   = [[queueToApply objectForKey:[jobPrefix stringByAppendingString:@"Bitrate"]]           intValue];
-            audio->out.samplerate                = [[queueToApply objectForKey:[jobPrefix stringByAppendingString:@"Samplerate"]]        intValue];
-            audio->out.dynamic_range_compression = [[queueToApply objectForKey:[prefix    stringByAppendingString:@"TrackDRCSlider"]]  floatValue];
-            audio->out.gain                      = [[queueToApply objectForKey:[prefix    stringByAppendingString:@"TrackGainSlider"]] floatValue];
-            audio->out.dither_method             = hb_audio_dither_get_default();
-            
-            hb_audio_add(job, audio);
-            free(audio);
-        }
+        audio           = (hb_audio_config_t *)calloc(1, sizeof(*audio));
+        hb_audio_config_init(audio);
+        audio->in.track = [audioDict[@"Track"] intValue];
+        /* We go ahead and assign values to our audio->out.<properties> */
+        audio->out.track                     = audio->in.track;
+        audio->out.codec                     = [audioDict[@"JobEncoder"] intValue];
+        audio->out.compression_level         = hb_audio_compression_get_default(audio->out.codec);
+        audio->out.mixdown                   = [audioDict[@"JobMixdown"] intValue];
+        audio->out.normalize_mix_level       = 0;
+        audio->out.bitrate                   = [audioDict[@"JobBitrate"] intValue];
+        audio->out.samplerate                = [audioDict[@"JobSamplerate"] intValue];
+        audio->out.dynamic_range_compression = [audioDict[@"TrackDRCSlider"] intValue];
+        audio->out.gain                      = [audioDict[@"TrackGainSlider"] intValue];
+        audio->out.dither_method             = hb_audio_dither_get_default();
+
+        hb_audio_add(job, audio);
+        free(audio);
     }
-    
+
     /* Now lets call the filters if applicable.
      * The order of the filters is critical
      */
@@ -3914,26 +3734,30 @@ bool one_burned = FALSE;
         }
     }
     /* Denoise */
-    filter = hb_filter_init( HB_FILTER_DENOISE );
-	if ([[queueToApply objectForKey:@"PictureDenoise"] intValue] == 1) // Custom in popup
-	{
-		/* we add the custom string if present */
-        hb_add_filter( job, filter, [[queueToApply objectForKey:@"PictureDenoiseCustom"] UTF8String] );	
-	}
-    else if ([[queueToApply objectForKey:@"PictureDenoise"] intValue] == 2) // Weak in popup
-	{
-        hb_add_filter( job, filter, "2:1:1:2:3:3" );	
-	}
-	else if ([[queueToApply objectForKey:@"PictureDenoise"] intValue] == 3) // Medium in popup
-	{
-        hb_add_filter( job, filter, "3:2:2:2:3:3" );	
-	}
-	else if ([[queueToApply objectForKey:@"PictureDenoise"] intValue] == 4) // Strong in popup
-	{
-        hb_add_filter( job, filter, "7:7:7:5:5:5" );	
-	}
-    
-    
+    if (![queueToApply[@"PictureDenoise"] isEqualToString:@"off"])
+    {
+        int filter_id = HB_FILTER_HQDN3D;
+        if ([queueToApply[@"PictureDenoise"] isEqualToString:@"nlmeans"])
+            filter_id = HB_FILTER_NLMEANS;
+
+        if ([queueToApply[@"PictureDenoisePreset"] isEqualToString:@"custom"])
+        {
+            const char *filter_str;
+            filter_str = [queueToApply[@"PictureDenoiseCustom"] UTF8String];
+            filter = hb_filter_init(filter_id);
+            hb_add_filter(job, filter, filter_str);
+        }
+        else
+        {
+            const char *filter_str, *preset, *tune;
+            preset = [queueToApply[@"PictureDenoisePreset"] UTF8String];
+            tune = [queueToApply[@"PictureDenoiseTune"] UTF8String];
+            filter_str = hb_generate_filter_settings(filter_id, preset, tune);
+            filter = hb_filter_init(filter_id);
+            hb_add_filter(job, filter, filter_str);
+        }
+    }
+
     /* Deblock  (uses pp7 default) */
     /* NOTE: even though there is a valid deblock setting of 0 for the filter, for 
      * the macgui's purposes a value of 0 actually means to not even use the filter
@@ -3971,7 +3795,11 @@ bool one_burned = FALSE;
 	/* We check for a valid destination here */
 	if ([[NSFileManager defaultManager] fileExistsAtPath:destinationDirectory] == 0) 
 	{
-		NSRunAlertPanel(@"Warning!", @"This is not a valid destination directory!", @"OK", nil, nil);
+        NSAlert *alert = [[NSAlert alloc] init];
+        [alert setMessageText:@"Warning!"];
+        [alert setInformativeText:@"This is not a valid destination directory!"];
+        [alert runModal];
+        [alert release];
         return;
 	}
     
@@ -3988,17 +3816,13 @@ bool one_burned = FALSE;
     }
     
     /* We now run through the queue and make sure we are not overwriting an exisiting queue item */
-    int i = 0;
-    NSEnumerator *enumerator = [QueueFileArray objectEnumerator];
-	id tempObject;
-	while (tempObject = [enumerator nextObject])
+	for (id tempObject in QueueFileArray)
 	{
 		NSDictionary *thisQueueDict = tempObject;
 		if ([[thisQueueDict objectForKey:@"DestinationPath"] isEqualToString: [fDstFile2Field stringValue]])
 		{
 			fileExistsInQueue = YES;	
 		}
-        i++;
 	}
 
 	if(fileExists == YES)
@@ -4081,7 +3905,11 @@ bool one_burned = FALSE;
     NSString *destinationDirectory = [[fDstFile2Field stringValue] stringByDeletingLastPathComponent];
     if ([[NSFileManager defaultManager] fileExistsAtPath:destinationDirectory] == 0) 
     {
-        NSRunAlertPanel(@"Warning!", @"This is not a valid destination directory!", @"OK", nil, nil);
+        NSAlert *alert = [[NSAlert alloc] init];
+        [alert setMessageText:@"Warning!"];
+        [alert setInformativeText:@"This is not a valid destination directory!"];
+        [alert runModal];
+        [alert release];
         return;
     }
     
@@ -4139,33 +3967,46 @@ bool one_burned = FALSE;
 
 - (void) remindUserOfSleepOrShutdown
 {
-       if ([[[NSUserDefaults standardUserDefaults] stringForKey:@"AlertWhenDone"] isEqualToString: @"Put Computer To Sleep"])
-       {
-               /*Warn that computer will sleep after encoding*/
-               NSInteger reminduser;
-               NSBeep();
-               reminduser = NSRunAlertPanel(@"The computer will sleep after encoding is done.",@"You have selected to sleep the computer after encoding. To turn off sleeping, go to the HandBrake preferences.", @"OK", @"Preferences…", nil);
-               [NSApp requestUserAttention:NSCriticalRequest];
-               if ( reminduser == NSAlertAlternateReturn )
-               {
-                       [self showPreferencesWindow:nil];
-               }
-       }
-       else if ([[[NSUserDefaults standardUserDefaults] stringForKey:@"AlertWhenDone"] isEqualToString: @"Shut Down Computer"])
-       {
-               /*Warn that computer will shut down after encoding*/
-               NSInteger reminduser;
-               NSBeep();
-               reminduser = NSRunAlertPanel(@"The computer will shut down after encoding is done.",@"You have selected to shut down the computer after encoding. To turn off shut down, go to the HandBrake preferences.", @"OK", @"Preferences…", nil);
-               [NSApp requestUserAttention:NSCriticalRequest];
-               if ( reminduser == NSAlertAlternateReturn )
-               {
-                       [self showPreferencesWindow:nil];
-               }
-       }
+    if ([[[NSUserDefaults standardUserDefaults] stringForKey:@"AlertWhenDone"] isEqualToString: @"Put Computer To Sleep"])
+    {
+        /*Warn that computer will sleep after encoding*/
+        NSBeep();
+        [NSApp requestUserAttention:NSCriticalRequest];
+
+        NSAlert *alert = [[NSAlert alloc] init];
+        [alert setMessageText:@"The computer will sleep after encoding is done."];
+        [alert setInformativeText:@"You have selected to sleep the computer after encoding. To turn off sleeping, go to the HandBrake preferences."];
+        [alert addButtonWithTitle:@"OK"];
+        [alert addButtonWithTitle:@"Preferences…"];
+
+        NSInteger reminduser = [alert runModal];
+        [alert release];
+        if (reminduser == NSAlertSecondButtonReturn)
+        {
+            [self showPreferencesWindow:nil];
+        }
+    }
+    else if ([[[NSUserDefaults standardUserDefaults] stringForKey:@"AlertWhenDone"] isEqualToString: @"Shut Down Computer"])
+    {
+        /*Warn that computer will shut down after encoding*/
+        NSBeep();
+        [NSApp requestUserAttention:NSCriticalRequest];
+
+        NSAlert *alert = [[NSAlert alloc] init];
+        [alert setMessageText:@"The computer will shut down after encoding is done."];
+        [alert setInformativeText:@"You have selected to shut down the computer after encoding. To turn off shut down, go to the HandBrake preferences."];
+        [alert addButtonWithTitle:@"OK"];
+        [alert addButtonWithTitle:@"Preferences…"];
+
+        NSInteger reminduser = [alert runModal];
+        if (reminduser == NSAlertSecondButtonReturn)
+        {
+            [self showPreferencesWindow:nil];
+        }
+        [alert release];
+    }
 
 }
-
 
 - (void) doRip
 {
@@ -4190,40 +4031,44 @@ bool one_burned = FALSE;
      * (which will take care of it) or resume right away
      */
     hb_pause(fQueueEncodeLibhb);
-    
-    NSString * alertTitle = [NSString stringWithFormat:NSLocalizedString(@"You are currently encoding. What would you like to do ?", nil)];
-   
+
     // Which window to attach the sheet to?
     NSWindow * docWindow;
     if ([sender respondsToSelector: @selector(window)])
+    {
         docWindow = [sender window];
+    }
     else
+    {
         docWindow = fWindow;
-        
-    NSBeginCriticalAlertSheet(
-            alertTitle,
-            NSLocalizedString(@"Continue Encoding", nil),
-            NSLocalizedString(@"Cancel Current and Stop", nil),
-            NSLocalizedString(@"Cancel Current and Continue", nil),
-            docWindow, self,
-            nil, @selector(didDimissCancel:returnCode:contextInfo:), nil,
-            NSLocalizedString(@"Your encode will be cancelled if you don't continue encoding.", nil));
-    
-    // didDimissCancelCurrentJob:returnCode:contextInfo: will be called when the dialog is dismissed
+    }
+
+    NSAlert *alert = [[NSAlert alloc] init];
+    [alert setMessageText:NSLocalizedString(@"You are currently encoding. What would you like to do ?", nil)];
+    [alert setInformativeText:NSLocalizedString(@"Your encode will be cancelled if you don't continue encoding.", nil)];
+    [alert addButtonWithTitle:NSLocalizedString(@"Continue Encoding", nil)];
+    [alert addButtonWithTitle:NSLocalizedString(@"Cancel Current and Stop", nil)];
+    [alert addButtonWithTitle:NSLocalizedString(@"Cancel Current and Continue", nil)];
+    [alert setAlertStyle:NSCriticalAlertStyle];
+    [alert beginSheetModalForWindow:docWindow
+                      modalDelegate:self
+                     didEndSelector:@selector(didDimissCancel:returnCode:contextInfo:)
+                        contextInfo:nil];
+    [alert release];
 }
 
 - (void) didDimissCancel: (NSWindow *)sheet returnCode: (int)returnCode contextInfo: (void *)contextInfo
 {
     /* No need to prevent system sleep here as we didn't allow it in Cancel: */
     hb_resume(fQueueEncodeLibhb);
-    
-    if (returnCode == NSAlertOtherReturn)
-    {
-        [self doCancelCurrentJob];  // <- this also stops libhb
-    }
-    else if (returnCode == NSAlertAlternateReturn)
+
+    if (returnCode == NSAlertSecondButtonReturn)
     {
         [self doCancelCurrentJobAndStop];
+    }
+    else if (returnCode == NSAlertThirdButtonReturn)
+    {
+        [self doCancelCurrentJob];  // <- this also stops libhb
     }
 }
 
@@ -4375,13 +4220,25 @@ bool one_burned = FALSE;
     hb_title_t *title = (hb_title_t *)
     hb_list_item(list, (int)[fSrcTitlePopUp indexOfSelectedItem]);
 
+    NSString *sourceName = nil;
+    // Get the file name
+    if ((title->type == HB_STREAM_TYPE || title->type == HB_FF_STREAM_TYPE) &&
+        hb_list_count( list ) > 1 )
+    {
+        sourceName = @(title->name);
+    }
+    else
+    {
+        sourceName = [browsedSourceDisplayName stringByDeletingPathExtension];
+    }
+
     // Generate a new file name
-    NSString *fileName = [HBUtilities automaticNameForSource:[browsedSourceDisplayName stringByDeletingPathExtension]
-                                                       title: title->index
+    NSString *fileName = [HBUtilities automaticNameForSource:sourceName
+                                                       title:title->index
                                                     chapters:NSMakeRange([fSrcChapterStartPopUp indexOfSelectedItem] + 1, [fSrcChapterEndPopUp indexOfSelectedItem] + 1)
-                                                     quality:fVideoController.selectedQualityType ? fVideoController.selectedQuality : 0
-                                                     bitrate:!fVideoController.selectedQualityType ? fVideoController.selectedBitrate : 0
-                                                  videoCodec:fVideoController.selectedCodec];
+                                                     quality:fVideoController.qualityType ? fVideoController.selectedQuality : 0
+                                                     bitrate:!fVideoController.qualityType ? fVideoController.selectedBitrate : 0
+                                                  videoCodec:fVideoController.codec];
 
     // Swap the old one with the new one
     [fDstFile2Field setStringValue: [NSString stringWithFormat:@"%@/%@.%@",
@@ -4436,26 +4293,14 @@ bool one_burned = FALSE;
     [fSrcChapterEndPopUp   selectItemAtIndex:
         hb_list_count( title->list_chapter ) - 1];
     [self chapterPopUpChanged:nil];
-    
-    /* if using dvd nav, show the angle widget */
-    if ([[[NSUserDefaults standardUserDefaults] objectForKey:@"UseDvdNav"] boolValue])
+
+    [fSrcAnglePopUp removeAllItems];
+    for( int i = 0; i < title->angle_count; i++ )
     {
-        [fSrcAngleLabel setHidden:NO];
-        [fSrcAnglePopUp setHidden:NO];
-        
-        [fSrcAnglePopUp removeAllItems];
-        for( int i = 0; i < title->angle_count; i++ )
-        {
-            [fSrcAnglePopUp addItemWithTitle: [NSString stringWithFormat: @"%d", i + 1]];
-        }
-        [fSrcAnglePopUp selectItemAtIndex: 0];
+        [fSrcAnglePopUp addItemWithTitle: [NSString stringWithFormat: @"%d", i + 1]];
     }
-    else
-    {
-        [fSrcAngleLabel setHidden:YES];
-        [fSrcAnglePopUp setHidden:YES];
-    }
-    
+    [fSrcAnglePopUp selectItemAtIndex: 0];
+
     /* Start Get and set the initial pic size for display */
 	fTitle = title;
     
@@ -4484,7 +4329,7 @@ bool one_burned = FALSE;
 	}
 
    /* lets call tableViewSelected to make sure that any preset we have selected is enforced after a title change */
-    [self selectPreset:nil];
+    [self applyPreset:self.selectedPreset];
 }
 
 - (IBAction) encodeStartStopPopUpChanged: (id) sender;
@@ -4605,19 +4450,12 @@ bool one_burned = FALSE;
     int videoContainer = (int)[[fDstFormatPopUp selectedItem] tag];
     const char *ext    = NULL;
 
-    /* Initially set the large file (64 bit formatting) output checkbox to hidden */
-    [fDstMp4LargeFileCheck   setHidden:YES];
+    // enable chapter markers and hide muxer-specific options
     [fDstMp4HttpOptFileCheck setHidden:YES];
     [fDstMp4iPodFileCheck    setHidden:YES];
 
-    // enable chapter markers and hide muxer-specific options
-    [fDstMp4LargeFileCheck   setHidden:YES];
-    [fDstMp4HttpOptFileCheck setHidden:YES];
-    [fDstMp4iPodFileCheck    setHidden:YES];
     switch (videoContainer)
     {
-        case HB_MUX_MP4V2:
-            [fDstMp4LargeFileCheck   setHidden:NO];
         case HB_MUX_AV_MP4:
             [fDstMp4HttpOptFileCheck setHidden:NO];
             [fDstMp4iPodFileCheck    setHidden:NO];
@@ -4676,7 +4514,7 @@ bool one_burned = FALSE;
 
 - (void)updateMp4Checkboxes:(NSNotification *)notification
 {
-    if (fVideoController.selectedCodec != HB_VCODEC_X264)
+    if (fVideoController.codec != HB_VCODEC_X264)
     {
         /* We set the iPod atom checkbox to disabled and uncheck it as its only for x264 in the mp4
          * container. Format is taken care of in formatPopUpChanged method by hiding and unchecking
@@ -4698,7 +4536,7 @@ the user is using "Custom" settings by determining the sender*/
 	if ([sender stringValue])
 	{
 		/* Deselect the currently selected Preset if there is one*/
-		[fPresetsOutlineView deselectRow:[fPresetsOutlineView selectedRow]];
+        [fPresetsView deselect];
 		/* Change UI to show "Custom" settings are being used */
 		[fPresetSelectedDisplay setStringValue: @"Custom"];
 	}
@@ -4721,13 +4559,13 @@ the user is using "Custom" settings by determining the sender*/
 {
     // align picture settings and video filters in the UI using tabs
     fVideoController.pictureSettingsField = [self pictureSettingsSummary];
-    fVideoController.pictureFiltersField = [self pictureFiltersSummary];
+    fVideoController.pictureFiltersField = fPictureController.filters.summary;
 
     /* Store storage resolution for unparse */
     if (fTitle)
     {
-        fVideoController.fX264PresetsWidthForUnparse  = fTitle->job->width;
-        fVideoController.fX264PresetsHeightForUnparse = fTitle->job->height;
+        fVideoController.fPresetsWidthForUnparse  = fTitle->job->width;
+        fVideoController.fPresetsHeightForUnparse = fTitle->job->height;
         // width or height may have changed, unparse
         [fVideoController x264PresetsChangedDisplayExpandedOptions:nil];
     }
@@ -4755,137 +4593,9 @@ the user is using "Custom" settings by determining the sender*/
     return [NSString stringWithString:summary];
 }
 
-- (NSString*) pictureFiltersSummary
-{
-    NSMutableString *summary = [NSMutableString stringWithString:@""];
-    if (fPictureController)
-    {
-        /* Detelecine */
-        switch ([fPictureController detelecine])
-        {
-            case 1:
-                [summary appendFormat:@" - Detelecine (%@)",
-                 [fPictureController detelecineCustomString]];
-                break;
-                
-            case 2:
-                [summary appendString:@" - Detelecine (Default)"];
-                break;
-                
-            default:
-                break;
-        }
-        
-        if ([fPictureController useDecomb] == 1)
-        {
-            /* Decomb */
-            switch ([fPictureController decomb])
-            {
-                case 1:
-                    [summary appendFormat:@" - Decomb (%@)",
-                     [fPictureController decombCustomString]];
-                    break;
-                    
-                case 2:
-                    [summary appendString:@" - Decomb (Default)"];
-                    break;
-                    
-                case 3:
-                    [summary appendString:@" - Decomb (Fast)"];
-                    break;
-                    
-                case 4:
-                    [summary appendString:@" - Decomb (Bob)"];
-                    break;
-                    
-                default:
-                    break;
-            }
-        }
-        else
-        {
-            /* Deinterlace */
-            switch ([fPictureController deinterlace])
-            {
-                case 1:
-                    [summary appendFormat:@" - Deinterlace (%@)",
-                     [fPictureController deinterlaceCustomString]];
-                    break;
-                    
-                case 2:
-                    [summary appendString:@" - Deinterlace (Fast)"];
-                    break;
-                    
-                case 3:
-                    [summary appendString:@" - Deinterlace (Slow)"];
-                    break;
-                    
-                case 4:
-                    [summary appendString:@" - Deinterlace (Slower)"];
-                    break;
-                    
-                case 5:
-                    [summary appendString:@" - Deinterlace (Bob)"];
-                    break;
-                    
-                default:
-                    break;
-            }
-        }
-        
-        /* Deblock */
-        if ([fPictureController deblock] > 0)
-        {
-            [summary appendFormat:@" - Deblock (%ld)",
-             (long)[fPictureController deblock]];
-        }
-        
-        /* Denoise */
-        switch ([fPictureController denoise])
-        {
-            case 1:
-                [summary appendFormat:@" - Denoise (%@)",
-                 [fPictureController denoiseCustomString]];
-                break;
-                
-            case 2:
-                [summary appendString:@" - Denoise (Weak)"];
-                break;
-                
-            case 3:
-                [summary appendString:@" - Denoise (Medium)"];
-                break;
-                
-            case 4:
-                [summary appendString:@" - Denoise (Strong)"];
-                break;
-                
-            default:
-                break;
-        }
-        
-        /* Grayscale */
-        if ([fPictureController grayscale]) 
-        {
-            [summary appendString:@" - Grayscale"];
-        }
-    }
-    if ([summary hasPrefix:@" - "])
-    {
-        [summary deleteCharactersInRange:NSMakeRange(0, 3)];
-    }
-    return [NSString stringWithString:summary];
-}
-
 - (NSString*) muxerOptionsSummary
 {
     NSMutableString *summary = [NSMutableString stringWithString:@""];
-    if ([fDstMp4LargeFileCheck  isHidden] == NO  &&
-        [fDstMp4LargeFileCheck isEnabled] == YES &&
-        [fDstMp4LargeFileCheck     state] == NSOnState)
-    {
-        [summary appendString:@" - Large file size"];
-    }
     if ([fDstMp4HttpOptFileCheck  isHidden] == NO  &&
         [fDstMp4HttpOptFileCheck isEnabled] == YES &&
         [fDstMp4HttpOptFileCheck     state] == NSOnState)
@@ -4938,7 +4648,12 @@ the user is using "Custom" settings by determining the sender*/
  */
 - (IBAction) showPreferencesWindow: (id) sender
 {
-    NSWindow * window = [fPreferencesController window];
+    if (fPreferencesController == nil)
+    {
+        fPreferencesController = [[HBPreferencesController alloc] init];
+    }
+
+    NSWindow *window = [fPreferencesController window];
     if (![window isVisible])
         [window center];
 
@@ -4956,6 +4671,15 @@ the user is using "Custom" settings by determining the sender*/
 
 - (IBAction) toggleDrawer:(id)sender
 {
+    if ([fPresetDrawer state] == NSDrawerClosedState)
+    {
+        [[NSUserDefaults standardUserDefaults] setBool:YES forKey:@"DefaultPresetsDrawerShow"];
+    }
+    else
+    {
+        [[NSUserDefaults standardUserDefaults] setBool:NO forKey:@"DefaultPresetsDrawerShow"];
+    }
+
     [fPresetDrawer toggle:self];
 }
 
@@ -4973,337 +4697,19 @@ the user is using "Custom" settings by determining the sender*/
 	[fPictureController showPreviewWindow:sender];
 }
 
-#pragma mark -
-#pragma mark Preset Outline View Methods
-#pragma mark - Required
-/* These are required by the NSOutlineView Datasource Delegate */
+#pragma mark - Preset  Methods
 
-
-/* used to specify the number of levels to show for each item */
-- (NSInteger)outlineView:(NSOutlineView *)fPresetsOutlineView numberOfChildrenOfItem:(id)item
+- (void)applyPreset:(HBPreset *)preset
 {
-    /* currently use no levels to test outline view viability */
-    if (item == nil) // for an outline view the root level of the hierarchy is always nil
-    {
-        return [UserPresets count];
-    }
-    else
-    {
-        /* we need to return the count of the array in ChildrenArray for this folder */
-        NSArray *children = nil;
-        children = [item objectForKey:@"ChildrenArray"];
-        if ([children count] > 0)
-        {
-            return [children count];
-        }
-        else
-        {
-            return 0;
-        }
-    }
-}
+    self.selectedPreset = preset;
 
-/* We use this to deterimine children of an item */
-- (id)outlineView:(NSOutlineView *)fPresetsOutlineView child:(NSInteger)index ofItem:(id)item
-{
-    
-    /* we need to return the count of the array in ChildrenArray for this folder */
-    NSArray *children = nil;
-    if (item == nil)
-    {
-        children = UserPresets;
-    }
-    else
-    {
-        if ([item objectForKey:@"ChildrenArray"])
-        {
-            children = [item objectForKey:@"ChildrenArray"];
-        }
-    }   
-    if ((children == nil) || ( [children count] <= (NSUInteger) index))
-    {
-        return nil;
-    }
-    else
-    {
-        return [children objectAtIndex:index];
-    }
-    
-    
-    // We are only one level deep, so we can't be asked about children
-    //NSAssert (NO, @"Presets View outlineView:child:ofItem: currently can't handle nested items.");
-    //return nil;
-}
-
-/* We use this to determine if an item should be expandable */
-- (BOOL)outlineView:(NSOutlineView *)fPresetsOutlineView isItemExpandable:(id)item
-{
-    /* To deterimine if an item should show a disclosure triangle
-     * we could do it by the children count as so:
-     * if ([children count] < 1)
-     * However, lets leave the triangle show even if there are no
-     * children to help indicate a folder, just like folder in the
-     * finder can show a disclosure triangle even when empty
-     */
-    
-    /* We need to determine if the item is a folder */
-    if ([[item objectForKey:@"Folder"] intValue] == 1)
-    {
-        return YES;
-    }
-    else
-    {
-        return NO;
-    }
-}
-
-- (BOOL)outlineView:(NSOutlineView *)outlineView shouldExpandItem:(id)item
-{
-    // Our outline view has no levels, but we can still expand every item. Doing so
-    // just makes the row taller. See heightOfRowByItem below.
-//return ![(HBQueueOutlineView*)outlineView isDragging];
-
-return YES;
-}
-
-
-/* Used to tell the outline view which information is to be displayed per item */
-- (id)outlineView:(NSOutlineView *)fPresetsOutlineView objectValueForTableColumn:(NSTableColumn *)tableColumn byItem:(id)item
-{
-	/* We have two columns right now, icon and PresetName */
-	
-    if ([[tableColumn identifier] isEqualToString:@"PresetName"])
-    {
-        return [item objectForKey:@"PresetName"];
-    }
-    else
-    {
-        //return @"";
-        return nil;
-    }
-}
-
-- (id)outlineView:(NSOutlineView *)outlineView itemForPersistentObject:(id)object
-{
-    return [NSKeyedUnarchiver unarchiveObjectWithData:object];
-}
-- (id)outlineView:(NSOutlineView *)outlineView persistentObjectForItem:(id)item
-{
-    return [NSKeyedArchiver archivedDataWithRootObject:item];
-}
-
-#pragma mark - Added Functionality (optional)
-/* Use to customize the font and display characteristics of the title cell */
-- (void)outlineView:(NSOutlineView *)outlineView willDisplayCell:(id)cell forTableColumn:(NSTableColumn *)tableColumn item:(id)item
-{
-    if ([[tableColumn identifier] isEqualToString:@"PresetName"])
-    {
-        NSFont *txtFont;
-        NSColor *fontColor;
-        txtFont = [NSFont systemFontOfSize: [NSFont smallSystemFontSize]];
-        /*check to see if its a selected row */
-        if ([fPresetsOutlineView selectedRow] == [fPresetsOutlineView rowForItem:item])
-        {
-            fontColor = [NSColor blackColor];
-        }
-        else
-        {
-            if ([[item objectForKey:@"Type"] intValue] == 0)
-            {
-                fontColor = [NSColor blueColor];
-            }
-            else // User created preset, use a black font
-            {
-                fontColor = [NSColor blackColor];
-            }
-            /* check to see if its a folder */
-            //if ([[item objectForKey:@"Folder"] intValue] == 1)
-            //{
-            //fontColor = [NSColor greenColor];
-            //}
-            
-            
-        }
-        /* We use bold text for the default preset */
-        if (presetUserDefault == nil &&                    // no User default found
-            [[item objectForKey:@"Default"] intValue] == 1)// 1 is HB default
-        {
-            txtFont = [NSFont boldSystemFontOfSize: [NSFont smallSystemFontSize]];
-        }
-        if ([[item objectForKey:@"Default"] intValue] == 2)// 2 is User default
-        {
-            txtFont = [NSFont boldSystemFontOfSize: [NSFont smallSystemFontSize]];
-        }
-        
-        
-        [cell setTextColor:fontColor];
-        [cell setFont:txtFont];
-        
-    }
-}
-
-/* We use this to edit the name field in the outline view */
-- (void)outlineView:(NSOutlineView *)outlineView setObjectValue:(id)object forTableColumn:(NSTableColumn *)tableColumn byItem:(id)item
-{
-    if ([[tableColumn identifier] isEqualToString:@"PresetName"])
-    {
-        id theRecord;
-        
-        theRecord = item;
-        [theRecord setObject:object forKey:@"PresetName"];
-        
-        [self sortPresets];
-        
-        [fPresetsOutlineView reloadData];
-        /* We save all of the preset data here */
-        [self savePreset];
-    }
-}
-/* We use this to provide tooltips for the items in the presets outline view */
-- (NSString *)outlineView:(NSOutlineView *)fPresetsOutlineView toolTipForCell:(NSCell *)cell rect:(NSRectPointer)rect tableColumn:(NSTableColumn *)tc item:(id)item mouseLocation:(NSPoint)mouseLocation
-{
-    //if ([[tc identifier] isEqualToString:@"PresetName"])
-    //{
-        /* initialize the tooltip contents variable */
-        NSString *loc_tip;
-        /* if there is a description for the preset, we show it in the tooltip */
-        if ([item objectForKey:@"PresetDescription"])
-        {
-            loc_tip = [item objectForKey:@"PresetDescription"];
-            return (loc_tip);
-        }
-        else
-        {
-            loc_tip = @"No description available";
-        }
-        return (loc_tip);
-    //}
-}
-
-- (void) outlineViewSelectionDidChange: (NSNotification *) ignored
-
-{
-	[self willChangeValueForKey: @"hasValidPresetSelected"];
-	[self didChangeValueForKey: @"hasValidPresetSelected"];
-	return;
-}
-
-#pragma mark -
-#pragma mark Preset Outline View Methods (dragging related)
-
-
-- (BOOL)outlineView:(NSOutlineView *)outlineView writeItems:(NSArray *)items toPasteboard:(NSPasteboard *)pboard
-{
-	// Dragging is only allowed for custom presets.
-    //[[[self selectedPreset] objectForKey:@"Default"] intValue] != 1
-    if ([[[self selectedPreset] objectForKey:@"Type"] intValue] == 0) // 0 is built in preset
-    {
-        return NO;
-    }
-    // Don't retain since this is just holding temporaral drag information, and it is
-    //only used during a drag!  We could put this in the pboard actually.
-    fDraggedNodes = items;
-    // Provide data for our custom type, and simple NSStrings.
-    [pboard declareTypes:[NSArray arrayWithObjects: DragDropSimplePboardType, nil] owner:self];
-    
-    // the actual data doesn't matter since DragDropSimplePboardType drags aren't recognized by anyone but us!.
-    [pboard setData:[NSData data] forType:DragDropSimplePboardType]; 
-    
-    return YES;
-}
-
-- (NSDragOperation)outlineView:(NSOutlineView *)outlineView validateDrop:(id <NSDraggingInfo>)info proposedItem:(id)item proposedChildIndex:(NSInteger)index
-{
-	
-	// Don't allow dropping ONTO an item since they can't really contain any children.
-    
-    BOOL isOnDropTypeProposal = index == NSOutlineViewDropOnItemIndex;
-    if (isOnDropTypeProposal)
-        return NSDragOperationNone;
-    
-    // Don't allow dropping INTO an item since they can't really contain any children as of yet.
-	if (item != nil)
-	{
-		index = [fPresetsOutlineView rowForItem: item] + 1;
-		item = nil;
-	}
-    
-    // Don't allow dropping into the Built In Presets.
-    if (index < presetCurrentBuiltInCount)
-    {
-        return NSDragOperationNone;
-        index = MAX (index, presetCurrentBuiltInCount);
-	}    
-	
-    [outlineView setDropItem:item dropChildIndex:index];
-    return NSDragOperationGeneric;
-}
-
-
-
-- (BOOL)outlineView:(NSOutlineView *)outlineView acceptDrop:(id <NSDraggingInfo>)info item:(id)item childIndex:(NSInteger)index
-{
-    /* first, lets see if we are dropping into a folder */
-    if ([[fPresetsOutlineView itemAtRow:index] objectForKey:@"Folder"] && [[[fPresetsOutlineView itemAtRow:index] objectForKey:@"Folder"] intValue] == 1) // if its a folder
-	{
-        NSMutableArray *childrenArray = [[fPresetsOutlineView itemAtRow:index] objectForKey:@"ChildrenArray"];
-        [childrenArray addObject:item];
-        [[fPresetsOutlineView itemAtRow:index] setObject:[NSMutableArray arrayWithArray: childrenArray] forKey:@"ChildrenArray"];
-    }
-    else // We are not, so we just move the preset into the existing array 
-    {
-        NSMutableIndexSet *moveItems = [NSMutableIndexSet indexSet];
-        id obj;
-        NSEnumerator *enumerator = [fDraggedNodes objectEnumerator];
-        while (obj = [enumerator nextObject])
-        {
-            [moveItems addIndex:[UserPresets indexOfObject:obj]];
-        }
-        // Successful drop, lets rearrange the view and save it all
-        [self moveObjectsInPresetsArray:UserPresets fromIndexes:moveItems toIndex: index];
-    }
-    [fPresetsOutlineView reloadData];
-    [self savePreset];
-    return YES;
-}
-
-- (void)moveObjectsInPresetsArray:(NSMutableArray *)array fromIndexes:(NSIndexSet *)indexSet toIndex:(NSUInteger)insertIndex
-{
-    NSUInteger index = [indexSet lastIndex];
-    NSUInteger aboveInsertIndexCount = 0;
-    
-    NSUInteger removeIndex;
-
-    if (index >= insertIndex)
-    {
-        removeIndex = index + aboveInsertIndexCount;
-        aboveInsertIndexCount++;
-    }
-    else
-    {
-        removeIndex = index;
-        insertIndex--;
-    }
-
-    id object = [[array objectAtIndex:removeIndex] retain];
-    [array removeObjectAtIndex:removeIndex];
-    [array insertObject:object atIndex:insertIndex];
-    [object release];
-}
-
-
-
-#pragma mark - Functional Preset NSOutlineView Methods
-
-- (IBAction)selectPreset:(id)sender
-{
-    if (YES == [self hasValidPresetSelected])
+    if (preset != nil && SuccessfulScan)
     {
         hb_job_t * job = fTitle->job;
 
         // for mapping names via libhb
         const char *strValue;
-        chosenPreset = [self selectedPreset];
+        NSDictionary *chosenPreset = preset.content;
         [fPresetSelectedDisplay setStringValue:[chosenPreset objectForKey:@"PresetName"]];
 
         if ([[chosenPreset objectForKey:@"Default"] intValue] == 1)
@@ -5326,95 +4732,22 @@ return YES;
         /* check to see if we have only one chapter */
         [self chapterPopUpChanged:nil];
         
-        /* Allow Mpeg4 64 bit formatting +4GB file sizes */
-        [fDstMp4LargeFileCheck setState:[[chosenPreset objectForKey:@"Mp4LargeFile"] intValue]];
         /* Mux mp4 with http optimization */
         [fDstMp4HttpOptFileCheck setState:[[chosenPreset objectForKey:@"Mp4HttpOptimize"] intValue]];
         
         /* Video encoder */
         [fVideoController applySettingsFromPreset:chosenPreset];
 
-        if ([chosenPreset objectForKey:@"lavcOption"])
-        {
-            [fAdvancedOptions setLavcOptions:[chosenPreset objectForKey:@"lavcOption"]];
-        }
-        else
-        {
-            [fAdvancedOptions setLavcOptions:@""];   
-        }
-        
         /* Lets run through the following functions to get variables set there */
-        //[self videoEncoderPopUpChanged:nil];
         /* Set the state of ipod compatible with Mp4iPodCompatible. Only for x264*/
         [fDstMp4iPodFileCheck setState:[[chosenPreset objectForKey:@"Mp4iPodCompatible"] intValue]];
 
-        /* Video quality */
-        
-        
-        /* Auto Passthru: if the preset has Auto Passthru fields, use them.
-         * Otherwise assume every passthru is allowed and the fallback is AC3 */
-
-        id tempObject;
-        if ((tempObject = [chosenPreset objectForKey:@"AudioAllowAACPass"]) != nil)
-        {
-            fAudioController.allowAACPassCheck = [tempObject boolValue];
-        }
-        else
-        {
-            fAudioController.allowAACPassCheck = YES;
-        }
-        if ((tempObject = [chosenPreset objectForKey:@"AudioAllowAC3Pass"]) != nil)
-        {
-            fAudioController.allowAC3PassCheck = [tempObject boolValue];
-        }
-        else
-        {
-            fAudioController.allowAC3PassCheck = YES;
-        }
-        if ((tempObject = [chosenPreset objectForKey:@"AudioAllowDTSHDPass"]) != nil)
-        {
-            fAudioController.allowDTSHDPassCheck = [tempObject boolValue];
-        }
-        else
-        {
-            fAudioController.allowDTSHDPassCheck = YES;
-        }
-        if ((tempObject = [chosenPreset objectForKey:@"AudioAllowDTSPass"]) != nil)
-        {
-            fAudioController.allowDTSPassCheck= [tempObject boolValue];
-        }
-        else
-        {
-            fAudioController.allowDTSPassCheck = YES;
-        }
-        if ((tempObject = [chosenPreset objectForKey:@"AudioAllowMP3Pass"]) != nil)
-        {
-            fAudioController.allowMP3PassCheck = [tempObject boolValue];
-        }
-        else
-        {
-            fAudioController.allowAACPassCheck = YES;
-        }
-        if ((tempObject = [chosenPreset objectForKey:@"AudioEncoderFallback"]) != nil)
-        {
-            // map legacy encoder names via libhb
-            strValue = hb_audio_encoder_sanitize_name([tempObject UTF8String]);
-            fAudioController.audioEncoderFallback = [NSString stringWithFormat:@"%s", strValue];
-        }
-        else
-        {
-            fAudioController.audioEncoderFallbackTag = HB_ACODEC_AC3;
-        }
-        
         /* Audio */
-        [fAudioController addTracksFromPreset: chosenPreset];
+        [fAudioController applySettingsFromPreset: chosenPreset];
         
         /*Subtitles*/
-        // To be fixed in the automatic subtitles changes 
-        //[fSubPopUp selectItemWithTitle:[chosenPreset objectForKey:@"Subtitles"]];
-        /* Forced Subtitles */
-        //[fSubForcedCheck setState:[[chosenPreset objectForKey:@"SubtitlesForced"] intValue]];
-        
+        [fSubtitlesViewController applySettingsFromPreset:chosenPreset];
+
         /* Picture Settings */
         /* Note: objectForKey:@"UsesPictureSettings" refers to picture size, which encompasses:
          * height, width, keep ar, anamorphic and crop settings.
@@ -5519,179 +4852,43 @@ return YES;
         job->anamorphic.par_width = par_width;
         job->anamorphic.par_height = par_height;
 
-        /* If the preset has an objectForKey:@"UsesPictureFilters", and handle the filters here */
-        if ([chosenPreset objectForKey:@"UsesPictureFilters"] && [[chosenPreset objectForKey:@"UsesPictureFilters"]  intValue] > 0)
-        {
-            /* Filters */
-            
-            /* We only allow *either* Decomb or Deinterlace. So check for the PictureDecombDeinterlace key. */
-            [fPictureController setUseDecomb:1];
-            [fPictureController setDecomb:0];
-            [fPictureController setDeinterlace:0];
-            if ([[chosenPreset objectForKey:@"PictureDecombDeinterlace"] intValue] == 1)
-            {
-                /* we are using decomb */
-                /* Decomb */
-                if ([[chosenPreset objectForKey:@"PictureDecomb"] intValue] > 0)
-                {
-                    [fPictureController setDecomb:[[chosenPreset objectForKey:@"PictureDecomb"] intValue]];
-                    
-                    /* if we are using "Custom" in the decomb setting, also set the custom string*/
-                    if ([[chosenPreset objectForKey:@"PictureDecomb"] intValue] == 1)
-                    {
-                        [fPictureController setDecombCustomString:[chosenPreset objectForKey:@"PictureDecombCustom"]];    
-                    }
-                }
-             }
-            else
-            {
-                /* We are using Deinterlace */
-                /* Deinterlace */
-                if ([[chosenPreset objectForKey:@"PictureDeinterlace"] intValue] > 0)
-                {
-                    [fPictureController setUseDecomb:0];
-                    [fPictureController setDeinterlace:[[chosenPreset objectForKey:@"PictureDeinterlace"] intValue]];
-                    /* if we are using "Custom" in the deinterlace setting, also set the custom string*/
-                    if ([[chosenPreset objectForKey:@"PictureDeinterlace"] intValue] == 1)
-                    {
-                        [fPictureController setDeinterlaceCustomString:[chosenPreset objectForKey:@"PictureDeinterlaceCustom"]];    
-                    }
-                }
-            }
-            
-            
-            /* Detelecine */
-            if ([[chosenPreset objectForKey:@"PictureDetelecine"] intValue] > 0)
-            {
-                [fPictureController setDetelecine:[[chosenPreset objectForKey:@"PictureDetelecine"] intValue]];
-                /* if we are using "Custom" in the detelecine setting, also set the custom string*/
-                if ([[chosenPreset objectForKey:@"PictureDetelecine"] intValue] == 1)
-                {
-                    [fPictureController setDetelecineCustomString:[chosenPreset objectForKey:@"PictureDetelecineCustom"]];    
-                }
-            }
-            else
-            {
-                [fPictureController setDetelecine:0];
-            }
-            
-            /* Denoise */
-            if ([[chosenPreset objectForKey:@"PictureDenoise"] intValue] > 0)
-            {
-                [fPictureController setDenoise:[[chosenPreset objectForKey:@"PictureDenoise"] intValue]];
-                /* if we are using "Custom" in the denoise setting, also set the custom string*/
-                if ([[chosenPreset objectForKey:@"PictureDenoise"] intValue] == 1)
-                {
-                    [fPictureController setDenoiseCustomString:[chosenPreset objectForKey:@"PictureDenoiseCustom"]];    
-                }
-            }
-            else
-            {
-                [fPictureController setDenoise:0];
-            }   
-            
-            /* Deblock */
-            if ([[chosenPreset objectForKey:@"PictureDeblock"] intValue] == 1)
-            {
-                /* if its a one, then its the old on/off deblock, set on to 5*/
-                [fPictureController setDeblock:5];
-            }
-            else
-            {
-                /* use the settings intValue */
-                [fPictureController setDeblock:[[chosenPreset objectForKey:@"PictureDeblock"] intValue]];
-            }
-            
-            if ([[chosenPreset objectForKey:@"VideoGrayScale"] intValue] == 1)
-            {
-                [fPictureController setGrayscale:1];
-            }
-            else
-            {
-                [fPictureController setGrayscale:0];
-            }
-        }
+        [fPictureController.filters applySettingsFromPreset:chosenPreset];
     }
     /* we call SetTitle: in fPictureController so we get an instant update in the Picture Settings window */
     [fPictureController setTitle:fTitle];
     [self pictureSettingsDidChange];
 }
 
+#pragma mark - Presets View Controller Delegate
 
-- (BOOL)hasValidPresetSelected
+- (void)selectionDidChange
 {
-    return ([fPresetsOutlineView selectedRow] >= 0 && [[[self selectedPreset] objectForKey:@"Folder"] intValue] != 1);
+    [self applyPreset:fPresetsView.selectedPreset];
 }
-
-
-- (id)selectedPreset
-{
-    return [fPresetsOutlineView itemAtRow:[fPresetsOutlineView selectedRow]];
-}
-
 
 #pragma mark -
 #pragma mark Manage Presets
 
-- (void) loadPresets {
-    /* We declare the default NSFileManager into fileManager */
-    NSFileManager * fileManager = [NSFileManager defaultManager];
-    /* We define the location of the user presets file */
-    UserPresetsFile = [[[HBUtilities appSupportPath] stringByAppendingPathComponent:@"UserPresets.plist"] retain];
-    /* We check for the presets.plist */
-    if ([fileManager fileExistsAtPath:UserPresetsFile] == 0)
-    {
-        [fileManager createFileAtPath:UserPresetsFile contents:nil attributes:nil];
-    }
-
-    UserPresets = [[NSMutableArray alloc] initWithContentsOfFile:UserPresetsFile];
-    if (nil == UserPresets)
-    {
-        UserPresets = [[NSMutableArray alloc] init];
-        [self addFactoryPresets:nil];
-    }
-    [fPresetsOutlineView reloadData];
-    
-    [self checkBuiltInsForUpdates];
-}
-
-- (void) checkBuiltInsForUpdates {
-    
-    BOOL updateBuiltInPresets = NO;
-    int i = 0;
-    NSEnumerator *enumerator = [UserPresets objectEnumerator];
-    id tempObject;
-    while (tempObject = [enumerator nextObject])
-    {
-        /* iterate through the built in presets to see if any have an old build number */
-        NSMutableDictionary *thisPresetDict = tempObject;
-        /*Key Type == 0 is built in, and key PresetBuildNumber is the build number it was created with */
-        if ([[thisPresetDict objectForKey:@"Type"] intValue] == 0)		
-        {
-			if (![thisPresetDict objectForKey:@"PresetBuildNumber"] || [[thisPresetDict objectForKey:@"PresetBuildNumber"] intValue] < [[[[NSBundle mainBundle] infoDictionary] objectForKey:@"CFBundleVersion"] intValue])
-            {
-                updateBuiltInPresets = YES;
-            }	
-		}
-        i++;
-    }
+- (void) checkBuiltInsForUpdates
+{
     /* if we have built in presets to update, then do so AlertBuiltInPresetUpdate*/
-    if ( updateBuiltInPresets == YES)
+    if ([presetManager checkBuiltInsForUpdates])
     {
         if( [[NSUserDefaults standardUserDefaults] boolForKey:@"AlertBuiltInPresetUpdate"] == YES)
         {
             /* Show an alert window that built in presets will be updated */
             /*On Screen Notification*/
-            NSBeep();
-            NSRunAlertPanel(@"HandBrake has determined your built in presets are out of date…",@"HandBrake will now update your built-in presets.", @"OK", nil, nil);
             [NSApp requestUserAttention:NSCriticalRequest];
+            NSAlert *alert = [[NSAlert alloc] init];
+            [alert setMessageText:@"HandBrake has determined your built in presets are out of date…"];
+            [alert setInformativeText:@"HandBrake will now update your built-in presets."];
+            [alert runModal];
+            [alert release];
         }
         /* when alert is dismissed, go ahead and update the built in presets */
-        [self addFactoryPresets:nil];
+        [presetManager generateBuiltInPresets];
     }
-    
 }
-
 
 - (IBAction) addPresetPicDropdownChanged: (id) sender
 {
@@ -5707,9 +4904,6 @@ return YES;
 
 - (IBAction) showAddPresetPanel: (id) sender
 {
-    /* Deselect the currently selected Preset if there is one*/
-    [fPresetsOutlineView deselectRow:[fPresetsOutlineView selectedRow]];
-
     /*
      * Populate the preset picture settings popup.
      *
@@ -5735,8 +4929,6 @@ return YES;
     [fPresetNewPicSettingsPopUp selectItemWithTag: (1 + (fTitle->job->anamorphic.mode == HB_ANAMORPHIC_STRICT))];
     /* Save the current filters in the preset by default */
     [fPresetNewPicFiltersCheck setState:NSOnState];
-    // fPresetNewFolderCheck
-    [fPresetNewFolderCheck setState:NSOffState];
     /* Erase info from the input fields*/
 	[fPresetNewName setStringValue: @""];
 	[fPresetNewDesc setStringValue: @""];
@@ -5759,54 +4951,20 @@ return YES;
 - (IBAction)addUserPreset:(id)sender
 {
     if (![[fPresetNewName stringValue] length])
-            NSRunAlertPanel(@"Warning!", @"You need to insert a name for the preset.", @"OK", nil , nil);
+    {
+        NSAlert *alert = [[NSAlert alloc] init];
+        [alert setMessageText:@"Warning!"];
+        [alert setInformativeText:@"You need to insert a name for the preset."];
+        [alert runModal];
+        [alert release];
+    }
     else
     {
         /* Here we create a custom user preset */
-        [UserPresets addObject:[self createPreset]];
-        [self addPreset];
+        [presetManager addPreset:[self createPreset]];
 
         [self closeAddPresetPanel:nil];
     }
-}
-- (void)addPreset
-{
-
-	
-	/* We Reload the New Table data for presets */
-    [fPresetsOutlineView reloadData];
-   /* We save all of the preset data here */
-    [self savePreset];
-}
-
-- (void)sortPresets
-{
-
-	
-	/* We Sort the Presets By Factory or Custom */
-	NSSortDescriptor * presetTypeDescriptor=[[[NSSortDescriptor alloc] initWithKey:@"Type" 
-                                                    ascending:YES] autorelease];
-	/* We Sort the Presets Alphabetically by name  We do not use this now as we have drag and drop*/
-	/*
-    NSSortDescriptor * presetNameDescriptor=[[[NSSortDescriptor alloc] initWithKey:@"PresetName" 
-                                                    ascending:YES selector:@selector(caseInsensitiveCompare:)] autorelease];
-	//NSArray *sortDescriptors=[NSArray arrayWithObjects:presetTypeDescriptor,presetNameDescriptor,nil];
-    
-    */
-    /* Since we can drag and drop our custom presets, lets just sort by type and not name */
-    NSArray *sortDescriptors=[NSArray arrayWithObjects:presetTypeDescriptor,nil];
-	NSArray *sortedArray=[UserPresets sortedArrayUsingDescriptors:sortDescriptors];
-	[UserPresets setArray:sortedArray];
-	
-
-}
-
-- (IBAction)insertPreset:(id)sender
-{
-    NSInteger index = [fPresetsOutlineView selectedRow];
-    [UserPresets insertObject:[self createPreset] atIndex:index];
-    [fPresetsOutlineView reloadData];
-    [self savePreset];
 }
 
 - (NSDictionary *)createPreset
@@ -5818,160 +4976,66 @@ return YES;
 	/* Get the New Preset Name from the field in the AddPresetPanel */
     [preset setObject:[fPresetNewName stringValue] forKey:@"PresetName"];
     /* Set whether or not this is to be a folder fPresetNewFolderCheck*/
-    [preset setObject:[NSNumber numberWithBool:[fPresetNewFolderCheck state]] forKey:@"Folder"];
+    [preset setObject:[NSNumber numberWithBool:NO] forKey:@"Folder"];
 	/*Set whether or not this is a user preset or factory 0 is factory, 1 is user*/
 	[preset setObject:[NSNumber numberWithInt:1] forKey:@"Type"];
 	/*Set whether or not this is default, at creation set to 0*/
 	[preset setObject:[NSNumber numberWithInt:0] forKey:@"Default"];
-    if ([fPresetNewFolderCheck state] == YES)
-    {
-        /* initialize and set an empty array for children here since we are a new folder */
-        NSMutableArray *childrenArray = [[NSMutableArray alloc] init];
-        [preset setObject:[NSMutableArray arrayWithArray: childrenArray] forKey:@"ChildrenArray"];
-        [childrenArray autorelease];
-    }
-    else // we are not creating a preset folder, so we go ahead with the rest of the preset info
-    {
-        /*Get the whether or not to apply pic Size and Cropping (includes Anamorphic)*/
-        [preset setObject:[NSNumber numberWithInteger:[[fPresetNewPicSettingsPopUp selectedItem] tag]] forKey:@"UsesPictureSettings"];
-        /* Get whether or not to use the current Picture Filter settings for the preset */
-        [preset setObject:[NSNumber numberWithInteger:[fPresetNewPicFiltersCheck state]] forKey:@"UsesPictureFilters"];
 
-        /* Get New Preset Description from the field in the AddPresetPanel*/
-        [preset setObject:[fPresetNewDesc stringValue] forKey:@"PresetDescription"];
-        /* File Format */
-        [preset setObject:[fDstFormatPopUp titleOfSelectedItem] forKey:@"FileFormat"];
-        /* Chapter Markers fCreateChapterMarkers*/
-        [preset setObject:@(fChapterTitlesController.createChapterMarkers) forKey:@"ChapterMarkers"];
-        /* Allow Mpeg4 64 bit formatting +4GB file sizes */
-        [preset setObject:[NSNumber numberWithInteger:[fDstMp4LargeFileCheck state]] forKey:@"Mp4LargeFile"];
-        /* Mux mp4 with http optimization */
-        [preset setObject:[NSNumber numberWithInteger:[fDstMp4HttpOptFileCheck state]] forKey:@"Mp4HttpOptimize"];
-        /* Add iPod uuid atom */
-        [preset setObject:[NSNumber numberWithInteger:[fDstMp4iPodFileCheck state]] forKey:@"Mp4iPodCompatible"];
-        
-        /* Codecs */
-        /* Video encoder */
-        [fVideoController prepareVideoForPreset:preset];
+    /*Get the whether or not to apply pic Size and Cropping (includes Anamorphic)*/
+    [preset setObject:[NSNumber numberWithInteger:[[fPresetNewPicSettingsPopUp selectedItem] tag]] forKey:@"UsesPictureSettings"];
+    /* Get whether or not to use the current Picture Filter settings for the preset */
+    [preset setObject:[NSNumber numberWithInteger:[fPresetNewPicFiltersCheck state]] forKey:@"UsesPictureFilters"];
 
-        /*Picture Settings*/
-        hb_job_t * job = fTitle->job;
-        
-        /* Picture Sizing */
-        [preset setObject:[NSNumber numberWithInt:0] forKey:@"UsesMaxPictureSettings"];
-        [preset setObject:[NSNumber numberWithInt:[fPresetNewPicWidth intValue]] forKey:@"PictureWidth"];
-        [preset setObject:[NSNumber numberWithInt:[fPresetNewPicHeight intValue]] forKey:@"PictureHeight"];
-        [preset setObject:[NSNumber numberWithInt:fTitle->job->anamorphic.keep_display_aspect] forKey:@"PictureKeepRatio"];
-        [preset setObject:[NSNumber numberWithInt:fTitle->job->anamorphic.mode] forKey:@"PicturePAR"];
-        [preset setObject:[NSNumber numberWithInt:fTitle->job->modulus] forKey:@"PictureModulus"];
+    /* Get New Preset Description from the field in the AddPresetPanel*/
+    [preset setObject:[fPresetNewDesc stringValue] forKey:@"PresetDescription"];
+    /* File Format */
+    [preset setObject:[fDstFormatPopUp titleOfSelectedItem] forKey:@"FileFormat"];
+    /* Chapter Markers fCreateChapterMarkers*/
+    [preset setObject:@(fChapterTitlesController.createChapterMarkers) forKey:@"ChapterMarkers"];
+    /* Allow Mpeg4 64 bit formatting +4GB file sizes
+        key kept for compatibility. */
+    [preset setObject:[NSNumber numberWithInteger:0]forKey:@"Mp4LargeFile"];
+    /* Mux mp4 with http optimization */
+    [preset setObject:[NSNumber numberWithInteger:[fDstMp4HttpOptFileCheck state]] forKey:@"Mp4HttpOptimize"];
+    /* Add iPod uuid atom */
+    [preset setObject:[NSNumber numberWithInteger:[fDstMp4iPodFileCheck state]] forKey:@"Mp4iPodCompatible"];
+    
+    /* Codecs */
+    /* Video encoder */
+    [fVideoController prepareVideoForPreset:preset];
 
-        /* Set crop settings here */
-        [preset setObject:[NSNumber numberWithInt:[fPictureController autoCrop]] forKey:@"PictureAutoCrop"];
-        [preset setObject:[NSNumber numberWithInt:job->crop[0]] forKey:@"PictureTopCrop"];
-        [preset setObject:[NSNumber numberWithInt:job->crop[1]] forKey:@"PictureBottomCrop"];
-        [preset setObject:[NSNumber numberWithInt:job->crop[2]] forKey:@"PictureLeftCrop"];
-        [preset setObject:[NSNumber numberWithInt:job->crop[3]] forKey:@"PictureRightCrop"];
-        
-        /* Picture Filters */
-        [preset setObject:[NSNumber numberWithInteger:[fPictureController useDecomb]] forKey:@"PictureDecombDeinterlace"];
-        [preset setObject:[NSNumber numberWithInteger:[fPictureController deinterlace]] forKey:@"PictureDeinterlace"];
-        [preset setObject:[fPictureController deinterlaceCustomString] forKey:@"PictureDeinterlaceCustom"];
-        [preset setObject:[NSNumber numberWithInteger:[fPictureController detelecine]] forKey:@"PictureDetelecine"];
-        [preset setObject:[fPictureController detelecineCustomString] forKey:@"PictureDetelecineCustom"];
-        [preset setObject:[NSNumber numberWithInteger:[fPictureController denoise]] forKey:@"PictureDenoise"];
-        [preset setObject:[fPictureController denoiseCustomString] forKey:@"PictureDenoiseCustom"];
-        [preset setObject:[NSNumber numberWithInteger:[fPictureController deblock]] forKey:@"PictureDeblock"];
-        [preset setObject:[NSNumber numberWithInteger:[fPictureController decomb]] forKey:@"PictureDecomb"];
-        [preset setObject:[fPictureController decombCustomString] forKey:@"PictureDecombCustom"];
-        [preset setObject:[NSNumber numberWithInteger:[fPictureController grayscale]] forKey:@"VideoGrayScale"];
+    /*Picture Settings*/
+    hb_job_t * job = fTitle->job;
+    
+    /* Picture Sizing */
+    [preset setObject:[NSNumber numberWithInt:0] forKey:@"UsesMaxPictureSettings"];
+    [preset setObject:[NSNumber numberWithInt:[fPresetNewPicWidth intValue]] forKey:@"PictureWidth"];
+    [preset setObject:[NSNumber numberWithInt:[fPresetNewPicHeight intValue]] forKey:@"PictureHeight"];
+    [preset setObject:[NSNumber numberWithInt:fTitle->job->anamorphic.keep_display_aspect] forKey:@"PictureKeepRatio"];
+    [preset setObject:[NSNumber numberWithInt:fTitle->job->anamorphic.mode] forKey:@"PicturePAR"];
+    [preset setObject:[NSNumber numberWithInt:fTitle->job->modulus] forKey:@"PictureModulus"];
 
-        /* Auto Pasthru */
-        [preset setObject:@(fAudioController.allowAACPassCheck) forKey: @"AudioAllowAACPass"];
-        [preset setObject:@(fAudioController.allowAC3PassCheck) forKey: @"AudioAllowAC3Pass"];
-        [preset setObject:@(fAudioController.allowDTSHDPassCheck) forKey: @"AudioAllowDTSHDPass"];
-        [preset setObject:@(fAudioController.allowDTSPassCheck) forKey: @"AudioAllowDTSPass"];
-        [preset setObject:@(fAudioController.allowMP3PassCheck) forKey: @"AudioAllowMP3Pass"];
-        [preset setObject:fAudioController.audioEncoderFallback forKey: @"AudioEncoderFallback"];
+    /* Set crop settings here */
+    [preset setObject:[NSNumber numberWithInt:[fPictureController autoCrop]] forKey:@"PictureAutoCrop"];
+    [preset setObject:[NSNumber numberWithInt:job->crop[0]] forKey:@"PictureTopCrop"];
+    [preset setObject:[NSNumber numberWithInt:job->crop[1]] forKey:@"PictureBottomCrop"];
+    [preset setObject:[NSNumber numberWithInt:job->crop[2]] forKey:@"PictureLeftCrop"];
+    [preset setObject:[NSNumber numberWithInt:job->crop[3]] forKey:@"PictureRightCrop"];
+    
+    /* Picture Filters */
+    [fPictureController.filters prepareFiltersForPreset:preset];
 
-        /* Audio */
-        NSMutableArray *audioListArray = [[NSMutableArray alloc] init];
-		[fAudioController prepareAudioForPreset: audioListArray];
-        
-        
-        [preset setObject:[NSMutableArray arrayWithArray: audioListArray] forKey:@"AudioList"];
-        [audioListArray release];
+    /* Audio */
+    [fAudioController.settings prepareAudioDefaultsForPreset:preset];
 
-        
-        /* Temporarily remove subtitles from creating a new preset as it has to be converted over to use the new
-         * subititle array code. */
-        /* Subtitles*/
-        //[preset setObject:[fSubPopUp titleOfSelectedItem] forKey:@"Subtitles"];
-        /* Forced Subtitles */
-        //[preset setObject:[NSNumber numberWithInt:[fSubForcedCheck state]] forKey:@"SubtitlesForced"];
-    }
+    /* Subtitles */
+    [fSubtitlesViewController.settings prepareSubtitlesDefaultsForPreset:preset];
+
     [preset autorelease];
     return preset;
     
 }
-
-- (void)savePreset
-{
-    [UserPresets writeToFile:UserPresetsFile atomically:YES];
-	/* We get the default preset in case it changed */
-	[self getDefaultPresets:nil];
-
-}
-
-- (IBAction)deletePreset:(id)sender
-{
-    
-    
-    if ( [fPresetsOutlineView numberOfSelectedRows] == 0 )
-    {
-        return;
-    }
-    /* Alert user before deleting preset */
-    NSInteger status;
-    status = NSRunAlertPanel(@"Warning!", @"Are you sure that you want to delete the selected preset?", @"OK", @"Cancel", nil);
-
-    if ( status == NSAlertDefaultReturn )
-    {
-        NSInteger presetToModLevel = [fPresetsOutlineView levelForItem: [self selectedPreset]];
-        NSDictionary *presetToMod = [self selectedPreset];
-        NSDictionary *presetToModParent = [fPresetsOutlineView parentForItem: presetToMod];
-
-        NSEnumerator *enumerator;
-        NSMutableArray *presetsArrayToMod;
-        NSMutableArray *tempArray;
-        id tempObject;
-        /* If we are a root level preset, we are modding the UserPresets array */
-        if (presetToModLevel == 0)
-        {
-            presetsArrayToMod = UserPresets;
-        }
-        else // We have a parent preset, so we modify the chidren array object for key
-        {
-            presetsArrayToMod = [presetToModParent objectForKey:@"ChildrenArray"]; 
-        }
-        
-        enumerator = [presetsArrayToMod objectEnumerator];
-        tempArray = [NSMutableArray array];
-        
-        while (tempObject = [enumerator nextObject]) 
-        {
-            NSDictionary *thisPresetDict = tempObject;
-            if (thisPresetDict == presetToMod)
-            {
-                [tempArray addObject:tempObject];
-            }
-        }
-        
-        [presetsArrayToMod removeObjectsInArray:tempArray];
-        [fPresetsOutlineView reloadData];
-        [self savePreset];   
-    }
-}
-
 
 #pragma mark -
 #pragma mark Import Export Preset(s)
@@ -5979,56 +5043,49 @@ return YES;
 - (IBAction) browseExportPresetFile: (id) sender
 {
     /* Open a panel to let the user choose where and how to save the export file */
-    NSSavePanel * panel = [NSSavePanel savePanel];
+    NSSavePanel *panel = [NSSavePanel savePanel];
 	/* We get the current file name and path from the destination field here */
     NSString *defaultExportDirectory = [NSString stringWithFormat: @"%@/Desktop/", NSHomeDirectory()];
     [panel setDirectoryURL:[NSURL fileURLWithPath:defaultExportDirectory]];
     [panel setNameFieldStringValue:@"HB_Export.plist"];
     [panel beginSheetModalForWindow:fWindow completionHandler:^(NSInteger result) {
-        [self browseExportPresetFileDone:panel returnCode: (int)result contextInfo:sender];
+        if( result == NSOKButton )
+        {
+            NSURL *exportPresetsFile = [panel URL];
+            NSURL *presetExportDirectory = [exportPresetsFile URLByDeletingLastPathComponent];
+            [[NSUserDefaults standardUserDefaults] setURL:presetExportDirectory forKey:@"LastPresetExportDirectoryURL"];
+
+            /* We check for the presets.plist */
+            if ([[NSFileManager defaultManager] fileExistsAtPath:[exportPresetsFile path]] == 0)
+            {
+                [[NSFileManager defaultManager] createFileAtPath:[exportPresetsFile path] contents:nil attributes:nil];
+            }
+
+            NSMutableArray *presetsToExport = [[[NSMutableArray alloc] initWithContentsOfURL:exportPresetsFile] autorelease];
+            if (presetsToExport == nil)
+            {
+                presetsToExport = [[NSMutableArray alloc] init];
+                /* now get and add selected presets to export */
+            }
+            if (fPresetsView.selectedPreset != nil)
+            {
+                [presetsToExport addObject:[fPresetsView.selectedPreset content]];
+                [presetsToExport writeToURL:exportPresetsFile atomically:YES];
+            }
+        }
     }];
 }
 
-- (void) browseExportPresetFileDone: (NSSavePanel *) sheet
-                   returnCode: (int) returnCode contextInfo: (void *) contextInfo
+- (IBAction)browseImportPresetFile:(id)sender
 {
-    if( returnCode == NSOKButton )
-    {
-        NSURL *exportPresetsFile = [sheet URL];
-        NSURL *presetExportDirectory = [exportPresetsFile URLByDeletingLastPathComponent];
-        [[NSUserDefaults standardUserDefaults] setURL:presetExportDirectory forKey:@"LastPresetExportDirectoryURL"];
+    NSOpenPanel *panel;
 
-        /* We check for the presets.plist */
-        if ([[NSFileManager defaultManager] fileExistsAtPath:[exportPresetsFile path]] == 0)
-        {
-            [[NSFileManager defaultManager] createFileAtPath:[exportPresetsFile path] contents:nil attributes:nil];
-        }
-
-        NSMutableArray *presetsToExport = [[[NSMutableArray alloc] initWithContentsOfURL:exportPresetsFile] autorelease];
-        if (presetsToExport == nil)
-        {
-            presetsToExport = [[NSMutableArray alloc] init];
-            /* now get and add selected presets to export */
-
-        }
-        if ([self hasValidPresetSelected])
-        {
-            [presetsToExport addObject:[self selectedPreset]];
-            [presetsToExport writeToURL:exportPresetsFile atomically:YES];
-        }
-    }
-}
-
-
-- (IBAction) browseImportPresetFile: (id) sender
-{
-
-    NSOpenPanel * panel;
-	
     panel = [NSOpenPanel openPanel];
-    [panel setAllowsMultipleSelection: NO];
-    [panel setCanChooseFiles: YES];
-    [panel setCanChooseDirectories: NO ];
+    [panel setAllowsMultipleSelection:NO];
+    [panel setCanChooseFiles:YES];
+    [panel setCanChooseDirectories:NO];
+    [panel setAllowedFileTypes:@[@"plist", @"xml"]];
+
     NSURL *sourceDirectory;
 	if ([[NSUserDefaults standardUserDefaults] URLForKey:@"LastPresetImportDirectoryURL"])
 	{
@@ -6042,366 +5099,129 @@ return YES;
         * to evaluate whether we want to specify a title, we pass the sender in the contextInfo variable
         */
     /* set this for allowed file types, not sure if we should allow xml or not */
-    NSArray *fileTypes = [NSArray arrayWithObjects:@"plist", @"xml", nil];
     [panel setDirectoryURL:sourceDirectory];
-    [panel setAllowedFileTypes:fileTypes];
-    [panel beginSheetModalForWindow:fWindow completionHandler:^(NSInteger result) {
-        [self browseImportPresetDone:panel returnCode:(int)result contextInfo:sender];
-    }];
-}
-
-- (void) browseImportPresetDone: (NSSavePanel *) sheet
-                     returnCode: (int) returnCode contextInfo: (void *) contextInfo
-{
-    if( returnCode == NSOKButton )
+    [panel beginSheetModalForWindow:fWindow completionHandler:^(NSInteger result)
     {
-        NSURL *importPresetsFile = [sheet URL];
+        NSURL *importPresetsFile = [panel URL];
         NSURL *importPresetsDirectory = nil;//[importPresetsFile URLByDeletingLastPathComponent];
         [[NSUserDefaults standardUserDefaults] setURL:importPresetsDirectory forKey:@"LastPresetImportDirectoryURL"];
 
         /* NOTE: here we need to do some sanity checking to verify we do not hose up our presets file   */
         NSMutableArray * presetsToImport = [[NSMutableArray alloc] initWithContentsOfURL:importPresetsFile];
         /* iterate though the new array of presets to import and add them to our presets array */
-        int i = 0;
-        NSEnumerator *enumerator = [presetsToImport objectEnumerator];
-        id tempObject;
-        while (tempObject = [enumerator nextObject])
+        for (id tempObject in presetsToImport)
         {
             /* make any changes to the incoming preset we see fit */
             /* make sure the incoming preset is not tagged as default */
             [tempObject setObject:[NSNumber numberWithInt:0] forKey:@"Default"];
             /* prepend "(imported) to the name of the incoming preset for clarification since it can be changed */
-            NSString * prependedName = [@"(import) " stringByAppendingString:[tempObject objectForKey:@"PresetName"]] ;
+            NSString *prependedName = [@"(import) " stringByAppendingString:[tempObject objectForKey:@"PresetName"]] ;
             [tempObject setObject:prependedName forKey:@"PresetName"];
             
             /* actually add the new preset to our presets array */
-            [UserPresets addObject:tempObject];
-            i++;
+            [presetManager addPreset:tempObject];
         }
         [presetsToImport autorelease];
-        [self sortPresets];
-        [self addPreset];
-        
-    }
+    }];
 }
 
 #pragma mark -
-#pragma mark Manage Default Preset
-
-- (IBAction)getDefaultPresets:(id)sender
-{
-	presetHbDefault = nil;
-    presetUserDefault = nil;
-    presetUserDefaultParent = nil;
-    presetUserDefaultParentParent = nil;
-    NSMutableDictionary *presetHbDefaultParent = nil;
-    NSMutableDictionary *presetHbDefaultParentParent = nil;
-    
-    int i = 0;
-    BOOL userDefaultFound = NO;
-    presetCurrentBuiltInCount = 0;
-    /* First we iterate through the root UserPresets array to check for defaults */
-    NSEnumerator *enumerator = [UserPresets objectEnumerator];
-	id tempObject;
-	while (tempObject = [enumerator nextObject])
-	{
-		NSMutableDictionary *thisPresetDict = tempObject;
-		if ([[thisPresetDict objectForKey:@"Default"] intValue] == 1) // 1 is HB default
-		{
-			presetHbDefault = thisPresetDict;	
-		}
-		if ([[thisPresetDict objectForKey:@"Default"] intValue] == 2) // 2 is User specified default
-		{
-			presetUserDefault = thisPresetDict;
-            userDefaultFound = YES;
-        }
-        if ([[thisPresetDict objectForKey:@"Type"] intValue] == 0) // Type 0 is a built in preset		
-        {
-			presetCurrentBuiltInCount++; // <--increment the current number of built in presets	
-		}
-		i++;
-        
-        /* if we run into a folder, go to level 1 and iterate through the children arrays for the default */
-        if ([thisPresetDict objectForKey:@"ChildrenArray"])
-        {
-            NSMutableDictionary *thisPresetDictParent = thisPresetDict;
-            NSEnumerator *enumerator = [[thisPresetDict objectForKey:@"ChildrenArray"] objectEnumerator];
-            id tempObject;
-            while (tempObject = [enumerator nextObject])
-            {
-                NSMutableDictionary *thisPresetDict = tempObject;
-                if ([[thisPresetDict objectForKey:@"Default"] intValue] == 1) // 1 is HB default
-                {
-                    presetHbDefault = thisPresetDict;
-                    presetHbDefaultParent = thisPresetDictParent;
-                }
-                if ([[thisPresetDict objectForKey:@"Default"] intValue] == 2) // 2 is User specified default
-                {
-                    presetUserDefault = thisPresetDict;
-                    presetUserDefaultParent = thisPresetDictParent;
-                    userDefaultFound = YES;
-                }
-                
-                /* if we run into a folder, go to level 2 and iterate through the children arrays for the default */
-                if ([thisPresetDict objectForKey:@"ChildrenArray"])
-                {
-                    NSMutableDictionary *thisPresetDictParentParent = thisPresetDict;
-                    NSEnumerator *enumerator = [[thisPresetDict objectForKey:@"ChildrenArray"] objectEnumerator];
-                    id tempObject;
-                    while (tempObject = [enumerator nextObject])
-                    {
-                        NSMutableDictionary *thisPresetDict = tempObject;
-                        if ([[thisPresetDict objectForKey:@"Default"] intValue] == 1) // 1 is HB default
-                        {
-                            presetHbDefault = thisPresetDict;
-                            presetHbDefaultParent = thisPresetDictParent;
-                            presetHbDefaultParentParent = thisPresetDictParentParent;	
-                        }
-                        if ([[thisPresetDict objectForKey:@"Default"] intValue] == 2) // 2 is User specified default
-                        {
-                            presetUserDefault = thisPresetDict;
-                            presetUserDefaultParent = thisPresetDictParent;
-                            presetUserDefaultParentParent = thisPresetDictParentParent;
-                            userDefaultFound = YES;	
-                        }
-                        
-                    }
-                }
-            }
-        }
-        
-	}
-    /* check to see if a user specified preset was found, if not then assign the parents for
-     * the presetHbDefault so that we can open the parents for the nested presets
-     */
-    if (userDefaultFound == NO)
-    {
-        presetUserDefaultParent = presetHbDefaultParent;
-        presetUserDefaultParentParent = presetHbDefaultParentParent;
-    }
-}
-
-- (IBAction)setDefaultPreset:(id)sender
-{
-/* We need to determine if the item is a folder */
-   if ([[[self selectedPreset] objectForKey:@"Folder"] intValue] == 1)
-   {
-   return;
-   }
-
-    int i = 0;
-    NSEnumerator *enumerator = [UserPresets objectEnumerator];
-    id tempObject;
-    /* First make sure the old user specified default preset is removed */
-    while (tempObject = [enumerator nextObject])
-    {
-        NSMutableDictionary *thisPresetDict = tempObject;
-        if ([[tempObject objectForKey:@"Default"] intValue] != 1) // if not the default HB Preset, set to 0
-        {
-            [[UserPresets objectAtIndex:i] setObject:[NSNumber numberWithInt:0] forKey:@"Default"];	
-        }
-		
-        /* if we run into a folder, go to level 1 and iterate through the children arrays for the default */
-        if ([thisPresetDict objectForKey:@"ChildrenArray"])
-        {
-            NSEnumerator *enumerator = [[thisPresetDict objectForKey:@"ChildrenArray"] objectEnumerator];
-            id tempObject;
-            int ii = 0;
-            while (tempObject = [enumerator nextObject])
-            {
-                NSMutableDictionary *thisPresetDict1 = tempObject;
-                if ([[tempObject objectForKey:@"Default"] intValue] != 1) // if not the default HB Preset, set to 0
-                {
-                    [[[thisPresetDict objectForKey:@"ChildrenArray"] objectAtIndex:ii] setObject:[NSNumber numberWithInt:0] forKey:@"Default"];	
-                }
-                /* if we run into a folder, go to level 2 and iterate through the children arrays for the default */
-                if ([thisPresetDict1 objectForKey:@"ChildrenArray"])
-                {
-                    NSEnumerator *enumerator = [[thisPresetDict1 objectForKey:@"ChildrenArray"] objectEnumerator];
-                    id tempObject;
-                    int iii = 0;
-                    while (tempObject = [enumerator nextObject])
-                    {
-                        if ([[tempObject objectForKey:@"Default"] intValue] != 1) // if not the default HB Preset, set to 0
-                        {
-                            [[[thisPresetDict1 objectForKey:@"ChildrenArray"] objectAtIndex:iii] setObject:[NSNumber numberWithInt:0] forKey:@"Default"];	
-                        }
-                        iii++;
-                    }
-                }
-                ii++;
-            }
-
-        }
-        i++;
-	}
-
-
-    NSInteger presetToModLevel = [fPresetsOutlineView levelForItem: [self selectedPreset]];
-    NSDictionary *presetToMod = [self selectedPreset];
-    NSDictionary *presetToModParent = [fPresetsOutlineView parentForItem: presetToMod];
-
-
-    NSMutableArray *presetsArrayToMod;
-
-    /* If we are a root level preset, we are modding the UserPresets array */
-    if (presetToModLevel == 0)
-    {
-        presetsArrayToMod = UserPresets;
-    }
-    else // We have a parent preset, so we modify the chidren array object for key
-    {
-        presetsArrayToMod = [presetToModParent objectForKey:@"ChildrenArray"]; 
-    }
-    
-    enumerator = [presetsArrayToMod objectEnumerator];
-    int iiii = 0;
-    while (tempObject = [enumerator nextObject]) 
-    {
-        NSDictionary *thisPresetDict = tempObject;
-        if (thisPresetDict == presetToMod)
-        {
-            if ([[tempObject objectForKey:@"Default"] intValue] != 1) // if not the default HB Preset, set to 2
-            {
-                [[presetsArrayToMod objectAtIndex:iiii] setObject:[NSNumber numberWithInt:2] forKey:@"Default"];	
-            }
-        }
-     iiii++;
-     }
-    
-    
-    /* We save all of the preset data here */
-    [self savePreset];
-    /* We Reload the New Table data for presets */
-    [fPresetsOutlineView reloadData];
-}
+#pragma mark Preset Menu
 
 - (IBAction)selectDefaultPreset:(id)sender
 {
-	NSMutableDictionary *presetToMod;
-    /* if there is a user specified default, we use it */
-	if (presetUserDefault)
-	{
-        presetToMod = presetUserDefault;
-    }
-	else if (presetHbDefault) //else we use the built in default presetHbDefault
-	{
-        presetToMod = presetHbDefault;
-	}
-    else
-    {
-    return;
-    }
-    
-    if (presetUserDefaultParent != nil)
-    {
-        [fPresetsOutlineView expandItem:presetUserDefaultParent];
-        
-    }
-    if (presetUserDefaultParentParent != nil)
-    {
-        [fPresetsOutlineView expandItem:presetUserDefaultParentParent];
-        
-    }
-    
-    [fPresetsOutlineView selectRowIndexes:[NSIndexSet indexSetWithIndex:[fPresetsOutlineView rowForItem: presetToMod]] byExtendingSelection:NO];
-	[self selectPreset:nil];
+    [self applyPreset:presetManager.defaultPreset];
+    [fPresetsView setSelection:_selectedPreset];
 }
 
-
-#pragma mark -
-#pragma mark Manage Built In Presets
-
-
-- (IBAction)deleteFactoryPresets:(id)sender
+- (IBAction)insertFolder:(id)sender
 {
-    //int status;
-    NSEnumerator *enumerator = [UserPresets objectEnumerator];
-	id tempObject;
-    
-	//NSNumber *index;
-    NSMutableArray *tempArray;
-
-
-        tempArray = [NSMutableArray array];
-        /* we look here to see if the preset is we move on to the next one */
-        while ( tempObject = [enumerator nextObject] )  
-		{
-			/* if the preset is "Factory" then we put it in the array of
-			presets to delete */
-			if ([[tempObject objectForKey:@"Type"] intValue] == 0)
-			{
-				[tempArray addObject:tempObject];
-			}
-        }
-        
-        [UserPresets removeObjectsInArray:tempArray];
-        [fPresetsOutlineView reloadData];
-        [self savePreset];   
-
+    [fPresetsView insertFolder:sender];
 }
 
-   /* We use this method to recreate new, updated factory presets */
-- (IBAction)addFactoryPresets:(id)sender
+- (IBAction)selectPresetFromMenu:(id)sender
 {
-    
-    /* First, we delete any existing built in presets */
-    [self deleteFactoryPresets: sender];
-    /* Then we generate new built in presets programmatically with fPresetsBuiltin
-     * which is all setup in HBPresets.h and  HBPresets.m*/
-    [fPresetsBuiltin generateBuiltinPresets:UserPresets];
-    /* update build number for built in presets */
-    /* iterate though the new array of presets to import and add them to our presets array */
-    int i = 0;
-    NSEnumerator *enumerator = [UserPresets objectEnumerator];
-    id tempObject;
-    while (tempObject = [enumerator nextObject])
+    __block HBPreset *preset = nil;
+    __block NSInteger i = -1;
+
+    NSInteger tag = [sender tag];
+
+    [presetManager.root enumerateObjectsUsingBlock:^(id obj, NSIndexPath *idx, BOOL *stop)
     {
-        /* Record the apps current build number in the PresetBuildNumber key */
-        if ([[tempObject objectForKey:@"Type"] intValue] == 0) // Type 0 is a built in preset		
+        if (i == tag)
         {
-            /* Preset build number */
-            [[UserPresets objectAtIndex:i] setObject:[NSNumber numberWithInt:[[[[NSBundle mainBundle] infoDictionary] objectForKey:@"CFBundleVersion"] intValue]] forKey:@"PresetBuildNumber"];
+            preset = obj;
+            *stop = YES;
         }
         i++;
+    }];
+
+    [self applyPreset:preset];
+    [fPresetsView setSelection:_selectedPreset];
+}
+
+/**
+ *  Adds the presets list to the menu.
+ */
+- (void)buildPresetsMenu
+{
+    // First we remove all the preset menu items
+    // inserted previosly
+    NSArray *menuItems = [presetsMenu.itemArray copy];
+    for (NSMenuItem *item in menuItems)
+    {
+        if (item.tag != -1)
+        {
+            [presetsMenu removeItem:item];
+        }
     }
-    /* report the built in preset updating to the activity log */
-    [HBUtilities writeToActivityLog: "built in presets updated to build number: %d", [[[[NSBundle mainBundle] infoDictionary] objectForKey:@"CFBundleVersion"] intValue]];
-    
-    [self sortPresets];
-    [self addPreset];
-    
+    [menuItems release];
+
+    __block NSUInteger i = 0;
+    __block BOOL builtInEnded = NO;
+    [presetManager.root enumerateObjectsUsingBlock:^(id obj, NSIndexPath *idx, BOOL *stop)
+    {
+        if (idx.length)
+        {
+            NSMenuItem *item = [[NSMenuItem alloc] init];
+            item.title = [obj name];
+            item.tag = i++;
+
+            // Set an action only to the actual presets,
+            // not on the folders.
+            if ([obj isLeaf])
+            {
+                item.action = @selector(selectPresetFromMenu:);
+            }
+            // Make the default preset font bold.
+            if ([obj isDefault])
+            {
+                NSAttributedString *newTitle = [[NSAttributedString alloc] initWithString:[obj name]
+                                                                               attributes:@{NSFontAttributeName: [NSFont boldSystemFontOfSize:14]}];
+                [item setAttributedTitle:newTitle];
+                [newTitle release];
+            }
+            // Add a separator line after the last builtIn preset
+            if ([obj isBuiltIn] == NO && builtInEnded == NO)
+            {
+                [presetsMenu addItem:[NSMenuItem separatorItem]];
+                builtInEnded = YES;
+            }
+
+            item.indentationLevel = idx.length - 1;
+
+            [presetsMenu addItem:item];
+            [item release];
+        }
+    }];
 }
 
-@end
-
-/*******************************
- * Subclass of the HBPresetsOutlineView *
- *******************************/
-
-@implementation HBPresetsOutlineView
-- (NSImage *)dragImageForRowsWithIndexes:(NSIndexSet *)dragRows tableColumns:(NSArray *)tableColumns event:(NSEvent*)dragEvent offset:(NSPointPointer)dragImageOffset
+/**
+ * We use this method to recreate new, updated factory presets
+ */
+- (IBAction)addFactoryPresets:(id)sender
 {
-    fIsDragging = YES;
-
-    // By default, NSTableView only drags an image of the first column. Change this to
-    // drag an image of the queue's icon and PresetName columns.
-    NSArray * cols = [NSArray arrayWithObjects: [self tableColumnWithIdentifier:@"PresetName"], nil];
-    return [super dragImageForRowsWithIndexes:dragRows tableColumns:cols event:dragEvent offset:dragImageOffset];
+    [presetManager generateBuiltInPresets];
 }
 
-
-
-- (void) mouseDown:(NSEvent *)theEvent
-{
-    [super mouseDown:theEvent];
-	fIsDragging = NO;
-}
-
-
-
-- (BOOL) isDragging;
-{
-    return fIsDragging;
-}
 @end

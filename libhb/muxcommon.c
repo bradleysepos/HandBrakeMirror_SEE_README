@@ -614,22 +614,10 @@ hb_work_object_t * hb_muxer_init( hb_job_t * job )
     {
         switch( job->mux )
         {
-#ifdef USE_MP4V2
-        case HB_MUX_MP4V2:
-            mux->m = hb_mux_mp4_init( job );
-            break;
-#endif
-#ifdef USE_LIBMKV
-        case HB_MUX_LIBMKV:
-            mux->m = hb_mux_mkv_init( job );
-            break;
-#endif
-#ifdef USE_AVFORMAT
         case HB_MUX_AV_MP4:
         case HB_MUX_AV_MKV:
             mux->m = hb_mux_avformat_init( job );
             break;
-#endif
         default:
             hb_error( "No muxer selected, exiting" );
             *job->done_error = HB_ERROR_INIT;
@@ -763,10 +751,15 @@ static void update_style(style_context_t *ctx,
             ctx->current_style.fg_alpha != style->fg_alpha)
         {
             update_style_atoms(ctx, pos - 1);
+            ctx->current_style = *style;
+            ctx->style_start = pos;
         }
     }
-    ctx->current_style = *style;
-    ctx->style_start = pos;
+    else
+    {
+        ctx->current_style = *style;
+        ctx->style_start = pos;
+    }
 }
 
 static void style_context_init(style_context_t *ctx, uint8_t *style_atoms)
@@ -843,6 +836,11 @@ void hb_muxmp4_process_subtitle_style(uint8_t *input,
         in_pos += consumed;
         update_style(&ctx, &style, out_pos - utf8_count);
     }
+    // Return to default style at end of line, flushes any pending
+    // style changes
+    hb_ssa_style_init(&style);
+    update_style(&ctx, &style, out_pos - utf8_count);
+
     // null terminate output string
     output[out_pos] = 0;
 

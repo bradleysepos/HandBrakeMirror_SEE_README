@@ -339,16 +339,8 @@ static int hb_container_is_enabled(int format)
 {
     switch (format)
     {
-#ifdef USE_MP4V2
-        case HB_MUX_MP4V2:
-#endif
-#ifdef USE_LIBMKV
-        case HB_MUX_LIBMKV:
-#endif
-#ifdef USE_AVFORMAT
         case HB_MUX_AV_MP4:
         case HB_MUX_AV_MKV:
-#endif
             return 1;
 
         default:
@@ -3119,6 +3111,22 @@ static void job_clean( hb_job_t * job )
     }
 }
 
+hb_title_t * hb_find_title_by_index( hb_handle_t *h, int title_index )
+{
+    hb_title_set_t *title_set = hb_get_title_set( h );
+    int ii;
+
+    for (ii = 0; ii < hb_list_count(title_set->list_title); ii++)
+    {
+        hb_title_t *title = hb_list_item(title_set->list_title, ii);
+        if (title_index == title->index)
+        {
+            return title;
+        }
+    }
+    return NULL;
+}
+
 /*
  * Create a pristine job structure from a title
  * title_index is 1 based
@@ -4347,7 +4355,6 @@ void hb_hexdump( hb_debug_level_t level, const char * label, const uint8_t * dat
         else
             ascii[(ii & 0x0f) + 1] = '.';
     }
-    ascii[ii] = 0;
     if( p != line )
     {
         hb_deep_log( level, "    %-50s%20s", line, ascii );

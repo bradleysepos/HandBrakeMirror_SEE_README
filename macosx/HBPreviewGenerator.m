@@ -6,6 +6,7 @@
 //
 
 #import "HBPreviewGenerator.h"
+#import "HBUtilities.h"
 #import "Controller.h"
 
 typedef enum EncodeState : NSUInteger {
@@ -67,7 +68,7 @@ typedef enum EncodeState : NSUInteger {
                                                      libhb:self.handle
                                                      title:self.title
                                                deinterlace:self.deinterlace];
-        if (cache)
+        if (cache && theImage)
             [self.picturePreviews setObject:theImage forKey:@(index)];
     }
 
@@ -90,75 +91,71 @@ typedef enum EncodeState : NSUInteger {
  * border around the content. This is the low-level method that generates the image.
  * -imageForPicture calls this function whenever it can't find an image in its cache.
  *
- * @param picture Index in title.
- * @param h Handle to hb_handle_t.
+ * @param pictureIndex Index in title.
+ * @param handle Handle to hb_handle_t.
  * @param title Handle to hb_title_t of desired title.
+ * @param deinterlace Whether the preview image must be deinterlaced or not.
  */
 + (NSImage *) makeImageForPicture: (NSUInteger) pictureIndex
                             libhb: (hb_handle_t *) handle
                             title: (hb_title_t *) title
                       deinterlace: (BOOL) deinterlace
 {
-    static uint8_t *buffer;
-    static int bufferSize;
+    NSImage *img = nil;
 
-    // Make sure we have a big enough buffer to receive the image from libhb
-    int dstWidth = title->job->width;
-    int dstHeight = title->job->height;
+    hb_ui_geometry_t geo;
+    geo.width = title->job->width;
+    geo.height = title->job->height;
+    // HBPreviewController will scale the image later,
+    // ignore the par.
+    geo.par.num = 1;
+    geo.par.den = 1;
+    memcpy(geo.crop, title->job->crop, sizeof(int[4]));
 
-    int newSize = dstWidth * dstHeight * 4;
-    if  (!buffer || bufferSize < newSize)
+    hb_image_t *image;
+    image = hb_get_preview2(handle, title->index, (int)pictureIndex, &geo, deinterlace);
+
+    if (image)
     {
-        bufferSize = newSize;
-        buffer     = (uint8_t *) realloc( buffer, bufferSize );
-    }
+        // Create an NSBitmapImageRep and copy the libhb image into it, converting it from
+        // libhb's format to one suitable for NSImage.
 
-    // Enable and the disable deinterlace just for preview if deinterlace
-    // or decomb filters are enabled
-    int deinterlaceStatus = title->job->deinterlace;
-    if (deinterlace) title->job->deinterlace = 1;
+        // The image data returned by hb_get_preview2 is 4 bytes per pixel, BGRA format.
+        // Alpha is ignored.
+        NSBitmapImageRep *imgrep = [[[NSBitmapImageRep alloc]
+                                     initWithBitmapDataPlanes:nil
+                                     pixelsWide:image->width
+                                     pixelsHigh:image->height
+                                     bitsPerSample:8
+                                     samplesPerPixel:3   // ignore alpha
+                                     hasAlpha:NO
+                                     isPlanar:NO
+                                     colorSpaceName:NSCalibratedRGBColorSpace
+                                     bitmapFormat:NSAlphaFirstBitmapFormat
+                                     bytesPerRow:image->width * 4
+                                     bitsPerPixel:32] autorelease];
 
-    hb_get_preview( handle, title->job, (int)pictureIndex, buffer );
-
-    // Reset deinterlace status
-    title->job->deinterlace = deinterlaceStatus;
-
-    // Create an NSBitmapImageRep and copy the libhb image into it, converting it from
-    // libhb's format to one suitable for NSImage. Along the way, we'll strip off the
-    // border around libhb's image.
-
-    // The image data returned by hb_get_preview is 4 bytes per pixel, BGRA format.
-    // Alpha is ignored.
-
-    NSBitmapFormat bitmapFormat = (NSBitmapFormat)NSAlphaFirstBitmapFormat;
-    NSBitmapImageRep * imgrep = [[[NSBitmapImageRep alloc]
-                                  initWithBitmapDataPlanes:nil
-                                  pixelsWide:dstWidth
-                                  pixelsHigh:dstHeight
-                                  bitsPerSample:8
-                                  samplesPerPixel:3   // ignore alpha
-                                  hasAlpha:NO
-                                  isPlanar:NO
-                                  colorSpaceName:NSCalibratedRGBColorSpace
-                                  bitmapFormat:bitmapFormat
-                                  bytesPerRow:dstWidth * 4
-                                  bitsPerPixel:32] autorelease];
-
-    UInt32 * src = (UInt32 *)buffer;
-    UInt32 * dst = (UInt32 *)[imgrep bitmapData];
-    int r, c;
-    for (r = 0; r < dstHeight; r++)
-    {
-        for (c = 0; c < dstWidth; c++)
+        UInt8 *src_line = image->data;
+        UInt32 *dst = (UInt32 *)[imgrep bitmapData];
+        for (int r = 0; r < image->height; r++)
+        {
+            UInt32 *src = (UInt32 *)src_line;
+            for (int c = 0; c < image->width; c++)
+            {
 #if TARGET_RT_LITTLE_ENDIAN
-            *dst++ = Endian32_Swap(*src++);
+                *dst++ = Endian32_Swap(*src++);
 #else
-            *dst++ = *src++;
+                *dst++ = *src++;
 #endif
+            }
+            src_line += image->plane[0].stride;
+        }
+
+        img = [[[NSImage alloc] initWithSize: NSMakeSize(image->width, image->height)] autorelease];
+        [img addRepresentation:imgrep];
     }
 
-    NSImage * img = [[[NSImage alloc] initWithSize: NSMakeSize(dstWidth, dstHeight)] autorelease];
-    [img addRepresentation:imgrep];
+    hb_image_close(&image);
 
     return img;
 }
@@ -166,26 +163,9 @@ typedef enum EncodeState : NSUInteger {
 #pragma mark -
 #pragma mark Preview movie
 
-+ (NSString *) appSupportPath
-{
-    NSFileManager *fileManager = [NSFileManager defaultManager];
-    NSString *appSupportPath = nil;
-
-    NSArray *allPaths = NSSearchPathForDirectoriesInDomains( NSApplicationSupportDirectory,
-                                                            NSUserDomainMask,
-                                                            YES );
-    if ([allPaths count])
-        appSupportPath = [[allPaths objectAtIndex:0] stringByAppendingPathComponent:@"HandBrake"];
-
-    if (![fileManager fileExistsAtPath:appSupportPath])
-        [fileManager createDirectoryAtPath:appSupportPath withIntermediateDirectories:YES attributes:nil error:NULL];
-
-    return appSupportPath;
-}
-
 + (NSURL *) generateFileURLForType:(NSString *) type
 {
-    NSString *previewDirectory = [NSString stringWithFormat:@"%@/Previews/%d", [HBPreviewGenerator appSupportPath], getpid()];
+    NSString *previewDirectory = [NSString stringWithFormat:@"%@/Previews/%d", [HBUtilities appSupportPath], getpid()];
 
     if (![[NSFileManager defaultManager] fileExistsAtPath:previewDirectory])
     {

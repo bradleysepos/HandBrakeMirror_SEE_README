@@ -1357,6 +1357,21 @@ static int isIframe( hb_stream_t *stream, const uint8_t *buf, int len )
         // didn't find an I-frame
         return 0;
     }
+    if ( pes->stream_type == 0x10 || pes->codec_param == AV_CODEC_ID_MPEG4 )
+    {
+        // we have an mpeg4 stream
+        for (ii = 0; ii < len-1; ii++)
+        {
+            strid = (strid << 8) | buf[ii];
+            if ( strid == 0x1b6 )
+            {
+                if ((buf[ii+1] & 0xC0) == 0)
+                    return 1;
+            }
+        }
+        // didn't find an I-frame
+        return 0;
+    }
 
     // we don't understand the stream type so just say "yes" otherwise
     // we'll discard all the video.
@@ -5508,11 +5523,7 @@ static hb_title_t *ffmpeg_title_scan( hb_stream_t *stream, hb_title_t *title )
     /*
      * Fill the metadata.
      */
-    // JJJ: is this necessary? can we just get this metadata from libav api's?
-    if (!decmetadata( title ))
-    {
-        ffmpeg_decmetadata( ic->metadata, title );
-    }
+    ffmpeg_decmetadata( ic->metadata, title );
 
     if( hb_list_count( title->list_chapter ) == 0 )
     {

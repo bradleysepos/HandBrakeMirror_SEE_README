@@ -10,13 +10,11 @@
 #import "HBUtilities.h"
 
 #define HB_ROW_HEIGHT_TITLE_ONLY           17.0
-#define HB_ROW_HEIGHT_FULL_DESCRIPTION           200.0
-// Pasteboard type for or drag operations
-#define DragDropSimplePboardType 	@"MyCustomOutlineViewPboardType"
 
-//------------------------------------------------------------------------------------
+// Pasteboard type for or drag operations
+#define DragDropSimplePboardType @"HBQueueCustomOutlineViewPboardType"
+
 #pragma mark -
-//------------------------------------------------------------------------------------
 
 //------------------------------------------------------------------------------------
 // NSMutableAttributedString (HBAdditions)
@@ -29,10 +27,9 @@
 @implementation NSMutableAttributedString (HBAdditions)
 - (void) appendString: (NSString*)aString withAttributes: (NSDictionary *)aDictionary
 {
-    NSAttributedString * s = [[[NSAttributedString alloc]
-        initWithString: aString
-        attributes: aDictionary] autorelease];
-    [self appendAttributedString: s];
+    NSAttributedString *s = [[[NSAttributedString alloc] initWithString:aString
+                                                             attributes:aDictionary] autorelease];
+    [self appendAttributedString:s];
 }
 @end
 
@@ -48,43 +45,88 @@
     [super viewDidEndLiveResize];
 }
 
-
-
 /* This should be for dragging, we take this info from the presets right now */
-- (NSImage *)dragImageForRowsWithIndexes:(NSIndexSet *)dragRows tableColumns:(NSArray *)tableColumns event:(NSEvent*)dragEvent offset:(NSPointPointer)dragImageOffset
+- (NSImage *)dragImageForRowsWithIndexes:(NSIndexSet *)dragRows
+                            tableColumns:(NSArray *)tableColumns
+                                   event:(NSEvent *)dragEvent
+                                  offset:(NSPointPointer)dragImageOffset
 {
-    fIsDragging = YES;
+    _isDragging = YES;
 
     // By default, NSTableView only drags an image of the first column. Change this to
     // drag an image of the queue's icon and desc and action columns.
-    NSArray * cols = [NSArray arrayWithObjects: [self tableColumnWithIdentifier:@"desc"], [self tableColumnWithIdentifier:@"icon"],[self tableColumnWithIdentifier:@"action"], nil];
+    NSArray * cols = @[[self tableColumnWithIdentifier:@"desc"], [self tableColumnWithIdentifier:@"icon"],[self tableColumnWithIdentifier:@"action"]];
     return [super dragImageForRowsWithIndexes:dragRows tableColumns:cols event:dragEvent offset:dragImageOffset];
 }
 
-
-
-- (void) mouseDown:(NSEvent *)theEvent
+- (void)mouseDown:(NSEvent *)theEvent
 {
     [super mouseDown:theEvent];
-	fIsDragging = NO;
+	_isDragging = NO;
 }
 
-
-
-- (BOOL) isDragging;
+- (void)keyDown:(NSEvent *)event
 {
-    return fIsDragging;
+    id delegate = [self delegate];
+
+    unichar key = [[event charactersIgnoringModifiers] characterAtIndex:0];
+    if ((key == NSDeleteCharacter || key == NSDeleteFunctionKey) &&
+               [delegate respondsToSelector:@selector(removeSelectedQueueItem:)])
+    {
+        if ([self selectedRow] == -1)
+        {
+            NSBeep();
+        }
+        else
+        {
+            [delegate removeSelectedQueueItem:self];
+        }
+        return;
+    }
+    else
+    {
+        [super keyDown:event];
+    }
 }
 
 @end
 
-#pragma mark Toolbar Identifiers
-// Toolbar identifiers
-static NSString*    HBQueueToolbar                            = @"HBQueueToolbar1";
-static NSString*    HBQueueStartCancelToolbarIdentifier       = @"HBQueueStartCancelToolbarIdentifier";
-static NSString*    HBQueuePauseResumeToolbarIdentifier       = @"HBQueuePauseResumeToolbarIdentifier";
-
 #pragma mark -
+
+@interface HBQueueController ()
+{
+    hb_handle_t                  *fQueueEncodeLibhb;              // reference to libhb
+    HBController                 *fHBController;        // reference to HBController
+    NSMutableArray               *fJobGroups;           // mirror image of the queue array from controller.mm
+
+    int                          pidNum;                // Records the PID number from HBController for this instance
+    int                          fEncodingQueueItem;    // corresponds to the index of fJobGroups encoding item
+    int                          fPendingCount;         // Number of various kinds of job groups in fJobGroups.
+    int                          fWorkingCount;
+    BOOL                         fJobGroupCountsNeedUpdating;
+
+    BOOL                         fCurrentJobPaneShown;  // NO when fCurrentJobPane has been shifted out of view (see showCurrentJobPane)
+    NSMutableIndexSet            *fSavedExpandedItems;  // used by save/restoreOutlineViewState to preserve which items are expanded
+    NSMutableIndexSet            *fSavedSelectedItems;  // used by save/restoreOutlineViewState to preserve which items are selected
+
+    NSTimer                      *fAnimationTimer;      // animates the icon of the current job in the queue outline view
+    int                          fAnimationIndex;       // used to generate name of image used to animate the current job in the queue outline view
+
+    IBOutlet NSTextField         *fProgressTextField;
+
+    IBOutlet HBQueueOutlineView  *fOutlineView;
+    IBOutlet NSTextField         *fQueueCountField;
+    NSArray                      *fDraggedNodes;
+
+    // Text Styles
+    NSMutableParagraphStyle *ps;
+    NSDictionary            *detailAttr;
+    NSDictionary            *detailBoldAttr;
+    NSDictionary            *titleAttr;
+    NSDictionary            *shortHeightAttr;
+}
+
+@end
 
 @implementation HBQueueController
 
@@ -103,11 +145,7 @@ static NSString*    HBQueuePauseResumeToolbarIdentifier       = @"HBQueuePauseRe
         [self window];
 
         // Our defaults
-        [[NSUserDefaults standardUserDefaults] registerDefaults:[NSDictionary dictionaryWithObjectsAndKeys:
-            @"NO",      @"QueueWindowIsOpen",
-            @"NO",      @"QueueShowsDetail",
-            @"YES",     @"QueueShowsJobsAsGroups",
-            nil]];
+        [[NSUserDefaults standardUserDefaults] registerDefaults:@{@"QueueWindowIsOpen": @"NO"}];
 
         fJobGroups = [[NSMutableArray arrayWithCapacity:0] retain];
 
@@ -117,21 +155,15 @@ static NSString*    HBQueuePauseResumeToolbarIdentifier       = @"HBQueuePauseRe
     return self;
 }
 
-- (void)setQueueArray: (NSMutableArray *)QueueFileArray
+- (void)setQueueArray:(NSMutableArray *)QueueFileArray
 {
     [fJobGroups setArray:QueueFileArray];
-    fIsDragging = NO; 
-    /* First stop any timer working now */
-    //[self stopAnimatingCurrentJobGroupInQueue];
+
     [fOutlineView reloadData];
-    
-    
-    
+
     /* lets get the stats on the status of the queue array */
     
     fPendingCount = 0;
-    fCompletedCount = 0;
-    fCanceledCount = 0;
     fWorkingCount = 0;
     
     /* We use a number system to set the encode status of the queue item
@@ -143,35 +175,27 @@ static NSString*    HBQueuePauseResumeToolbarIdentifier       = @"HBQueuePauseRe
      */
 	int i = 0;
     NSDictionary *thisQueueDict = nil;
-	for(id tempObject in fJobGroups)
+	for (id tempObject in fJobGroups)
 	{
 		thisQueueDict = tempObject;
-		if ([[thisQueueDict objectForKey:@"Status"] intValue] == 0) // Completed
-		{
-			fCompletedCount++;	
-		}
-		if ([[thisQueueDict objectForKey:@"Status"] intValue] == 1) // being encoded
+		if ([thisQueueDict[@"Status"] intValue] == 1) // being encoded
 		{
 			fWorkingCount++;
             /* we have an encoding job so, lets start the animation timer */
-            if ([thisQueueDict objectForKey:@"EncodingPID"] && [[thisQueueDict objectForKey:@"EncodingPID"] intValue] == pidNum)
+            if (thisQueueDict[@"EncodingPID"] && [thisQueueDict[@"EncodingPID"] intValue] == pidNum)
             {
                 fEncodingQueueItem = i;
             }
 		}
-        if ([[thisQueueDict objectForKey:@"Status"] intValue] == 2) // pending		
+        if ([thisQueueDict[@"Status"] intValue] == 2) // pending		
         {
 			fPendingCount++;
-		}
-        if ([[thisQueueDict objectForKey:@"Status"] intValue] == 3) // cancelled		
-        {
-			fCanceledCount++;
 		}
 		i++;
 	}
     
     /* Set the queue status field in the queue window */
-    NSMutableString * string;
+    NSMutableString *string;
     if (fPendingCount == 0)
     {
         string = [NSMutableString stringWithFormat: NSLocalizedString( @"No encode pending", @"" )];
@@ -193,11 +217,9 @@ static NSString*    HBQueuePauseResumeToolbarIdentifier       = @"HBQueuePauseRe
  * instead of running another timer here polling libhb
  * for encoding status
  */
-- (void)setQueueStatusString: (NSString *)statusString
+- (void)setQueueStatusString:(NSString *)statusString
 {
-    
     [fProgressTextField setStringValue:statusString];
-    
 }
 
 //------------------------------------------------------------------------------------
@@ -259,41 +281,23 @@ static NSString*    HBQueuePauseResumeToolbarIdentifier       = @"HBQueuePauseRe
     [self startAnimatingCurrentWorkingEncodeInQueue];
 }
 
-
-
 //------------------------------------------------------------------------------------
-// awakeFromNib
+// windowDidLoad
 //------------------------------------------------------------------------------------
-- (void)awakeFromNib
+- (void)windowDidLoad
 {
-    [self setupToolbar];
-
-    if( ![[self window] setFrameUsingName:@"Queue"] )
-        [[self window] center];
-    [self setWindowFrameAutosaveName:@"Queue"];
-
     /* lets setup our queue list outline view for drag and drop here */
-    [fOutlineView registerForDraggedTypes: [NSArray arrayWithObject:DragDropSimplePboardType] ];
+    [fOutlineView registerForDraggedTypes: @[DragDropSimplePboardType] ];
     [fOutlineView setDraggingSourceOperationMask:NSDragOperationEvery forLocal:YES];
     [fOutlineView setVerticalMotionCanBeginDrag: YES];
-
 
     // Don't allow autoresizing of main column, else the "delete" column will get
     // pushed out of view.
     [fOutlineView setAutoresizesOutlineColumn: NO];
 
-#if HB_OUTLINE_METRIC_CONTROLS
-    [fIndentation setHidden: NO];
-    [fSpacing setHidden: NO];
-    [fIndentation setIntegerValue:[fOutlineView indentationPerLevel]];  // debug
-    [fSpacing setIntegerValue:3];       // debug
-#endif
-
     // Show/hide UI elements
     fCurrentJobPaneShown = NO;     // it's shown in the nib
-
 }
-
 
 //------------------------------------------------------------------------------------
 // windowWillClose
@@ -305,109 +309,6 @@ static NSString*    HBQueuePauseResumeToolbarIdentifier       = @"HBQueuePauseRe
 }
 
 #pragma mark Toolbar
-
-//------------------------------------------------------------------------------------
-// setupToolbar
-//------------------------------------------------------------------------------------
-- (void)setupToolbar
-{
-    // Create a new toolbar instance, and attach it to our window
-    NSToolbar *toolbar = [[[NSToolbar alloc] initWithIdentifier: HBQueueToolbar] autorelease];
-
-    // Set up toolbar properties: Allow customization, give a default display mode, and remember state in user defaults
-    [toolbar setAllowsUserCustomization: YES];
-    [toolbar setAutosavesConfiguration: YES];
-    [toolbar setDisplayMode: NSToolbarDisplayModeIconAndLabel];
-
-    // We are the delegate
-    [toolbar setDelegate: self];
-
-    // Attach the toolbar to our window
-    [[self window] setToolbar:toolbar];
-}
-
-//------------------------------------------------------------------------------------
-// toolbar:itemForItemIdentifier:willBeInsertedIntoToolbar:
-//------------------------------------------------------------------------------------
-- (NSToolbarItem *)toolbar:(NSToolbar *)toolbar
-        itemForItemIdentifier:(NSString *)itemIdentifier
-        willBeInsertedIntoToolbar:(BOOL)flag
-{
-    // Required delegate method: Given an item identifier, this method returns an item.
-    // The toolbar will use this method to obtain toolbar items that can be displayed
-    // in the customization sheet, or in the toolbar itself.
-
-    NSToolbarItem *toolbarItem = nil;
-
-    if ([itemIdentifier isEqual: HBQueueStartCancelToolbarIdentifier])
-    {
-        toolbarItem = [[[NSToolbarItem alloc] initWithItemIdentifier: itemIdentifier] autorelease];
-
-        // Set the text label to be displayed in the toolbar and customization palette
-        [toolbarItem setLabel: @"Start"];
-        [toolbarItem setPaletteLabel: @"Start/Cancel"];
-
-        // Set up a reasonable tooltip, and image
-        [toolbarItem setToolTip: @"Start Encoding"];
-        [toolbarItem setImage: [NSImage imageNamed: @"encode"]];
-
-        // Tell the item what message to send when it is clicked
-        [toolbarItem setTarget: self];
-        [toolbarItem setAction: @selector(toggleStartCancel:)];
-    }
-
-    if ([itemIdentifier isEqual: HBQueuePauseResumeToolbarIdentifier])
-    {
-        toolbarItem = [[[NSToolbarItem alloc] initWithItemIdentifier: itemIdentifier] autorelease];
-
-        // Set the text label to be displayed in the toolbar and customization palette
-        [toolbarItem setLabel: @"Pause"];
-        [toolbarItem setPaletteLabel: @"Pause/Resume"];
-
-        // Set up a reasonable tooltip, and image
-        [toolbarItem setToolTip: @"Pause Encoding"];
-        [toolbarItem setImage: [NSImage imageNamed: @"pauseencode"]];
-
-        // Tell the item what message to send when it is clicked
-        [toolbarItem setTarget: self];
-        [toolbarItem setAction: @selector(togglePauseResume:)];
-    }
-
-    return toolbarItem;
-}
-
-//------------------------------------------------------------------------------------
-// toolbarDefaultItemIdentifiers:
-//------------------------------------------------------------------------------------
-- (NSArray *) toolbarDefaultItemIdentifiers: (NSToolbar *) toolbar
-{
-    // Required delegate method: Returns the ordered list of items to be shown in the
-    // toolbar by default.
-
-    return [NSArray arrayWithObjects:
-        HBQueueStartCancelToolbarIdentifier,
-        HBQueuePauseResumeToolbarIdentifier,
-        nil];
-}
-
-//------------------------------------------------------------------------------------
-// toolbarAllowedItemIdentifiers:
-//------------------------------------------------------------------------------------
-- (NSArray *) toolbarAllowedItemIdentifiers: (NSToolbar *) toolbar
-{
-    // Required delegate method: Returns the list of all allowed items by identifier.
-    // By default, the toolbar does not assume any items are allowed, even the
-    // separator. So, every allowed item must be explicitly listed.
-
-    return [NSArray arrayWithObjects:
-        HBQueueStartCancelToolbarIdentifier,
-        HBQueuePauseResumeToolbarIdentifier,
-        NSToolbarCustomizeToolbarItemIdentifier,
-        NSToolbarFlexibleSpaceItemIdentifier,
-        NSToolbarSpaceItemIdentifier,
-        NSToolbarSeparatorItemIdentifier,
-        nil];
-}
 
 //------------------------------------------------------------------------------------
 // validateToolbarItem:
@@ -424,7 +325,7 @@ static NSString*    HBQueuePauseResumeToolbarIdentifier       = @"HBQueuePauseRe
     hb_state_t s;
     hb_get_state2 (fQueueEncodeLibhb, &s);
 
-    if ([[toolbarItem itemIdentifier] isEqual: HBQueueStartCancelToolbarIdentifier])
+    if ([[toolbarItem itemIdentifier] isEqualToString:@"HBQueueStartCancelToolbarIdentifier"])
     {
         if ((s.state == HB_STATE_PAUSED) || (s.state == HB_STATE_WORKING) || (s.state == HB_STATE_MUXING))
         {
@@ -451,7 +352,7 @@ static NSString*    HBQueuePauseResumeToolbarIdentifier       = @"HBQueuePauseRe
         }
     }
 
-    if ([[toolbarItem itemIdentifier] isEqual: HBQueuePauseResumeToolbarIdentifier])
+    if ([[toolbarItem itemIdentifier] isEqualToString:@"HBQueuePauseResumeToolbarIdentifier"])
     {
         if (s.state == HB_STATE_PAUSED)
         {
@@ -498,29 +399,32 @@ static NSString*    HBQueuePauseResumeToolbarIdentifier       = @"HBQueuePauseRe
      * to let them decide to cancel it first, then if they do, we can come back and
      * remove it */
     
-    if ([[[fJobGroups objectAtIndex:row] objectForKey:@"Status"] integerValue] == 1)
+    if ([fJobGroups[row][@"Status"] integerValue] == 1)
     {
        /* We pause the encode here so that it doesn't finish right after and then
         * screw up the sync while the window is open
         */
        [fHBController Pause:NULL];
-         NSString * alertTitle = [NSString stringWithFormat:NSLocalizedString(@"Stop This Encode and Remove It ?", nil)];
+         NSString *alertTitle = [NSString stringWithFormat:NSLocalizedString(@"Stop This Encode and Remove It ?", nil)];
         // Which window to attach the sheet to?
-        NSWindow * docWindow = nil;
+        NSWindow *docWindow = nil;
         if ([sender respondsToSelector: @selector(window)])
+        {
             docWindow = [sender window];
-        
-        
-        NSBeginCriticalAlertSheet(
-                                  alertTitle,
-                                  NSLocalizedString(@"Keep Encoding", nil),
-                                  nil,
-                                  NSLocalizedString(@"Stop Encoding and Delete", nil),
-                                  docWindow, self,
-                                  nil, @selector(didDimissCancelCurrentJob:returnCode:contextInfo:), nil,
-                                  NSLocalizedString(@"Your movie will be lost if you don't continue encoding.", nil));
-        
-        // didDimissCancelCurrentJob:returnCode:contextInfo: will be called when the dialog is dismissed
+        }
+
+        NSAlert *alert = [[NSAlert alloc] init];
+        [alert setMessageText:alertTitle];
+        [alert setInformativeText:NSLocalizedString(@"Your movie will be lost if you don't continue encoding.", nil)];
+        [alert addButtonWithTitle:NSLocalizedString(@"Keep Encoding", nil)];
+        [alert addButtonWithTitle:NSLocalizedString(@"Stop Encoding and Delete", nil)];
+        [alert setAlertStyle:NSCriticalAlertStyle];
+
+        [alert beginSheetModalForWindow:docWindow
+                          modalDelegate:self
+                         didEndSelector:@selector(didDimissCancelCurrentJob:returnCode:contextInfo:)
+                            contextInfo:nil];
+        [alert release];
     }
     else
     { 
@@ -538,7 +442,7 @@ static NSString*    HBQueuePauseResumeToolbarIdentifier       = @"HBQueuePauseRe
      * [fHBController Pause:NULL]; Again will resume encoding
      */
     [fHBController Pause:NULL];
-    if (returnCode == NSAlertOtherReturn)
+    if (returnCode == NSAlertSecondButtonReturn)
     {
         /* We need to save the currently encoding item number first */
         int encodingItemToRemove = fEncodingQueueItem;
@@ -565,14 +469,13 @@ static NSString*    HBQueuePauseResumeToolbarIdentifier       = @"HBQueuePauseRe
     {
         while (row != NSNotFound)
         {
-           NSMutableDictionary *queueItemToOpen = [fOutlineView itemAtRow: row];
-         [[NSWorkspace sharedWorkspace] selectFile:[queueItemToOpen objectForKey:@"DestinationPath"] inFileViewerRootedAtPath:nil];
+            NSMutableDictionary *queueItemToOpen = [fOutlineView itemAtRow: row];
+            [[NSWorkspace sharedWorkspace] selectFile:queueItemToOpen[@"DestinationPath"] inFileViewerRootedAtPath:nil];
 
             row = [selectedRows indexGreaterThanIndex: row];
         }
     }
 }
-
 
 //------------------------------------------------------------------------------------
 // Starts or cancels the processing of jobs depending on the current state
@@ -585,7 +488,7 @@ static NSString*    HBQueuePauseResumeToolbarIdentifier       = @"HBQueuePauseRe
     hb_get_state2 (fQueueEncodeLibhb, &s);
 
     if ((s.state == HB_STATE_PAUSED) || (s.state == HB_STATE_WORKING) || (s.state == HB_STATE_MUXING))
-        [fHBController Cancel: fQueuePane]; // sender == fQueuePane so that warning alert shows up on queue window
+        [fHBController Cancel: self];
 
     else if (fPendingCount > 0)
         [fHBController Rip: NULL];
@@ -627,45 +530,46 @@ static NSString*    HBQueuePauseResumeToolbarIdentifier       = @"HBQueuePauseRe
      * to let them decide to cancel it first, then if they do, we can come back and
      * remove it */
     
-    if ([[[fJobGroups objectAtIndex:row] objectForKey:@"Status"] integerValue] == 1)
+    if ([fJobGroups[row][@"Status"] integerValue] == 1)
     {
        /* We pause the encode here so that it doesn't finish right after and then
         * screw up the sync while the window is open
         */
        [fHBController Pause:NULL];
-         NSString * alertTitle = [NSString stringWithFormat:NSLocalizedString(@"Stop This Encode and Remove It ?", nil)];
+         NSString *alertTitle = [NSString stringWithFormat:NSLocalizedString(@"Stop This Encode and Remove It ?", nil)];
         // Which window to attach the sheet to?
-        NSWindow * docWindow = nil;
+        NSWindow *docWindow = nil;
         if ([sender respondsToSelector: @selector(window)])
+        {
             docWindow = [sender window];
-        
-        
-        NSBeginCriticalAlertSheet(
-                                  alertTitle,
-                                  NSLocalizedString(@"Keep Encoding", nil),
-                                  nil,
-                                  NSLocalizedString(@"Stop Encoding and Delete", nil),
-                                  docWindow, self,
-                                  nil, @selector(didDimissCancelCurrentJob:returnCode:contextInfo:), nil,
-                                  NSLocalizedString(@"Your movie will be lost if you don't continue encoding.", nil));
-        
+        }
+
+        NSAlert *alert = [[NSAlert alloc] init];
+        [alert setMessageText:alertTitle];
+        [alert setInformativeText:NSLocalizedString(@"Your movie will be lost if you don't continue encoding.", nil)];
+        [alert addButtonWithTitle:NSLocalizedString(@"Keep Encoding", nil)];
+        [alert addButtonWithTitle:NSLocalizedString(@"Stop Encoding and Delete", nil)];
+        [alert setAlertStyle:NSCriticalAlertStyle];
+
+        [alert beginSheetModalForWindow:docWindow
+                          modalDelegate:self
+                         didEndSelector:@selector(didDimissCancelCurrentJob:returnCode:contextInfo:)
+                            contextInfo:nil];
+        [alert release];
     }
     else
     { 
-    /* since we are not a currently encoding item, we can just be cancelled */
-    [fHBController rescanQueueItemToMainWindow:[[fJobGroups objectAtIndex:row] objectForKey:@"SourcePath"]
-                                  scanTitleNum:[[[fJobGroups objectAtIndex:row] objectForKey:@"TitleNumber"] integerValue]
-                             selectedQueueItem:row];
+        /* since we are not a currently encoding item, we can just be cancelled */
+        [fHBController rescanQueueItemToMainWindow:fJobGroups[row][@"SourcePath"]
+                                      scanTitleNum:[fJobGroups[row][@"TitleNumber"] integerValue]
+                                 selectedQueueItem:row];
     
     }
 }
 
 
 #pragma mark -
-#pragma mark Animate Endcoding Item
-
-
-
+#pragma mark Animate Encoding Item
 
 //------------------------------------------------------------------------------------
 // Starts animating the job icon of the currently processing job in the queue outline
@@ -744,7 +648,7 @@ static NSString*    HBQueuePauseResumeToolbarIdentifier       = @"HBQueuePauseRe
             insertIndex--;
         }
 
-        id object = [[array objectAtIndex:removeIndex] retain];
+        id object = [array[removeIndex] retain];
         [array removeObjectAtIndex:removeIndex];
         [array insertObject:object atIndex:insertIndex];
         [object release];
@@ -761,7 +665,7 @@ static NSString*    HBQueuePauseResumeToolbarIdentifier       = @"HBQueuePauseRe
 - (id)outlineView:(NSOutlineView *)fOutlineView child:(NSInteger)index ofItem:(id)item
 {
     if (item == nil)
-        return [fJobGroups objectAtIndex:index];
+        return fJobGroups[index];
 
     // We are only one level deep, so we can't be asked about children
     NSAssert (NO, @"HBQueueController outlineView:child:ofItem: can't handle nested items.");
@@ -779,7 +683,7 @@ static NSString*    HBQueuePauseResumeToolbarIdentifier       = @"HBQueuePauseRe
 {
     // Our outline view has no levels, but we can still expand every item. Doing so
     // just makes the row taller. See heightOfRowByItem below.
-return ![(HBQueueOutlineView*)outlineView isDragging];
+    return ![(HBQueueOutlineView *)outlineView isDragging];
 }
 
 - (NSInteger)outlineView:(NSOutlineView *)fOutlineView numberOfChildrenOfItem:(id)item
@@ -794,14 +698,14 @@ return ![(HBQueueOutlineView*)outlineView isDragging];
 
 - (void)outlineViewItemDidCollapse:(NSNotification *)notification
 {
-    id item = [[notification userInfo] objectForKey:@"NSObject"];
+    id item = [notification userInfo][@"NSObject"];
     NSInteger row = [fOutlineView rowForItem:item];
     [fOutlineView noteHeightOfRowsWithIndexesChanged:[NSIndexSet indexSetWithIndexesInRange:NSMakeRange(row,1)]];
 }
 
 - (void)outlineViewItemDidExpand:(NSNotification *)notification
 {
-    id item = [[notification userInfo] objectForKey:@"NSObject"];
+    id item = [notification userInfo][@"NSObject"];
     NSInteger row = [fOutlineView rowForItem:item];
     [fOutlineView noteHeightOfRowsWithIndexesChanged:[NSIndexSet indexSetWithIndexesInRange:NSMakeRange(row,1)]];
 }
@@ -811,7 +715,7 @@ return ![(HBQueueOutlineView*)outlineView isDragging];
     if ([outlineView isItemExpanded: item])
     {
         // It is important to use a constant value when calculating the height. Querying the tableColumn width will not work, since it dynamically changes as the user resizes -- however, we don't get a notification that the user "did resize" it until after the mouse is let go. We use the latter as a hook for telling the table that the heights changed. We must return the same height from this method every time, until we tell the table the heights have changed. Not doing so will quicly cause drawing problems.
-        NSTableColumn *tableColumnToWrap = (NSTableColumn *) [[outlineView tableColumns] objectAtIndex:1];
+        NSTableColumn *tableColumnToWrap = (NSTableColumn *) [outlineView tableColumns][1];
         NSInteger columnToWrap = [outlineView.tableColumns indexOfObject:tableColumnToWrap];
         
         // Grab the fully prepared cell with our content filled in. Note that in IB the cell's Layout is set to Wraps.
@@ -839,27 +743,19 @@ return ![(HBQueueOutlineView*)outlineView isDragging];
     ps = [[[NSParagraphStyle defaultParagraphStyle] mutableCopy] retain];
     [ps setHeadIndent: 40.0];
     [ps setParagraphSpacing: 1.0];
-    [ps setTabStops:[NSArray array]];    // clear all tabs
+    [ps setTabStops:@[]];    // clear all tabs
     [ps addTabStop: [[[NSTextTab alloc] initWithType: NSLeftTabStopType location: 20.0] autorelease]];
 
-    detailAttr = [[NSDictionary dictionaryWithObjectsAndKeys:
-                                [NSFont systemFontOfSize:10.0], NSFontAttributeName,
-                                ps, NSParagraphStyleAttributeName,
-                                nil] retain];
+    detailAttr = [@{NSFontAttributeName: [NSFont systemFontOfSize:10.0],
+                    NSParagraphStyleAttributeName: ps} retain];
 
-    detailBoldAttr = [[NSDictionary dictionaryWithObjectsAndKeys:
-                                    [NSFont boldSystemFontOfSize:10.0], NSFontAttributeName,
-                                    ps, NSParagraphStyleAttributeName,
-                                    nil] retain];
+    detailBoldAttr = [@{NSFontAttributeName: [NSFont boldSystemFontOfSize:10.0],
+                        NSParagraphStyleAttributeName: ps} retain];
 
-    titleAttr = [[NSDictionary dictionaryWithObjectsAndKeys:
-                               [NSFont systemFontOfSize:[NSFont systemFontSize]], NSFontAttributeName,
-                               ps, NSParagraphStyleAttributeName,
-                               nil] retain];
+    titleAttr = [@{NSFontAttributeName: [NSFont systemFontOfSize:[NSFont systemFontSize]],
+                   NSParagraphStyleAttributeName: ps} retain];
 
-    shortHeightAttr = [[NSDictionary dictionaryWithObjectsAndKeys:
-                                    [NSFont systemFontOfSize:2.0], NSFontAttributeName,
-                                     nil] retain];
+    shortHeightAttr = [@{NSFontAttributeName: [NSFont systemFontOfSize:2.0]} retain];
 }
 
 - (id)outlineView:(NSOutlineView *)fOutlineView objectValueForTableColumn:(NSTableColumn *)tableColumn byItem:(id)item
@@ -873,40 +769,40 @@ return ![(HBQueueOutlineView*)outlineView isDragging];
         /* First line, we should strip the destination path and just show the file name and add the title num and chapters (if any) */
         NSString * summaryInfo;
         
-        NSString * titleString = [NSString stringWithFormat:@"Title %d", [[item objectForKey:@"TitleNumber"] intValue]];
+        NSString * titleString = [NSString stringWithFormat:@"Title %d", [item[@"TitleNumber"] intValue]];
         
         NSString * startStopString = @"";
-        if ([[item objectForKey:@"fEncodeStartStop"] intValue] == 0)
+        if ([item[@"fEncodeStartStop"] intValue] == 0)
         {
             /* Start Stop is chapters */
-            startStopString = ([[item objectForKey:@"ChapterStart"] intValue] == [[item objectForKey:@"ChapterEnd"] intValue]) ?
-            [NSString stringWithFormat:@"Chapter %d", [[item objectForKey:@"ChapterStart"] intValue]] :
-            [NSString stringWithFormat:@"Chapters %d through %d", [[item objectForKey:@"ChapterStart"] intValue], [[item objectForKey:@"ChapterEnd"] intValue]];
+            startStopString = ([item[@"ChapterStart"] intValue] == [item[@"ChapterEnd"] intValue]) ?
+            [NSString stringWithFormat:@"Chapter %d", [item[@"ChapterStart"] intValue]] :
+            [NSString stringWithFormat:@"Chapters %d through %d", [item[@"ChapterStart"] intValue], [item[@"ChapterEnd"] intValue]];
         }
-        else if ([[item objectForKey:@"fEncodeStartStop"] intValue] == 1)
+        else if ([item[@"fEncodeStartStop"] intValue] == 1)
         {
             /* Start Stop is seconds */
-            startStopString = [NSString stringWithFormat:@"Seconds %d through %d", [[item objectForKey:@"StartSeconds"] intValue], [[item objectForKey:@"StartSeconds"] intValue] + [[item objectForKey:@"StopSeconds"] intValue]];
+            startStopString = [NSString stringWithFormat:@"Seconds %d through %d", [item[@"StartSeconds"] intValue], [item[@"StartSeconds"] intValue] + [item[@"StopSeconds"] intValue]];
         }
-        else if ([[item objectForKey:@"fEncodeStartStop"] intValue] == 2)
+        else if ([item[@"fEncodeStartStop"] intValue] == 2)
         {
             /* Start Stop is Frames */
-            startStopString = [NSString stringWithFormat:@"Frames %d through %d", [[item objectForKey:@"StartFrame"] intValue], [[item objectForKey:@"StartFrame"] intValue] + [[item objectForKey:@"StopFrame"] intValue]];
+            startStopString = [NSString stringWithFormat:@"Frames %d through %d", [item[@"StartFrame"] intValue], [item[@"StartFrame"] intValue] + [item[@"StopFrame"] intValue]];
         }
         
         NSString * passesString = @"";
         /* check to see if our first subtitle track is Foreign Language Search, in which case there is an in depth scan */
-        if ([item objectForKey:@"SubtitleList"] && [[[[item objectForKey:@"SubtitleList"] objectAtIndex:0] objectForKey:@"subtitleSourceTrackNum"] intValue] == 1)
+        if ([item[@"SubtitleList"] count] && [item[@"SubtitleList"][0][@"keySubTrackIndex"] intValue] == -1)
         {
           passesString = [passesString stringByAppendingString:@"1 Foreign Language Search Pass - "];
         }
-        if ([[item objectForKey:@"VideoTwoPass"] intValue] == 0)
+        if ([item[@"VideoTwoPass"] intValue] == 0)
         {
             passesString = [passesString stringByAppendingString:@"1 Video Pass"];
         }
         else
         {
-            if ([[item objectForKey:@"VideoTurboTwoPass"] intValue] == 1)
+            if ([item[@"VideoTurboTwoPass"] intValue] == 1)
             {
                 passesString = [passesString stringByAppendingString:@"2 Video Passes First Turbo"];
             }
@@ -916,10 +812,10 @@ return ![(HBQueueOutlineView*)outlineView isDragging];
             }
         }
         
-        [finalString appendString:[NSString stringWithFormat:@"%@", [item objectForKey:@"SourceName"]] withAttributes:titleAttr];
+        [finalString appendString:[NSString stringWithFormat:@"%@", item[@"SourceName"]] withAttributes:titleAttr];
         
         /* lets add the output file name to the title string here */
-        NSString * outputFilenameString = [[item objectForKey:@"DestinationPath"] lastPathComponent];
+        NSString * outputFilenameString = [item[@"DestinationPath"] lastPathComponent];
         
         summaryInfo = [NSString stringWithFormat: @" (%@, %@, %@) -> %@", titleString, startStopString, passesString, outputFilenameString];
         
@@ -931,60 +827,52 @@ return ![(HBQueueOutlineView*)outlineView isDragging];
         
         /* Second Line  (Preset Name)*/
         [finalString appendString: @"Preset: " withAttributes:detailBoldAttr];
-        [finalString appendString:[NSString stringWithFormat:@"%@\n", [item objectForKey:@"PresetName"]] withAttributes:detailAttr];
+        [finalString appendString:[NSString stringWithFormat:@"%@\n", item[@"PresetName"]] withAttributes:detailAttr];
         
         /* Third Line  (Format Summary) */
         NSString * audioCodecSummary = @"";	//	This seems to be set by the last track we have available...
         /* Lets also get our audio track detail since we are going through the logic for use later */
-		unsigned int ourMaximumNumberOfAudioTracks = [HBController maximumNumberOfAllowedAudioTracks];
-		NSMutableArray *audioDetails = [NSMutableArray arrayWithCapacity: ourMaximumNumberOfAudioTracks];
-		NSString *base;
-		NSString *detailString;
-		NSNumber *drc;
-        NSNumber *gain;
+
+		NSMutableArray *audioDetails = [NSMutableArray arrayWithCapacity: [item[@"AudioList"] count]];
         BOOL autoPassthruPresent = NO;
-		for (unsigned int i = 1; i <= ourMaximumNumberOfAudioTracks; i++) {
-			base = [NSString stringWithFormat: @"Audio%d", i];
-			if (0 < [[item objectForKey: [base stringByAppendingString: @"Track"]] intValue])
+
+        for (NSDictionary *audioTrack in item[@"AudioList"])
+        {
+            audioCodecSummary = [NSString stringWithFormat: @"%@", audioTrack[@"Encoder"]];
+            NSNumber *drc = audioTrack[@"TrackDRCSlider"];
+            NSNumber *gain = audioTrack[@"TrackGainSlider"];
+            NSString *detailString = [NSString stringWithFormat: @"%@ Encoder: %@ Mixdown: %@ SampleRate: %@(khz) Bitrate: %@(kbps), DRC: %@, Gain: %@",
+                            audioTrack[@"TrackDescription"],
+                            audioTrack[@"Encoder"],
+                            audioTrack[@"Mixdown"],
+                            audioTrack[@"Samplerate"],
+                            audioTrack[@"Bitrate"],
+                            (0.0 < [drc floatValue]) ? (NSObject *)drc : (NSObject *)@"Off",
+                            (0.0 != [gain floatValue]) ? (NSObject *)gain : (NSObject *)@"Off"
+                            ];
+            [audioDetails addObject: detailString];
+            // check if we have an Auto Passthru output track
+            if ([audioTrack[@"Encoder"] isEqualToString: @"Auto Passthru"])
             {
-				audioCodecSummary = [NSString stringWithFormat: @"%@", [item objectForKey: [base stringByAppendingString: @"Encoder"]]];
-				drc = [item objectForKey: [base stringByAppendingString: @"TrackDRCSlider"]];
-                gain = [item objectForKey: [base stringByAppendingString: @"TrackGainSlider"]];
-				detailString = [NSString stringWithFormat: @"%@ Encoder: %@ Mixdown: %@ SampleRate: %@(khz) Bitrate: %@(kbps), DRC: %@, Gain: %@",
-								[item objectForKey: [base stringByAppendingString: @"TrackDescription"]],
-								[item objectForKey: [base stringByAppendingString: @"Encoder"]],
-								[item objectForKey: [base stringByAppendingString: @"Mixdown"]],
-								[item objectForKey: [base stringByAppendingString: @"Samplerate"]],
-								[item objectForKey: [base stringByAppendingString: @"Bitrate"]],
-                                (0.0 < [drc floatValue]) ? (NSObject *)drc : (NSObject *)@"Off",
-								(0.0 != [gain floatValue]) ? (NSObject *)gain : (NSObject *)@"Off"
-								]
-                                ;
-				[audioDetails addObject: detailString];
-                // check if we have an Auto Passthru output track
-                if ([[item objectForKey: [NSString stringWithFormat: @"Audio%dEncoder", i]] isEqualToString: @"Auto Passthru"])
-                {
-                    autoPassthruPresent = YES;
-                }
-			}
-		}
-        
-        
+                autoPassthruPresent = YES;
+            }
+        }
+
         NSString * jobFormatInfo;
-        if ([[item objectForKey:@"ChapterMarkers"] intValue] == 1)
-            jobFormatInfo = [NSString stringWithFormat:@"%@ Container, %@ Video  %@ Audio, Chapter Markers\n", [item objectForKey:@"FileFormat"], [item objectForKey:@"VideoEncoder"], audioCodecSummary];
+        if ([item[@"ChapterMarkers"] intValue] == 1)
+            jobFormatInfo = [NSString stringWithFormat:@"%@ Container, %@ Video  %@ Audio, Chapter Markers\n", item[@"FileFormat"], item[@"VideoEncoder"], audioCodecSummary];
         else
-            jobFormatInfo = [NSString stringWithFormat:@"%@ Container, %@ Video  %@ Audio\n", [item objectForKey:@"FileFormat"], [item objectForKey:@"VideoEncoder"], audioCodecSummary];
+            jobFormatInfo = [NSString stringWithFormat:@"%@ Container, %@ Video  %@ Audio\n", item[@"FileFormat"], item[@"VideoEncoder"], audioCodecSummary];
         
         
         [finalString appendString: @"Format: " withAttributes:detailBoldAttr];
         [finalString appendString: jobFormatInfo withAttributes:detailAttr];
         
         /* Optional String for muxer options */
-        if ([[item objectForKey:@"MuxerOptionsSummary"] length])
+        if ([item[@"MuxerOptionsSummary"] length])
         {
             NSString *containerOptions = [NSString stringWithFormat:@"%@",
-                                          [item objectForKey:@"MuxerOptionsSummary"]];
+                                          item[@"MuxerOptionsSummary"]];
             [finalString appendString:@"Container Options: " withAttributes:detailBoldAttr];
             [finalString appendString:containerOptions       withAttributes:detailAttr];
             [finalString appendString:@"\n"                  withAttributes:detailAttr];
@@ -992,13 +880,13 @@ return ![(HBQueueOutlineView*)outlineView isDragging];
         
         /* Fourth Line (Destination Path)*/
         [finalString appendString: @"Destination: " withAttributes:detailBoldAttr];
-        [finalString appendString: [item objectForKey:@"DestinationPath"] withAttributes:detailAttr];
+        [finalString appendString: item[@"DestinationPath"] withAttributes:detailAttr];
         [finalString appendString:@"\n" withAttributes:detailAttr];
         
         /* Fifth Line Picture Details*/
         NSString *pictureInfo = [NSString stringWithFormat:@"%@",
-                                 [item objectForKey:@"PictureSettingsSummary"]];
-        if ([[item objectForKey:@"PictureKeepRatio"] intValue] == 1)
+                                 item[@"PictureSettingsSummary"]];
+        if ([item[@"PictureKeepRatio"] intValue] == 1)
         {
             pictureInfo = [pictureInfo stringByAppendingString:@" Keep Aspect Ratio"];
         }
@@ -1007,10 +895,10 @@ return ![(HBQueueOutlineView*)outlineView isDragging];
         [finalString appendString:@"\n"        withAttributes:detailAttr];
         
         /* Optional String for Picture Filters */
-        if ([[item objectForKey:@"PictureFiltersSummary"] length])
+        if ([item[@"PictureFiltersSummary"] length])
         {
             NSString *pictureFilters = [NSString stringWithFormat:@"%@",
-                                        [item objectForKey:@"PictureFiltersSummary"]];
+                                        item[@"PictureFiltersSummary"]];
             [finalString appendString:@"Filters: "   withAttributes:detailBoldAttr];
             [finalString appendString:pictureFilters withAttributes:detailAttr];
             [finalString appendString:@"\n"          withAttributes:detailAttr];
@@ -1018,12 +906,12 @@ return ![(HBQueueOutlineView*)outlineView isDragging];
         
         /* Sixth Line Video Details*/
         NSString * videoInfo;
-        videoInfo = [NSString stringWithFormat:@"Encoder: %@", [item objectForKey:@"VideoEncoder"]];
+        videoInfo = [NSString stringWithFormat:@"Encoder: %@", item[@"VideoEncoder"]];
         
         /* for framerate look to see if we are using vfr detelecine */
-        if ([[item objectForKey:@"JobIndexVideoFramerate"] intValue] == 0)
+        if ([item[@"JobIndexVideoFramerate"] intValue] == 0)
         {
-            if ([[item objectForKey:@"VideoFramerateMode"] isEqualToString:@"vfr"])
+            if ([item[@"VideoFramerateMode"] isEqualToString:@"vfr"])
             {
                 /* we are using same as source with vfr detelecine */
                 videoInfo = [NSString stringWithFormat:@"%@ Framerate: Same as source (Variable Frame Rate)", videoInfo];
@@ -1037,101 +925,96 @@ return ![(HBQueueOutlineView*)outlineView isDragging];
         else
         {
             /* we have a specified, constant framerate */
-            if ([[item objectForKey:@"VideoFramerateMode"] isEqualToString:@"pfr"])
+            if ([item[@"VideoFramerateMode"] isEqualToString:@"pfr"])
             {
-            videoInfo = [NSString stringWithFormat:@"%@ Framerate: %@ (Peak Frame Rate)", videoInfo ,[item objectForKey:@"VideoFramerate"]];
+            videoInfo = [NSString stringWithFormat:@"%@ Framerate: %@ (Peak Frame Rate)", videoInfo ,item[@"VideoFramerate"]];
             }
             else
             {
-            videoInfo = [NSString stringWithFormat:@"%@ Framerate: %@ (Constant Frame Rate)", videoInfo ,[item objectForKey:@"VideoFramerate"]];
+            videoInfo = [NSString stringWithFormat:@"%@ Framerate: %@ (Constant Frame Rate)", videoInfo ,item[@"VideoFramerate"]];
             }
         }
         
-        if ([[item objectForKey:@"VideoQualityType"] intValue] == 0)// Target Size MB
+        if ([item[@"VideoQualityType"] intValue] == 0)// Target Size MB
         {
-            videoInfo = [NSString stringWithFormat:@"%@ Target Size: %@(MB) (%d(kbps) abr)", videoInfo ,[item objectForKey:@"VideoTargetSize"],[[item objectForKey:@"VideoAvgBitrate"] intValue]];
+            videoInfo = [NSString stringWithFormat:@"%@ Target Size: %@(MB) (%d(kbps) abr)", videoInfo ,item[@"VideoTargetSize"],[item[@"VideoAvgBitrate"] intValue]];
         }
-        else if ([[item objectForKey:@"VideoQualityType"] intValue] == 1) // ABR
+        else if ([item[@"VideoQualityType"] intValue] == 1) // ABR
         {
-            videoInfo = [NSString stringWithFormat:@"%@ Bitrate: %d(kbps)", videoInfo ,[[item objectForKey:@"VideoAvgBitrate"] intValue]];
+            videoInfo = [NSString stringWithFormat:@"%@ Bitrate: %d(kbps)", videoInfo ,[item[@"VideoAvgBitrate"] intValue]];
         }
         else // CRF
         {
-            videoInfo = [NSString stringWithFormat:@"%@ Constant Quality: %.2f", videoInfo ,[[item objectForKey:@"VideoQualitySlider"] floatValue]];
+            videoInfo = [NSString stringWithFormat:@"%@ Constant Quality: %.2f", videoInfo ,[item[@"VideoQualitySlider"] floatValue]];
         }
         
         [finalString appendString: @"Video: " withAttributes:detailBoldAttr];
         [finalString appendString: videoInfo withAttributes:detailAttr];
         [finalString appendString:@"\n" withAttributes:detailAttr];
         
-        if ([[item objectForKey:@"VideoEncoder"] isEqualToString: @"H.264 (x264)"])
+        if ([item[@"VideoEncoder"] isEqualToString: @"H.264 (x264)"] || [item[@"VideoEncoder"] isEqualToString: @"H.265 (x265)"])
         {
-            /* we are using x264 */
-            NSString *x264Info = @"";
-            if ([[item objectForKey:@"x264UseAdvancedOptions"] intValue])
+            /* we are using x264/x265 */
+            NSString *encoderPresetInfo = @"";
+            if ([item[@"x264UseAdvancedOptions"] intValue])
             {
                 // we are using the old advanced panel
-                if ([item objectForKey:@"x264Option"] &&
-                    [[item objectForKey:@"x264Option"] length])
+                if (item[@"x264Option"] &&
+                    [item[@"x264Option"] length])
                 {
-                    x264Info = [x264Info stringByAppendingString: [item objectForKey:@"x264Option"]];
+                    encoderPresetInfo = [encoderPresetInfo stringByAppendingString: item[@"x264Option"]];
                 }
                 else
                 {
-                    x264Info = [x264Info stringByAppendingString: @"default settings"];
+                    encoderPresetInfo = [encoderPresetInfo stringByAppendingString: @"default settings"];
                 }
             }
             else
             {
                 // we are using the x264 system
-                x264Info = [x264Info stringByAppendingString: [NSString stringWithFormat:@"Preset: %@", [item objectForKey:@"x264Preset"]]];
-                if ([[item objectForKey:@"x264Tune"] length])
+                encoderPresetInfo = [encoderPresetInfo stringByAppendingString: [NSString stringWithFormat:@"Preset: %@", item[@"VideoPreset"]]];
+                if ([item[@"VideoTune"] length])
                 {
-                    x264Info = [x264Info stringByAppendingString: [NSString stringWithFormat:@" - Tune: %@", [item objectForKey:@"x264Tune"]]];
+                    encoderPresetInfo = [encoderPresetInfo stringByAppendingString: [NSString stringWithFormat:@" - Tune: %@", item[@"VideoTune"]]];
                 }
-                if ([[item objectForKey:@"x264OptionExtra"] length])
+                if ([item[@"VideoOptionExtra"] length])
                 {
-                    x264Info = [x264Info stringByAppendingString: [NSString stringWithFormat:@" - Options: %@", [item objectForKey:@"x264OptionExtra"]]];
+                    encoderPresetInfo = [encoderPresetInfo stringByAppendingString: [NSString stringWithFormat:@" - Options: %@", item[@"VideoOptionExtra"]]];
                 }
-                if ([[item objectForKey:@"h264Profile"] length])
+                if ([item[@"VideoProfile"] length])
                 {
-                    x264Info = [x264Info stringByAppendingString: [NSString stringWithFormat:@" - Profile: %@", [item objectForKey:@"h264Profile"]]];
+                    encoderPresetInfo = [encoderPresetInfo stringByAppendingString: [NSString stringWithFormat:@" - Profile: %@", item[@"VideoProfile"]]];
                 }
-                if ([[item objectForKey:@"h264Level"] length])
+                if ([item[@"VideoLevel"] length])
                 {
-                    x264Info = [x264Info stringByAppendingString: [NSString stringWithFormat:@" - Level: %@", [item objectForKey:@"h264Level"]]];
+                    encoderPresetInfo = [encoderPresetInfo stringByAppendingString: [NSString stringWithFormat:@" - Level: %@", item[@"VideoLevel"]]];
                 }
             }
-            [finalString appendString: @"x264: " withAttributes:detailBoldAttr];
-            [finalString appendString: x264Info withAttributes:detailAttr];
+            [finalString appendString: @"Encoder Options: " withAttributes:detailBoldAttr];
+            [finalString appendString: encoderPresetInfo withAttributes:detailAttr];
             [finalString appendString:@"\n" withAttributes:detailAttr];
         }
-        else if (![[item objectForKey:@"VideoEncoder"] isEqualToString: @"VP3 (Theora)"])
+        else if (![item[@"VideoEncoder"] isEqualToString: @"VP3 (Theora)"])
         {
             /* we are using libavcodec */
             NSString *lavcInfo = @"";
-            if ([item objectForKey:@"lavcOption"] &&
-                [[item objectForKey:@"lavcOption"] length])
+            if (item[@"VideoOptionExtra"] &&
+                [item[@"VideoOptionExtra"] length])
             {
-                lavcInfo = [lavcInfo stringByAppendingString: [item objectForKey:@"lavcOption"]];
+                lavcInfo = [lavcInfo stringByAppendingString: item[@"VideoOptionExtra"]];
             }
             else
             {
                 lavcInfo = [lavcInfo stringByAppendingString: @"default settings"];
             }
-            [finalString appendString: @"ffmpeg: " withAttributes:detailBoldAttr];
+            [finalString appendString: @"Encoder Options: " withAttributes:detailBoldAttr];
             [finalString appendString: lavcInfo withAttributes:detailAttr];
             [finalString appendString:@"\n" withAttributes:detailAttr];
         }
-        
-        
-        
-        
+
         /* Seventh Line Audio Details*/
-        NSEnumerator *audioDetailEnumerator = [audioDetails objectEnumerator];
-		NSString *anAudioDetail;
 		int audioDetailCount = 0;
-		while (nil != (anAudioDetail = [audioDetailEnumerator nextObject])) {
+		for (NSString *anAudioDetail in audioDetails) {
 			audioDetailCount++;
 			if (0 < [anAudioDetail length]) {
 				[finalString appendString: [NSString stringWithFormat: @"Audio Track %d ", audioDetailCount] withAttributes: detailBoldAttr];
@@ -1139,18 +1022,19 @@ return ![(HBQueueOutlineView*)outlineView isDragging];
 				[finalString appendString: @"\n" withAttributes: detailAttr];
 			}
 		}
-        
+
         /* Eigth Line Auto Passthru Details */
         // only print Auto Passthru settings if we have an Auro Passthru output track
         if (autoPassthruPresent == YES)
         {
             NSString *autoPassthruFallback = @"", *autoPassthruCodecs = @"";
-            autoPassthruFallback = [autoPassthruFallback stringByAppendingString: [item objectForKey: @"AudioEncoderFallback"]];
-            if (0 < [[item objectForKey: @"AudioAllowAACPass"] intValue])
+            NSDictionary *audioDefaults = item[@"AudioDefaults"];
+            autoPassthruFallback = [autoPassthruFallback stringByAppendingString: audioDefaults[@"AudioEncoderFallback"]];
+            if (0 < [audioDefaults[@"AudioAllowAACPass"] intValue])
             {
                 autoPassthruCodecs = [autoPassthruCodecs stringByAppendingString: @"AAC"];
             }
-            if (0 < [[item objectForKey: @"AudioAllowAC3Pass"] intValue])
+            if (0 < [audioDefaults[@"AudioAllowAC3Pass"] intValue])
             {
                 if (0 < [autoPassthruCodecs length])
                 {
@@ -1158,7 +1042,7 @@ return ![(HBQueueOutlineView*)outlineView isDragging];
                 }
                 autoPassthruCodecs = [autoPassthruCodecs stringByAppendingString: @"AC3"];
             }
-            if (0 < [[item objectForKey: @"AudioAllowDTSHDPass"] intValue])
+            if (0 < [audioDefaults[@"AudioAllowDTSHDPass"] intValue])
             {
                 if (0 < [autoPassthruCodecs length])
                 {
@@ -1166,7 +1050,7 @@ return ![(HBQueueOutlineView*)outlineView isDragging];
                 }
                 autoPassthruCodecs = [autoPassthruCodecs stringByAppendingString: @"DTS-HD"];
             }
-            if (0 < [[item objectForKey: @"AudioAllowDTSPass"] intValue])
+            if (0 < [audioDefaults[@"AudioAllowDTSPass"] intValue])
             {
                 if (0 < [autoPassthruCodecs length])
                 {
@@ -1174,7 +1058,7 @@ return ![(HBQueueOutlineView*)outlineView isDragging];
                 }
                 autoPassthruCodecs = [autoPassthruCodecs stringByAppendingString: @"DTS"];
             }
-            if (0 < [[item objectForKey: @"AudioAllowMP3Pass"] intValue])
+            if (0 < [audioDefaults[@"AudioAllowMP3Pass"] intValue])
             {
                 if (0 < [autoPassthruCodecs length])
                 {
@@ -1198,35 +1082,24 @@ return ![(HBQueueOutlineView*)outlineView isDragging];
         }
         
         /* Ninth Line Subtitle Details */
-        
-        int i = 0;
-        NSEnumerator *enumerator = [[item objectForKey:@"SubtitleList"] objectEnumerator];
-        id tempObject;
-        while (tempObject = [enumerator nextObject])
+        for (id tempObject in item[@"SubtitleList"])
         {
-            /* since the subtitleSourceTrackNum 0 is "None" in our array of the subtitle popups,
-             * we want to ignore it for display as well as encoding.
-             */
-            if ([[tempObject objectForKey:@"subtitleSourceTrackNum"] intValue] > 0)
-            { 
-                /* remember that index 0 of Subtitles can contain "Foreign Audio Search*/
-                [finalString appendString: @"Subtitle: " withAttributes:detailBoldAttr];
-                [finalString appendString: [tempObject objectForKey:@"subtitleSourceTrackName"] withAttributes:detailAttr];
-                if ([[tempObject objectForKey:@"subtitleTrackForced"] intValue] == 1)
-                {
-                    [finalString appendString: @" - Forced Only" withAttributes:detailAttr];
-                }
-                if ([[tempObject objectForKey:@"subtitleTrackBurned"] intValue] == 1)
-                {
-                    [finalString appendString: @" - Burned In" withAttributes:detailAttr];
-                }
-                if ([[tempObject objectForKey:@"subtitleTrackDefault"] intValue] == 1)
-                {
-                    [finalString appendString: @" - Default" withAttributes:detailAttr];
-                }
-                [finalString appendString:@"\n" withAttributes:detailAttr];
+            /* remember that index 0 of Subtitles can contain "Foreign Audio Search*/
+            [finalString appendString: @"Subtitle: " withAttributes:detailBoldAttr];
+            [finalString appendString: tempObject[@"keySubTrackName"] withAttributes:detailAttr];
+            if ([tempObject[@"keySubTrackForced"] intValue] == 1)
+            {
+                [finalString appendString: @" - Forced Only" withAttributes:detailAttr];
             }
-            i++;
+            if ([tempObject[@"keySubTrackBurned"] intValue] == 1)
+            {
+                [finalString appendString: @" - Burned In" withAttributes:detailAttr];
+            }
+            if ([tempObject[@"keySubTrackDefault"] intValue] == 1)
+            {
+                [finalString appendString: @" - Default" withAttributes:detailAttr];
+            }
+            [finalString appendString:@"\n" withAttributes:detailAttr];
         }
 
         [pool release];
@@ -1235,15 +1108,15 @@ return ![(HBQueueOutlineView*)outlineView isDragging];
     }
     else if ([[tableColumn identifier] isEqualToString:@"icon"])
     {
-        if ([[item objectForKey:@"Status"] intValue] == 0)
+        if ([item[@"Status"] intValue] == 0)
         {
             return [NSImage imageNamed:@"EncodeComplete"];
         }
-        else if ([[item objectForKey:@"Status"] intValue] == 1)
+        else if ([item[@"Status"] intValue] == 1)
         {
             return [NSImage imageNamed: [NSString stringWithFormat: @"EncodeWorking%d", fAnimationIndex]];
         }
-        else if ([[item objectForKey:@"Status"] intValue] == 3)
+        else if ([item[@"Status"] intValue] == 3)
         {
             return [NSImage imageNamed:@"EncodeCanceled"];
         }
@@ -1263,8 +1136,6 @@ return ![(HBQueueOutlineView*)outlineView isDragging];
 {
     if ([[tableColumn identifier] isEqualToString:@"desc"])
     {
-
-
         // nb: The "desc" column is currently an HBImageAndTextCell. However, we are longer
         // using the image portion of the cell so we could switch back to a regular NSTextFieldCell.
 
@@ -1276,7 +1147,7 @@ return ![(HBQueueOutlineView*)outlineView isDragging];
         [cell setEnabled: YES];
         BOOL highlighted = [outlineView isRowSelected:[outlineView rowForItem: item]] && [[outlineView window] isKeyWindow] && ([[outlineView window] firstResponder] == outlineView);
         
-        if ([[item objectForKey:@"Status"] intValue] == 0 || ([[item objectForKey:@"Status"] intValue] == 1 && [[item objectForKey:@"EncodingPID"] intValue] != pidNum))
+        if ([item[@"Status"] intValue] == 0 || ([item[@"Status"] intValue] == 1 && [item[@"EncodingPID"] intValue] != pidNum))
         {
             [cell setAction: @selector(revealSelectedQueueItem:)];
             if (highlighted)
@@ -1324,7 +1195,7 @@ return ![(HBQueueOutlineView*)outlineView isDragging];
 - (BOOL)outlineView:(NSOutlineView *)outlineView writeItems:(NSArray *)items toPasteboard:(NSPasteboard *)pboard
 {
     // Dragging is only allowed of the pending items.
-    if ([[[items objectAtIndex:0] objectForKey:@"Status"] integerValue] != 2) // 2 is pending
+    if ([items[0][@"Status"] integerValue] != 2) // 2 is pending
     {
         return NO;
     }
@@ -1334,7 +1205,7 @@ return ![(HBQueueOutlineView*)outlineView isDragging];
     fDraggedNodes = items;
     
     // Provide data for our custom type, and simple NSStrings.
-    [pboard declareTypes:[NSArray arrayWithObjects: DragDropSimplePboardType, nil] owner:self];
+    [pboard declareTypes:@[DragDropSimplePboardType] owner:self];
     
     // the actual data doesn't matter since DragDropSimplePboardType drags aren't recognized by anyone but us!.
     [pboard setData:[NSData data] forType:DragDropSimplePboardType];
@@ -1388,6 +1259,5 @@ return ![(HBQueueOutlineView*)outlineView isDragging];
     [fHBController moveObjectsInQueueArray:fJobGroups fromIndexes:moveItems toIndex: index];
     return YES;
 }
-
 
 @end

@@ -27,7 +27,6 @@ namespace HandBrakeWPF.ViewModels
     using HandBrake.ApplicationServices.Model.Encoding;
     using HandBrake.ApplicationServices.Model.Subtitle;
     using HandBrake.ApplicationServices.Parsing;
-    using HandBrake.ApplicationServices.Services;
     using HandBrake.ApplicationServices.Services.Interfaces;
     using HandBrake.ApplicationServices.Utilities;
 
@@ -1528,10 +1527,8 @@ namespace HandBrakeWPF.ViewModels
                             this.SelectedOutputFormat = OutputFormat.Mkv;
                             break;
                         case ".mp4":
-                            this.SelectedOutputFormat = OutputFormat.Mp4;
-                            break;
                         case ".m4v":
-                            this.SelectedOutputFormat = OutputFormat.M4V;
+                            this.SelectedOutputFormat = OutputFormat.Mp4;
                             break;
                     }
 
