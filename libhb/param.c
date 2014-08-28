@@ -163,7 +163,7 @@ static char * generate_nlmeans_settings(const char *preset, const char *tune)
         }
         else
         {
-            printf("Unrecognized nlmeans tune (%s).\n", tune);
+            fprintf(stderr, "Unrecognized nlmeans tune (%s).\n", tune);
             return NULL;
         }
 
@@ -180,7 +180,7 @@ static char * generate_nlmeans_settings(const char *preset, const char *tune)
         opt = strdup(preset);
         if (tune != NULL)
         {
-            printf("Custom nlmeans parameters specified; ignoring nlmeans tune (%s).\n", tune);
+            fprintf(stderr, "Custom nlmeans parameters specified; ignoring nlmeans tune (%s).\n", tune);
         }
     }
 
@@ -226,7 +226,7 @@ int hb_validate_param_string(const char *regex_pattern, const char *param_string
     }
     else
     {
-        printf("hb_validate_param_string: Error compiling regex for pattern (%s).\n", param_string);
+        fprintf(stderr, "hb_validate_param_string: Error compiling regex for pattern (%s).\n", param_string);
     }
 
     regfree(&regex_temp);
@@ -251,7 +251,7 @@ int hb_validate_filter_settings(int filter_id, const char *filter_param)
             regex_pattern = hb_colon_separated_params_regex;
             break;
         default:
-            printf("hb_validate_filter_settings: Unrecognized filter (%d).\n",
+            fprintf(stderr, "hb_validate_filter_settings: Unrecognized filter (%d).\n",
                    filter_id);
             return 1;
             break;
@@ -277,7 +277,7 @@ char * hb_generate_filter_settings(int filter_id, const char *preset, const char
             filter_param = generate_hqdn3d_settings(preset, tune);
             break;
         default:
-            printf("hb_generate_filter_settings: Unrecognized filter (%d).\n",
+            fprintf(stderr, "hb_generate_filter_settings: Unrecognized filter (%d).\n",
                    filter_id);
             break;
     }
