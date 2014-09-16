@@ -45,6 +45,7 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
 
 // The current selected preset.
 @property (nonatomic, retain) HBPreset *selectedPreset;
+@property (nonatomic) BOOL customPreset;
 
 @end
 
@@ -1475,6 +1476,17 @@ static NSString *        ChooseSourceIdentifier             = @"Choose Source It
             else
                 return [fWindow attachedSheet] == nil;
         }
+        if (action == @selector(selectPresetFromMenu:))
+        {
+            if (!self.customPreset && [menuItem.representedObject isEqualTo:self.selectedPreset])
+            {
+                [menuItem setState:NSOnState];
+            }
+            else
+            {
+                [menuItem setState:NSOffState];
+            }
+        }
     }
 
     return YES;
@@ -2802,11 +2814,11 @@ fWorkingCount = 0;
     
     [fSrcChapterStartPopUp selectItemAtIndex: [[queueToApply objectForKey:@"ChapterStart"] intValue] - 1];
     [fSrcChapterEndPopUp selectItemAtIndex: [[queueToApply objectForKey:@"ChapterEnd"] intValue] - 1];
-    
+
     /* File Format */
-    [fDstFormatPopUp selectItemWithTitle:[queueToApply objectForKey:@"FileFormat"]];
+    [fDstFormatPopUp selectItemWithTag:queueToApply[@"JobFileFormatMux"]];
     [self formatPopUpChanged:nil];
-    
+
     /* Chapter Markers*/
     fChapterTitlesController.createChapterMarkers = [[queueToApply objectForKey:@"ChapterMarkers"] boolValue];
     [fChapterTitlesController addChaptersFromQueue:[queueToApply objectForKey:@"ChapterNames"]];
@@ -3225,13 +3237,13 @@ fWorkingCount = 0;
 	}
 
     /* Denoise */
-    if (filters.denoise)
+    if (![filters.denoise isEqualToString:@"off"])
     {
         int filter_id = HB_FILTER_HQDN3D;
         if ([filters.denoise isEqualToString:@"nlmeans"])
             filter_id = HB_FILTER_NLMEANS;
 
-        if ([filters.denoisePreset isEqualToString:@"custom"])
+        if ([filters.denoisePreset isEqualToString:@"none"])
         {
             const char *filter_str;
             filter_str = [filters.denoiseCustomString UTF8String];
@@ -3740,7 +3752,7 @@ fWorkingCount = 0;
         if ([queueToApply[@"PictureDenoise"] isEqualToString:@"nlmeans"])
             filter_id = HB_FILTER_NLMEANS;
 
-        if ([queueToApply[@"PictureDenoisePreset"] isEqualToString:@"custom"])
+        if ([queueToApply[@"PictureDenoisePreset"] isEqualToString:@"none"])
         {
             const char *filter_str;
             filter_str = [queueToApply[@"PictureDenoiseCustom"] UTF8String];
@@ -4539,6 +4551,7 @@ the user is using "Custom" settings by determining the sender*/
         [fPresetsView deselect];
 		/* Change UI to show "Custom" settings are being used */
 		[fPresetSelectedDisplay setStringValue: @"Custom"];
+        self.customPreset = YES;
 	}
 
     /* If Auto Naming is on it might need to be update if it includes the quality token */
@@ -4702,14 +4715,13 @@ the user is using "Custom" settings by determining the sender*/
 - (void)applyPreset:(HBPreset *)preset
 {
     self.selectedPreset = preset;
+    self.customPreset = NO;
 
     if (preset != nil && SuccessfulScan)
     {
         hb_job_t * job = fTitle->job;
-
-        // for mapping names via libhb
-        const char *strValue;
         NSDictionary *chosenPreset = preset.content;
+
         [fPresetSelectedDisplay setStringValue:[chosenPreset objectForKey:@"PresetName"]];
 
         if ([[chosenPreset objectForKey:@"Default"] intValue] == 1)
@@ -4720,13 +4732,13 @@ the user is using "Custom" settings by determining the sender*/
         {
             [fPresetSelectedDisplay setStringValue:[chosenPreset objectForKey:@"PresetName"]];
         }
-        
+
         /* File Format */
         /* map legacy container names via libhb */
-        strValue = hb_container_sanitize_name([[chosenPreset objectForKey:@"FileFormat"] UTF8String]);
-        [fDstFormatPopUp selectItemWithTitle:[NSString stringWithFormat:@"%s", strValue]];
+        int format = hb_container_get_from_name(hb_container_sanitize_name([chosenPreset[@"FileFormat"] UTF8String]));
+        [fDstFormatPopUp selectItemWithTag:format];
         [self formatPopUpChanged:nil];
-        
+
         /* Chapter Markers*/
         fChapterTitlesController.createChapterMarkers = [[chosenPreset objectForKey:@"ChapterMarkers"] boolValue];
         /* check to see if we have only one chapter */
@@ -4852,11 +4864,11 @@ the user is using "Custom" settings by determining the sender*/
         job->anamorphic.par_width = par_width;
         job->anamorphic.par_height = par_height;
 
+        /* we call SetTitle: in fPictureController so we get an instant update in the Picture Settings window */
+        [fPictureController setTitle:fTitle];
         [fPictureController.filters applySettingsFromPreset:chosenPreset];
+        [self pictureSettingsDidChange];
     }
-    /* we call SetTitle: in fPictureController so we get an instant update in the Picture Settings window */
-    [fPictureController setTitle:fTitle];
-    [self pictureSettingsDidChange];
 }
 
 #pragma mark - Presets View Controller Delegate
@@ -5141,23 +5153,11 @@ the user is using "Custom" settings by determining the sender*/
 
 - (IBAction)selectPresetFromMenu:(id)sender
 {
-    __block HBPreset *preset = nil;
-    __block NSInteger i = -1;
-
-    NSInteger tag = [sender tag];
-
-    [presetManager.root enumerateObjectsUsingBlock:^(id obj, NSIndexPath *idx, BOOL *stop)
-    {
-        if (i == tag)
-        {
-            preset = obj;
-            *stop = YES;
-        }
-        i++;
-    }];
+    // Retrieve the preset stored in the NSMenuItem
+    HBPreset *preset = [sender representedObject];
 
     [self applyPreset:preset];
-    [fPresetsView setSelection:_selectedPreset];
+    [fPresetsView setSelection:preset];
 }
 
 /**
@@ -5192,6 +5192,7 @@ the user is using "Custom" settings by determining the sender*/
             if ([obj isLeaf])
             {
                 item.action = @selector(selectPresetFromMenu:);
+                item.representedObject = obj;
             }
             // Make the default preset font bold.
             if ([obj isDefault])

@@ -155,8 +155,9 @@ static int avformatInit( hb_mux_object_t * m )
 
             av_dict_set(&av_opts, "brand", "mp42", 0);
             if (job->mp4_optimize)
-                av_dict_set( &av_opts, "movflags", "faststart", 0 );
-            av_dict_set( &av_opts, "movflags", "disable_chpl", 0 );
+                av_dict_set(&av_opts, "movflags", "faststart+disable_chpl", 0);
+            else
+                av_dict_set(&av_opts, "movflags", "+disable_chpl", 0);
             break;
 
         case HB_MUX_AV_MKV:
@@ -1044,8 +1045,10 @@ static int avformatMux(hb_mux_object_t *m, hb_mux_data_t *track, hb_buffer_t *bu
     {
         // There is a possiblility that some subtitles get through the pipeline
         // without ever discovering their true duration.  Make the duration
-        // 10 seconds in this case.
-        if (track->type == MUX_TYPE_SUBTITLE)
+        // 10 seconds in this case. Unless they are PGS subs which should
+        // have zero duration.
+        if (track->type == MUX_TYPE_SUBTITLE &&
+            track->st->codec->codec_id != AV_CODEC_ID_HDMV_PGS_SUBTITLE)
             duration = av_rescale_q(10, (AVRational){1,1},
                                     track->st->time_base);
         else
@@ -1311,6 +1314,7 @@ static int avformatEnd(hb_mux_object_t *m)
     av_write_trailer(m->oc);
     avio_close(m->oc->pb);
     avformat_free_context(m->oc);
+    free(m->tracks);
     m->oc = NULL;
 
     return 0;
