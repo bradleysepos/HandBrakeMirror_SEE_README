@@ -1613,7 +1613,7 @@ int main()
     return 0;
 }
 """
-    regex = LDProbe( 'static regex', '%s -static' % Tools.gcc.pathname, '-regex', regex_test )
+    regex = LDProbe( 'static regex', '%s -static' % Tools.gcc.pathname, '-lregex', regex_test )
     regex.run()
 
     ## cfg hook before doc prep
