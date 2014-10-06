@@ -1580,7 +1580,7 @@ int main ()
         iconv = LDProbe( 'static iconv', '%s -static' % Tools.gcc.pathname, '-liconv', iconv_test )
         iconv.run()
 
-        libgnurx_test = """
+        regex_test = """
 #include <regex.h>
 #include <stdio.h>
 
@@ -1613,8 +1613,8 @@ int main()
     return 0;
 }
 """
-    libgnurx = LDProbe( 'static libgnurx', '%s -static' % Tools.gcc.pathname, '-lgnurx', libgnurx_test )
-    libgnurx.run()
+    regex = LDProbe( 'static regex', '%s -static' % Tools.gcc.pathname, '-regex', regex_test )
+    regex.run()
 
     ## cfg hook before doc prep
     cfg.doc_ready()
@@ -1739,8 +1739,8 @@ int main()
             doc.add( 'HAS.libz', 1 )
         if not iconv.fail:
             doc.add( 'HAS.iconv', 1 )
-        if not libgnurx.fail:
-            doc.add( 'HAS.libgnurx', 1 )
+        if not regex.fail:
+            doc.add( 'HAS.regex', 1 )
 
     doc.addMake( '' )
     doc.addMake( '## define debug mode and optimize before other includes' )

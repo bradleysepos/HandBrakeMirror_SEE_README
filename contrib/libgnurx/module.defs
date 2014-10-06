@@ -1,7 +1,7 @@
 $(eval $(call import.MODULE.defs,LIBGNURX,libgnurx))
 $(eval $(call import.CONTRIB.defs,LIBGNURX))
 
-LIBGNURX.FETCH.url = http://download.handbrake.fr/handbrake/contrib/mingw-libgnurx-2.5.1-src.tar.gz
+LIBGNURX.FETCH.url = http://download.handbrake.fr/handbrake/contrib/mingw-libgnurx-2.5.1.tar.gz
 
 ifeq (1,$(FEATURE.local_pkgconfig))
     LIBGNURX.CONFIGURE.env = PATH="$(call fn.ABSOLUTE,$(CONTRIB.build/)bin):$(PATH)"

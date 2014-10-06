@@ -84,7 +84,7 @@ endif
 ifneq ($(HAS.libz),1)
     MODULES += contrib/zlib
 endif
-ifneq ($(HAS.libgnurx),1)
+ifneq ($(HAS.regex),1)
     MODULES += contrib/libgnurx
 endif
 endif
