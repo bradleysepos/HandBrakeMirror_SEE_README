@@ -61,7 +61,7 @@ namespace HandBrakeWPF.Properties {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Copyright (C) 2003-2013 The HandBrake Team
+        ///   Looks up a localized string similar to Copyright (C) 2003-2014 The HandBrake Team
         ///
         ///This program is free software; you can redistribute it and/or
         ///modify it under the terms of the GNU General Public License
@@ -80,13 +80,13 @@ namespace HandBrakeWPF.Properties {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to You can optionally store a maximum resolution for encodes that use this preset. There are 4 modes:
+        ///   Looks up a localized string similar to You can optionally store a picture settings with this preset. There are 3 modes:
         ///
-        ///None:  There is no maximum resolution for encodes using this preset. When the preset is loaded, the current width, height and aspect ratio that you currently have set will be reloaded.
+        ///None:  Picture settings are not stored in the preset. When loading a source, they will remain as-is within the bounds of the source resolution. This also affects Anamorphic, modulus, cropping etc.
         ///
         ///Custom: You can optionally set a Maximum width and Height. When doing this an encode will be less than or equal to these values. Keep Aspect Ratio will be automatically turned on.
         ///
-        ///Source Maximum:  Similar to custom, but [rest of string was truncated]&quot;;.
+        ///Source Maximum:  Always encode at the sources [rest of string was truncated]&quot;;.
         /// </summary>
         public static string AddPreset_PictureSizeMode {
             get {
@@ -842,8 +842,8 @@ namespace HandBrakeWPF.Properties {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Accelerates H.264, MPEG-4, VC1 and WMV3 only.  
-        ///This can provide a small to modest improvement on slow hardware..
+        ///   Looks up a localized string similar to WARNING: This feature is experimental and has known issues. Suitable for testing only!
+        ///Accelerates H.264, MPEG-4, VC1 and WMV3 only and can provide a small improvement on low end hardware..
         /// </summary>
         public static string Video_DxvaDecode {
             get {
@@ -976,9 +976,9 @@ namespace HandBrakeWPF.Properties {
         ///
         ///In order to use the QuickSync encoder, you must:
         ///
-        ///- Have a Intel Core series CPU with HD Graphics. 4th Generation Haswell or newer parts are recommended for best quality.
-        ///- Have a monitor connected to the HD Graphics or GPU Virtualisation software installed.
-        ///- Note that in multi-GPU enviroments, you may need to use 3rd party tools and workarounds to active the hardware..
+        ///- Have a Intel CPU with HD Graphics and QuickSync support. 4th Generation Haswell or newer parts are recommended for best quality.
+        ///- Have the HD Graphics enabled. 
+        ///- On older versions of windows before 8.x, a monitor connected to the HD Graphics or GPU Virtualisation software installed is also required..
         /// </summary>
         public static string Video_QuickSyncNotAvailable {
             get {
@@ -987,7 +987,7 @@ namespace HandBrakeWPF.Properties {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to OpenCL Scaling is only available for modern graphics cards that support OpenCL 1.1 or later. It will fallback to Lanczos software scaling when it is not available for use.  Performance gain up to 5%. Minor decrease in quality in some cases..
+        ///   Looks up a localized string similar to WARNING: OpenCL scaling is still in beta.  It is only available for modern graphics cards that support OpenCL 1.1 or later. It will fallback to Lanczos software scaling when it is not available for use.  Performance gain up to 5%. Minor decrease in quality in some cases..
         /// </summary>
         public static string Video_ScalingModes {
             get {

@@ -3317,7 +3317,7 @@ static void ShowHelp()
 
     "### Filters---------------------------------------------------------\n\n"
 
-     "    -d, --deinterlace       Deinterlace video with Libav, yadif or mcdeint\n"
+     "    -d, --deinterlace       Unconditionally deinterlaces all frames\n"
      "          <fast/slow/slower/bob");
 #ifdef USE_QSV
 if (hb_qsv_available())
@@ -3327,7 +3327,7 @@ if (hb_qsv_available())
 #endif
      fprintf( out, "> or omitted (default settings)\n"
      "           or\n"
-     "          <YM:FD:MM:QP>     (default 0:-1:-1:1)\n"
+     "          <YM:FD>           (default 0:-1)\n"
      "    -5, --decomb            Selectively deinterlaces when it detects combing\n"
      "          <fast/bob> or omitted (default settings)\n"
      "           or\n"
@@ -3354,8 +3354,12 @@ if (hb_qsv_available())
      "          <none/film/grain/highmotion/animation> or omitted (default none)\n"
      "    -7, --deblock           Deblock video with pp7 filter\n"
      "          <QP:M>            (default 5:2)\n"
-     "        --rotate            Flips images axes\n"
-     "          <M>               (default 3)\n"
+     "        --rotate     <mode> Rotate image or flip its axes.\n"
+     "                            Modes: (can be combined)\n"
+     "                               1 vertical flip\n"
+     "                               2 horizontal flip\n"
+     "                               4 rotate clockwise 90 degrees\n"
+     "                            Default: 3 (vertical and horizontal flip)\n"
     "    -g, --grayscale         Grayscale encoding\n"
     "\n"
 

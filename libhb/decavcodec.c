@@ -508,7 +508,7 @@ static void closePrivData( hb_work_private_t ** ppv )
         }
 #endif
 
-        free( pv );
+        free(pv);
     }
     *ppv = NULL;
 }
@@ -1149,6 +1149,20 @@ static hb_buffer_t * cc_fill_buffer(hb_work_private_t *pv, uint8_t *cc, int size
     return buf;
 }
 
+static int get_frame_type(int type)
+{
+    switch(type)
+    {
+        case AV_PICTURE_TYPE_I:
+            return HB_FRAME_I;
+        case AV_PICTURE_TYPE_B:
+            return HB_FRAME_B;
+        case AV_PICTURE_TYPE_P:
+            return HB_FRAME_P;
+    }
+    return 0;
+}
+
 /*
  * Decodes a video frame from the specified raw packet data
  *      ('data', 'size', 'sequence').
@@ -1315,6 +1329,7 @@ static int decodeFrame( hb_work_object_t *w, uint8_t *data, int size, int sequen
         {
             flags |= PIC_FLAG_REPEAT_FRAME;
         }
+        int frametype = get_frame_type(pv->frame->pict_type);
 
         // Check for CC data
         AVFrameSideData *sd;
@@ -1385,6 +1400,7 @@ static int decodeFrame( hb_work_object_t *w, uint8_t *data, int size, int sequen
             buf->sequence = sequence;
 
             buf->s.flags = flags;
+            buf->s.frametype = frametype;
 
             if ( pv->new_chap && buf->s.start >= pv->chap_time )
             {
@@ -1451,6 +1467,7 @@ static int decodeFrame( hb_work_object_t *w, uint8_t *data, int size, int sequen
         buf->sequence = sequence;
         /* Store picture flags for later use by filters */
         buf->s.flags = flags;
+        buf->s.frametype = frametype;
         pv->delayq[slot] = buf;
         heap_push( &pv->pts_heap, pts );
 
@@ -1654,6 +1671,10 @@ static int decavcodecvInit( hb_work_object_t * w, hb_job_t * job )
         // Set encoder opts...
         AVDictionary * av_opts = NULL;
         av_dict_set( &av_opts, "refcounted_frames", "1", 0 );
+        if (pv->title->flags & HBTF_NO_IDR)
+        {
+            av_dict_set( &av_opts, "flags", "output_corrupt", 0 );
+        }
 
         if ( hb_avcodec_open( pv->context, codec, &av_opts, pv->threads ) )
         {
@@ -1708,37 +1729,6 @@ static int decavcodecvInit( hb_work_object_t * w, hb_job_t * job )
     return 0;
 }
 
-static int next_hdr( hb_buffer_t *in, int offset )
-{
-    uint8_t *dat = in->data;
-    uint16_t last2 = 0xffff;
-    for ( ; in->size - offset > 1; ++offset )
-    {
-        if ( last2 == 0 && dat[offset] == 0x01 )
-            // found an mpeg start code
-            return offset - 2;
-
-        last2 = ( last2 << 8 ) | dat[offset];
-    }
-
-    return -1;
-}
-
-static int find_hdr( hb_buffer_t *in, int offset, uint8_t hdr_type )
-{
-    if ( in->size - offset < 4 )
-        // not enough room for an mpeg start code
-        return -1;
-
-    for ( ; ( offset = next_hdr( in, offset ) ) >= 0; ++offset )
-    {
-        if ( in->data[offset+3] == hdr_type )
-            // found it
-            break;
-    }
-    return offset;
-}
-
 static int setup_extradata( hb_work_object_t *w, hb_buffer_t *in )
 {
     hb_work_private_t *pv = w->private_data;
@@ -1748,53 +1738,30 @@ static int setup_extradata( hb_work_object_t *w, hb_buffer_t *in )
     // vc1t_read_header allocates 'extradata' to deal with header issues
     // related to Microsoft's bizarre engineering notions. We alloc a chunk
     // of space to make vc1 work then associate the codec with the context.
-    if ( w->codec_param != AV_CODEC_ID_VC1 )
+    if (pv->context->extradata == NULL)
     {
-        // we haven't been inflicted with M$ - allocate a little space as
-        // a marker and return success.
-        pv->context->extradata_size = 0;
-        // av_malloc uses posix_memalign which is allowed to
-        // return NULL when allocating 0 bytes.  We use extradata == NULL
-        // to trigger initialization of extradata and the decoder, so
-        // we can not set it to NULL here. So allocate a small
-        // buffer instead.
-        pv->context->extradata = av_malloc(1);
-        return 0;
-    }
-
-    // find the start and and of the sequence header
-    int shdr, shdr_end;
-    if ( ( shdr = find_hdr( in, 0, 0x0f ) ) < 0 )
-    {
-        // didn't find start of seq hdr
+        if (pv->parser == NULL || pv->parser == NULL ||
+            pv->parser->parser->split == NULL)
+        {
+            return 0;
+        }
+        else
+        {
+            int size;
+            size = pv->parser->parser->split(pv->context, in->data, in->size);
+            if (size > 0)
+            {
+                pv->context->extradata_size = size;
+                pv->context->extradata = av_malloc(size);
+                if (pv->context->extradata == NULL)
+                    return 1;
+                memcpy(pv->context->extradata, in->data, size);
+                return 0;
+            }
+        }
         return 1;
     }
-    if ( ( shdr_end = next_hdr( in, shdr + 4 ) ) < 0 )
-    {
-        shdr_end = in->size;
-    }
-    shdr_end -= shdr;
 
-    // find the start and and of the entry point header
-    int ehdr, ehdr_end;
-    if ( ( ehdr = find_hdr( in, 0, 0x0e ) ) < 0 )
-    {
-        // didn't find start of entry point hdr
-        return 1;
-    }
-    if ( ( ehdr_end = next_hdr( in, ehdr + 4 ) ) < 0 )
-    {
-        ehdr_end = in->size;
-    }
-    ehdr_end -= ehdr;
-
-    // found both headers - allocate an extradata big enough to hold both
-    // then copy them into it.
-    pv->context->extradata_size = shdr_end + ehdr_end;
-    pv->context->extradata = av_malloc(pv->context->extradata_size + 8);
-    memcpy( pv->context->extradata, in->data + shdr, shdr_end );
-    memcpy( pv->context->extradata + shdr_end, in->data + ehdr, ehdr_end );
-    memset( pv->context->extradata + shdr_end + ehdr_end, 0, 8);
     return 0;
 }
 
@@ -1872,6 +1839,10 @@ static int decavcodecvWork( hb_work_object_t * w, hb_buffer_t ** buf_in,
 
         AVDictionary * av_opts = NULL;
         av_dict_set( &av_opts, "refcounted_frames", "1", 0 );
+        if (pv->title->flags & HBTF_NO_IDR)
+        {
+            av_dict_set( &av_opts, "flags", "output_corrupt", 0 );
+        }
 
         // disable threaded decoding for scan, can cause crashes
         if ( hb_avcodec_open( pv->context, codec, &av_opts, pv->threads ) )

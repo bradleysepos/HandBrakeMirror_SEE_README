@@ -288,13 +288,13 @@ x264 and x265's scale is logarithmic and lower values correspond to higher quali
 So small increases in value will result in progressively larger increases in the resulting file size.</value>
   </data>
   <data name="AddPreset_PictureSizeMode" xml:space="preserve">
-    <value>You can optionally store a maximum resolution for encodes that use this preset. There are 4 modes:
+    <value>You can optionally store a picture settings with this preset. There are 3 modes:
 
-None:  There is no maximum resolution for encodes using this preset. When the preset is loaded, the current width, height and aspect ratio that you currently have set will be reloaded.
+None:  Picture settings are not stored in the preset. When loading a source, they will remain as-is within the bounds of the source resolution. This also affects Anamorphic, modulus, cropping etc.
 
 Custom: You can optionally set a Maximum width and Height. When doing this an encode will be less than or equal to these values. Keep Aspect Ratio will be automatically turned on.
 
-Source Maximum:  Similar to custom, but the resolution of your current source is used as the Max width and Height values instead. Keep Aspect Ratio will be automatically turned on.</value>
+Source Maximum:  Always encode at the sources resolution where possible.</value>
   </data>
   <data name="Advanced_EncoderOptions" xml:space="preserve">
     <value>The options passed to the x264 encoder. 
@@ -302,7 +302,7 @@ The above controls are only a subset of useful x264 parameters.
 This box allows you to add or modify additional or current parameters as desired. </value>
   </data>
   <data name="About_GPL" xml:space="preserve">
-    <value>Copyright (C) 2003-2013 The HandBrake Team
+    <value>Copyright (C) 2003-2014 The HandBrake Team
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -347,20 +347,20 @@ If you do not use this tab, it can be hidden from: Tools Menu &gt; Options &gt; 
     <value>Placebo Quality |</value>
   </data>
   <data name="Video_DxvaDecode" xml:space="preserve">
-    <value>Accelerates H.264, MPEG-4, VC1 and WMV3 only.  
-This can provide a small to modest improvement on slow hardware.</value>
+    <value>WARNING: This feature is experimental and has known issues. Suitable for testing only!
+Accelerates H.264, MPEG-4, VC1 and WMV3 only and can provide a small improvement on low end hardware.</value>
   </data>
   <data name="Video_QuickSyncNotAvailable" xml:space="preserve">
     <value>QuickSync hardware not detected! 
 
 In order to use the QuickSync encoder, you must:
 
-- Have a Intel Core series CPU with HD Graphics. 4th Generation Haswell or newer parts are recommended for best quality.
-- Have a monitor connected to the HD Graphics or GPU Virtualisation software installed.
-- Note that in multi-GPU enviroments, you may need to use 3rd party tools and workarounds to active the hardware.</value>
+- Have a Intel CPU with HD Graphics and QuickSync support. 4th Generation Haswell or newer parts are recommended for best quality.
+- Have the HD Graphics enabled. 
+- On older versions of windows before 8.x, a monitor connected to the HD Graphics or GPU Virtualisation software installed is also required.</value>
   </data>
   <data name="Video_ScalingModes" xml:space="preserve">
-    <value>OpenCL Scaling is only available for modern graphics cards that support OpenCL 1.1 or later. It will fallback to Lanczos software scaling when it is not available for use.  Performance gain up to 5%. Minor decrease in quality in some cases.</value>
+    <value>WARNING: OpenCL scaling is still in beta.  It is only available for modern graphics cards that support OpenCL 1.1 or later. It will fallback to Lanczos software scaling when it is not available for use.  Performance gain up to 5%. Minor decrease in quality in some cases.</value>
   </data>
   <data name="Error" xml:space="preserve">
     <value>Error</value>
