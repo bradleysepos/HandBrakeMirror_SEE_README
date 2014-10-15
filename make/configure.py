@@ -1581,8 +1581,8 @@ int main ()
         iconv.run()
 
         regex_test = """
-#include <regex.h>
 #include <stdio.h>
+#include <regex.h>
 
 int match(regex_t *x, char *s)
 {
@@ -1613,8 +1613,8 @@ int main()
     return 0;
 }
 """
-    regex = LDProbe( 'static regex', '%s -static' % Tools.gcc.pathname, '-lregex', regex_test )
-    regex.run()
+        regex = LDProbe( 'static regex', '%s -static' % Tools.gcc.pathname, '-lregex', regex_test )
+        regex.run()
 
     ## cfg hook before doc prep
     cfg.doc_ready()
