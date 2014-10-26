@@ -3421,6 +3421,9 @@ if (hb_qsv_available())
     "                            means no subtitle will be automatically displayed\n"
     "                            If \"number\" is omitted, the first srt is default.\n"
     "                            \"number\" is an 1 based index into the srt-file list\n"
+    "        --srt-burn          \"Burn\" the selected srt subtitle into the video track\n"
+    "          <number>          If \"number\" is omitted, the first srt is burned.\n"
+    "                            \"number\" is an 1 based index into the srt-file list\n"
     "\n"
     );
 
@@ -4356,17 +4359,21 @@ static int ParseOptions( int argc, char ** argv )
 
     if (nlmeans)
     {
-        if (nlmeans_opt == NULL && nlmeans_tune_opt != NULL)
-        {
-            fprintf(stdout, "Default nlmeans parameters specified; ignoring nlmeans tune (%s).\n", nlmeans_tune_opt);
-        }
-
         char *opt = hb_generate_filter_settings(HB_FILTER_NLMEANS,
                                                 nlmeans_opt, nlmeans_tune_opt);
         if (opt != NULL)
         {
             free(nlmeans_opt);
             nlmeans_opt = opt;
+        }
+        else if (nlmeans_opt != NULL)
+        {
+            fprintf(stderr, "Invalid parameters for nlmeans (%s).", nlmeans_opt);
+            return -1;
+        }
+        else if (nlmeans_tune_opt != NULL)
+        {
+            fprintf(stdout, "Default nlmeans parameters specified; ignoring nlmeans tune (%s).\n", nlmeans_tune_opt);
         }
     }
     if (denoise)
@@ -4377,6 +4384,11 @@ static int ParseOptions( int argc, char ** argv )
         {
             free(denoise_opt);
             denoise_opt = opt;
+        }
+        else if (denoise_opt != NULL)
+        {
+            fprintf(stderr, "Invalid parameters for hqdn3d (%s).", denoise_opt);
+            return -1;
         }
     }
 
