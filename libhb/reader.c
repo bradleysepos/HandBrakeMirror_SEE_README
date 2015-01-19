@@ -111,8 +111,8 @@ static int hb_reader_init( hb_work_object_t * w, hb_job_t * job )
     r->st_slots = 4;
     r->stream_timing = calloc( sizeof(stream_timing_t), r->st_slots );
     r->stream_timing[0].id = r->title->video_id;
-    r->stream_timing[0].average = 90000. * (double)job->vrate_base /
-                                           (double)job->vrate;
+    r->stream_timing[0].average = 90000. * (double)job->vrate.den /
+                                           job->vrate.num;
     r->stream_timing[0].filtered_average = r->stream_timing[0].average;
     r->stream_timing[0].last = -r->stream_timing[0].average;
     r->stream_timing[0].valid = 1;
@@ -128,7 +128,8 @@ static int hb_reader_init( hb_work_object_t * w, hb_job_t * job )
         // The frame at the actual start time may not be an i-frame
         // so can't be decoded without starting a little early.
         // sync.c will drop early frames.
-        r->pts_to_start = MAX(0, job->pts_to_start - 180000);
+        // Starting a little over 10 seconds early
+        r->pts_to_start = MAX(0, job->pts_to_start - 1000000);
     }
 
     if (job->pts_to_stop)
@@ -138,7 +139,8 @@ static int hb_reader_init( hb_work_object_t * w, hb_job_t * job )
     else if (job->frame_to_stop)
     {
         int frames = job->frame_to_start + job->frame_to_stop;
-        r->duration = (int64_t)frames * job->title->rate_base * 90000 / job->title->rate;
+        r->duration = (int64_t)frames * job->title->vrate.den * 90000 /
+                               job->title->vrate.num;
     }
     else
     {
@@ -278,7 +280,7 @@ static void update_ipt( hb_work_private_t *r, const hb_buffer_t *buf )
 {
     stream_timing_t *st = id_to_st( r, buf, 1 );
 
-    if( buf->s.renderOffset < 0 )
+    if (buf->s.renderOffset == AV_NOPTS_VALUE)
     {
         st->last += st->filtered_average;
         return;
@@ -349,7 +351,7 @@ void ReadLoop( void * _w )
     hb_work_object_t * w = _w;
     hb_work_private_t  * r = w->private_data;
     hb_fifo_t   ** fifos;
-    hb_buffer_t  * buf;
+    hb_buffer_t  * buf = NULL;
     hb_list_t    * list;
     int            n;
     int            chapter = -1;
@@ -441,7 +443,7 @@ void ReadLoop( void * _w )
         // and then seek to the appropriate offset from it
         if ( ( buf = hb_stream_read( r->stream ) ) )
         {
-            if ( buf->s.start > 0 )
+            if (buf->s.start != AV_NOPTS_VALUE)
             {
                 pts_to_start += buf->s.start;
             }
@@ -456,7 +458,11 @@ void ReadLoop( void * _w )
             r->start_found = 2;
             r->duration -= r->job->pts_to_start;
             r->job->pts_to_start = pts_to_start;
+            hb_buffer_close(&buf);
         }
+        // hb_stream_seek_ts does nothing for TS streams and will return
+        // an error.  In this case, the current buf remains valid and
+        // gets processed below.
     } 
     else if( r->stream )
     {
@@ -503,41 +509,29 @@ void ReadLoop( void * _w )
             break;
         }
 
-        if (r->bd)
+        if (buf == NULL)
         {
-          if( (buf = hb_bd_read( r->bd )) == NULL )
-          {
-              break;
-          }
-        }
-        else if (r->dvd)
-        {
-          if( (buf = hb_dvd_read( r->dvd )) == NULL )
-          {
-              break;
-          }
-        }
-        else if (r->stream)
-        {
-          if ( (buf = hb_stream_read( r->stream )) == NULL )
-          {
-            break;
-          }
-          if ( r->start_found == 2 )
-          {
-            // We will inspect the timestamps of each frame in sync
-            // to skip from this seek point to the timestamp we
-            // want to start at.
-            if ( buf->s.start > 0 && buf->s.start < r->job->pts_to_start )
+            if (r->bd)
             {
-                r->job->pts_to_start -= buf->s.start;
+                if( (buf = hb_bd_read( r->bd )) == NULL )
+                {
+                    break;
+                }
             }
-            else if ( buf->s.start >= r->job->pts_to_start )
+            else if (r->dvd)
             {
-                r->job->pts_to_start = 0;
+                if( (buf = hb_dvd_read( r->dvd )) == NULL )
+                {
+                    break;
+                }
             }
-            r->start_found = 1;
-          }
+            else if (r->stream)
+            {
+                if ( (buf = hb_stream_read( r->stream )) == NULL )
+                {
+                  break;
+                }
+            }
         }
 
         (hb_demux[r->title->demuxer])( buf, list, &r->demux );
@@ -546,6 +540,23 @@ void ReadLoop( void * _w )
         {
             hb_list_rem( list, buf );
             fifos = GetFifoForId( r, buf->s.id );
+
+            if (fifos && r->stream && r->start_found == 2 )
+            {
+                // We will inspect the timestamps of each frame in sync
+                // to skip from this seek point to the timestamp we
+                // want to start at.
+                if (buf->s.start != AV_NOPTS_VALUE &&
+                    buf->s.start < r->job->pts_to_start)
+                {
+                    r->job->pts_to_start -= buf->s.start;
+                }
+                else if ( buf->s.start >= r->job->pts_to_start )
+                {
+                    r->job->pts_to_start = 0;
+                }
+                r->start_found = 1;
+            }
 
             if ( fifos && ! r->saw_video && !r->job->indepth_scan )
             {
@@ -623,11 +634,20 @@ void ReadLoop( void * _w )
                         break;
                     }
 
-                    if ( !r->start_found &&
-                        start >= r->pts_to_start )
+                    if (!r->start_found && start >= r->pts_to_start)
                     {
                         // pts_to_start point found
                         r->start_found = 1;
+                        if (r->stream)
+                        {
+                            // libav multi-threaded decoders can get into
+                            // a bad state if the initial data is not
+                            // decodable.  So try to improve the chances of
+                            // a good start by waiting for an initial iframe
+                            hb_stream_set_need_keyframe(r->stream, 1);
+                            hb_buffer_close( &buf );
+                            continue;
+                        }
                     }
                     // This log is handy when you need to debug timing problems
                     //hb_log("id %x scr_offset %"PRId64
@@ -635,6 +655,10 @@ void ReadLoop( void * _w )
                     //        buf->s.id, r->scr_offset, buf->s.start, 
                     //        buf->s.start - r->scr_offset);
                     buf->s.start -= r->scr_offset;
+                    if ( buf->s.stop != AV_NOPTS_VALUE )
+                    {
+                        buf->s.stop -= r->scr_offset;
+                    }
                 }
                 if ( buf->s.renderOffset != AV_NOPTS_VALUE )
                 {
@@ -677,6 +701,7 @@ void ReadLoop( void * _w )
                     push_buf( r, fifos[n], buf_copy );
                 }
                 push_buf( r, fifos[0], buf );
+                buf = NULL;
             }
             else
             {

@@ -129,7 +129,6 @@ static char * h264_level    = NULL;
 static int    maxHeight     = 0;
 static int    maxWidth      = 0;
 static int    turbo_opts_enabled = 0;
-static int    largeFileSize = 0;
 static int    preset        = 0;
 static char * preset_name   = 0;
 static int    cfr           = 0;
@@ -479,11 +478,10 @@ static void PrintTitleInfo( hb_title_t * title, int feature )
     fprintf( stderr, "  + duration: %02d:%02d:%02d\n",
              title->hours, title->minutes, title->seconds );
     fprintf( stderr, "  + size: %dx%d, pixel aspect: %d/%d, display aspect: %.2f, %.3f fps\n",
-             title->width, title->height,
-             title->pixel_aspect_width,
-             title->pixel_aspect_height,
-             (float) title->aspect,
-             (float) title->rate / title->rate_base );
+             title->geometry.width, title->geometry.height,
+             title->geometry.par.num, title->geometry.par.den,
+             (float)title->dar.num / title->dar.den,
+             (float)title->vrate.num / title->vrate.num );
     fprintf( stderr, "  + autocrop: %d/%d/%d/%d\n", title->crop[0],
              title->crop[1], title->crop[2], title->crop[3] );
 
@@ -647,7 +645,8 @@ static int HandleEvents( hb_handle_t * h )
     hb_state_t s;
     const hb_encoder_t *encoder;
     int tmp_num_audio_tracks;
-    int filter_cfr, filter_vrate, filter_vrate_base;
+    int filter_cfr;
+    hb_rational_t filter_vrate;
 
     hb_get_state( h, &s );
     switch( s.state )
@@ -762,7 +761,6 @@ static int HandleEvents( hb_handle_t * h )
             job = hb_job_init(title);
             filter_cfr        = job->cfr;
             filter_vrate      = job->vrate;
-            filter_vrate_base = job->vrate_base;
 
 
             if( chapter_start && chapter_end && !stop_at_pts && !start_at_preview && !stop_at_frame && !start_at_pts && !start_at_frame )
@@ -792,7 +790,7 @@ static int HandleEvents( hb_handle_t * h )
                     }
                     vcodec = HB_VCODEC_X264;
                     job->vquality = 20.0;
-                    filter_vrate_base = 900000;
+                    filter_vrate.den = 900000;
                     filter_cfr = 2;
                     if( !atracks )
                     {
@@ -862,7 +860,7 @@ static int HandleEvents( hb_handle_t * h )
                     job->ipod_atom = 1;
                     vcodec = HB_VCODEC_X264;
                     job->vquality = 22.0;
-                    filter_vrate_base = 900000;
+                    filter_vrate.den = 900000;
                     filter_cfr = 2;
                     if( !atracks )
                     {
@@ -925,10 +923,9 @@ static int HandleEvents( hb_handle_t * h )
                     {
                         mux = HB_MUX_MP4;
                     }
-                    job->largeFileSize = 1;
                     vcodec = HB_VCODEC_X264;
                     job->vquality = 22.0;
-                    filter_vrate_base = 900000;
+                    filter_vrate.den = 900000;
                     filter_cfr = 2;
                     if( !atracks )
                     {
@@ -995,10 +992,9 @@ static int HandleEvents( hb_handle_t * h )
                     {
                         mux = HB_MUX_MP4;
                     }
-                    job->largeFileSize = 1;
                     vcodec = HB_VCODEC_X264;
                     job->vquality = 20.0;
-                    filter_vrate_base = 900000;
+                    filter_vrate.den = 900000;
                     filter_cfr = 2;
                     if( !atracks )
                     {
@@ -1065,10 +1061,9 @@ static int HandleEvents( hb_handle_t * h )
                     {
                         mux = HB_MUX_MP4;
                     }
-                    job->largeFileSize = 1;
                     vcodec = HB_VCODEC_X264;
                     job->vquality = 20.0;
-                    filter_vrate_base = 900000;
+                    filter_vrate.den = 900000;
                     filter_cfr = 2;
                     if( !atracks )
                     {
@@ -1139,10 +1134,9 @@ static int HandleEvents( hb_handle_t * h )
                     {
                         mux = HB_MUX_MP4;
                     }
-                    job->largeFileSize = 1;
                     vcodec = HB_VCODEC_X264;
                     job->vquality = 20.0;
-                    filter_vrate_base = 900000;
+                    filter_vrate.den = 900000;
                     filter_cfr = 2;
                     if( !atracks )
                     {
@@ -1209,10 +1203,9 @@ static int HandleEvents( hb_handle_t * h )
                     {
                         mux = HB_MUX_MP4;
                     }
-                    job->largeFileSize = 1;
                     vcodec = HB_VCODEC_X264;
                     job->vquality = 20.0;
-                    filter_vrate_base = 900000;
+                    filter_vrate.den = 900000;
                     filter_cfr = 2;
                     if( !atracks )
                     {
@@ -1283,7 +1276,7 @@ static int HandleEvents( hb_handle_t * h )
                     }
                     vcodec = HB_VCODEC_X264;
                     job->vquality = 22.0;
-                    filter_vrate_base = 900000;
+                    filter_vrate.den = 900000;
                     filter_cfr = 2;
                     if( !atracks )
                     {
@@ -1351,7 +1344,7 @@ static int HandleEvents( hb_handle_t * h )
                     }
                     vcodec = HB_VCODEC_X264;
                     job->vquality = 22.0;
-                    filter_vrate_base = 900000;
+                    filter_vrate.den = 900000;
                     filter_cfr = 2;
                     if( !atracks )
                     {
@@ -1419,7 +1412,7 @@ static int HandleEvents( hb_handle_t * h )
                     }
                     vcodec = HB_VCODEC_X264;
                     job->vquality = 22.0;
-                    filter_vrate_base = 900000;
+                    filter_vrate.den = 900000;
                     filter_cfr = 2;
                     if( !atracks )
                     {
@@ -1550,7 +1543,6 @@ static int HandleEvents( hb_handle_t * h )
                     {
                         mux = HB_MUX_MP4;
                     }
-                    job->largeFileSize = 1;
                     vcodec = HB_VCODEC_X264;
                     job->vquality = 20.0;
                     if( !atracks )
@@ -1663,20 +1655,20 @@ static int HandleEvents( hb_handle_t * h )
                 }
             }
 
-            if( crop[0] >= 0 && crop[1] >= 0 &&
-                crop[2] >= 0 && crop[3] >= 0 )
+            if (crop[0] < 0 || crop[1] < 0 || crop[2] < 0 || crop[3] < 0)
             {
-                memcpy( job->crop, crop, 4 * sizeof( int ) );
+                memcpy(crop, title->crop, sizeof(int[4]));
             }
 
-            if( loose_crop >= 0 )
+            if (loose_crop >= 0)
             {
-                int mod = modulus > 0 ? modulus : 16;
-                apply_loose_crop(title->height, &job->crop[0], &job->crop[1], mod, loose_crop);
-                apply_loose_crop(title->width, &job->crop[2], &job->crop[3], mod, loose_crop);
+                int mod = modulus > 0 ? modulus : 2;
+                apply_loose_crop(title->geometry.height,
+                                 &crop[0], &crop[1], mod, loose_crop);
+                apply_loose_crop(title->geometry.width,
+                                 &crop[2], &crop[3], mod, loose_crop);
             }
 
-            job->deinterlace = deinterlace;
             job->grayscale   = grayscale;
             
             hb_filter_object_t * filter;
@@ -1721,211 +1713,85 @@ static int HandleEvents( hb_handle_t * h )
                 hb_add_filter( job, filter, rotate_opt);
             }
 
-
-            if (maxWidth)
-                job->maxWidth = maxWidth;
-            if (maxHeight)
-                job->maxHeight = maxHeight;
             if (use_hwd)
             {
                 job->use_hwd = use_hwd;
             }
 
-            job->anamorphic.mode = anamorphic_mode;
-            switch( anamorphic_mode )
+            hb_geometry_t srcGeo, resultGeo;
+            hb_geometry_settings_t uiGeo;
+
+            srcGeo = title->geometry;
+
+            keep_display_aspect |= anamorphic_mode != HB_ANAMORPHIC_CUSTOM;
+            uiGeo.mode = anamorphic_mode;
+            if (width != 0 && height != 0)
             {
-                case 0: // Non-anamorphic
+                if (anamorphic_mode == HB_ANAMORPHIC_NONE)
                 {
-                    hb_ui_geometry_t ui_geo;
-
-                    ui_geo.keep = 0;
-                    if (modulus)
-                    {
-                        job->modulus = modulus;
-                    }
-                    
-                    if( width && height )
-                    {
-                        job->width  = width;
-                        job->height = height;
-                        ui_geo.keep |= HB_KEEP_WIDTH;
-                    }
-                    else if( width )
-                    {
-                        job->width = width;
-                        ui_geo.keep |= HB_KEEP_WIDTH;
-                        // do not exceed source dimensions by default
-                        if( !maxHeight )
-                            job->maxHeight = title->height;
-                    }
-                    else if( height )
-                    {
-                        job->height = height;
-                        ui_geo.keep |= HB_KEEP_HEIGHT;
-                        // do not exceed source dimensions by default
-                        if( !maxWidth )
-                            job->maxWidth = title->width;
-                    }
-                    else // if( !width && !height )
-                    {
-                        /* Default to cropped width when one isn't specified
-                         * avoids rounding to mod 16 regardless of modulus */
-                        job->width = title->width - job->crop[2] - job->crop[3];
-                        ui_geo.keep |= HB_KEEP_WIDTH;
-                        // do not exceed source dimensions by default
-                        if( !maxHeight )
-                            job->maxHeight = title->height;
-                    }
-                    hb_geometry_t result;
-                    hb_geometry_t src;
-
-                    src.width = title->width;
-                    src.height = title->height;
-                    src.par.num = title->pixel_aspect_width;
-                    src.par.den = title->pixel_aspect_height;
-
-                    ui_geo.width = job->width;
-                    ui_geo.height = job->height;
-
-                    ui_geo.modulus = job->modulus;
-                    memcpy(ui_geo.crop, job->crop, sizeof(int[4]));
-                    ui_geo.maxWidth = job->maxWidth;
-                    ui_geo.maxHeight = job->maxHeight;
-                    ui_geo.mode = anamorphic_mode;
-                    if (keep_display_aspect)
-                        ui_geo.keep |= HB_KEEP_DISPLAY_ASPECT;
-
-                    hb_set_anamorphic_size2(&src, &ui_geo, &result);
-                    job->width = result.width;
-                    job->height = result.height;
-                    job->anamorphic.par_width = result.par.num;
-                    job->anamorphic.par_height = result.par.den;
+                    keep_display_aspect = 0;
                 }
-                break;
-                
-                case 1: // Strict anammorphic
-                break;
-                
-                case 2: // Loose anamorphic
-                    if (modulus)
-                    {
-                        job->modulus = modulus;
-                    }
-                    
-                    if( itu_par )
-                    {
-                        job->anamorphic.itu_par = itu_par;
-                    }
-                    
-                    if( width )
-                    {
-                        job->width = width;
-                    }
-                    else if( !width && !height )
-                    {
-                        /* Default to full width when one isn't specified for loose anamorphic */
-                        job->width = title->width - job->crop[2] - job->crop[3];
-                    }
-                    
-                break;
-                
-                case 3: // Custom Anamorphic 3: Power User Jamboree 
-                    if (modulus)
-                    {
-                        job->modulus = modulus;
-                    }
-                    
-                    if( itu_par )
-                    {
-                        job->anamorphic.itu_par = itu_par;
-                    }
-                    
-                    if( par_width && par_height )
-                    {
-                        job->anamorphic.par_width = par_width;
-                        job->anamorphic.par_height = par_height;
-                    }
-                    
-                    if( keep_display_aspect )
-                    {
-                        job->anamorphic.keep_display_aspect = 1;
-                        
-                        /* First, what *is* the display aspect? */
-                        int cropped_width = title->width - job->crop[2] - job->crop[3];
-                        int cropped_height = title->height - job->crop[0] - job->crop[1];
-                        
-                        /* XXX -- I'm assuming people want to keep the source
-                           display AR even though they might have already
-                           asked for ITU values instead. */
-                        float source_display_width = (float)cropped_width *
-                            (float)title->pixel_aspect_width / (float)title->pixel_aspect_height;
-                        float display_aspect = source_display_width / (float)cropped_height;
-                        /* When keeping display aspect, we have to rank some values
-                           by priority in order to consistently handle situations
-                           when more than one might be specified by default.
-                           
-                           * First off, PAR gets ignored. (err make this reality)
-                           * Height will be respected over all other settings,
-                           * If it isn't set, display_width will be followed.
-                           * If it isn't set, width will be followed.          */
-                        if( height )
-                        {
-                            /* We scale the display width to the new height */
-                            display_width = (int)( (double)height * display_aspect );
-                        }
-                        else if( display_width )
-                        {
-                            /* We scale the height to the new display width */
-                            height = (int)( (double)display_width / display_aspect );
-                        }
-                    }
-                    
-                    if( display_width )
-                    {
-                        /* Adjust the PAR to create the new display width
-                           from the default job width. */
-                        job->anamorphic.dar_width = display_width;
-                        
-                        job->anamorphic.dar_height = height ?
-                                                        height :
-                                                        title->height - job->crop[0] - job->crop[1];
-                    }
-                    
-                    if( width && height )
-                    {
-                        /* Use these storage dimensions */
-                        job->width  = width;
-                        job->height = height;
-                    }
-                    else if( width )
-                    {
-                        /* Use just this storage width */
-                        job->width = width;
-                        job->height = title->height - job->crop[0] - job->crop[1];
-                    }
-                    else if( height )
-                    {
-                        /* Use just this storage height. */
-                        job->height = height;
-                        job->width = title->width - job->crop[2] - job->crop[3];
-                    }
-                    else if( !width && !height )
-                    {
-                        /* Assume source dimensions after cropping. */
-                        job->width = title->width - job->crop[2] - job->crop[3];
-                        job->height = title->height - job->crop[0] - job->crop[1];
-                    }
-                    
-                break;
+                else
+                {
+                    uiGeo.mode = HB_ANAMORPHIC_CUSTOM;
+                }
             }
-            // Validate and adjust job picture dimensions
-            hb_validate_size( job );
+            uiGeo.keep = !!keep_display_aspect * HB_KEEP_DISPLAY_ASPECT;
+            uiGeo.itu_par = itu_par;
+            uiGeo.modulus = modulus;
+            memcpy(uiGeo.crop, crop, sizeof(int[4]));
+            if (width == 0)
+            {
+                uiGeo.geometry.width = title->geometry.width - crop[2] - crop[3];
+            }
+            else
+            {
+                uiGeo.keep |= HB_KEEP_WIDTH;
+                uiGeo.geometry.width = width;
+            }
+            if (height == 0)
+            {
+                uiGeo.geometry.height = title->geometry.height - crop[0] - crop[1];
+            }
+            else
+            {
+                uiGeo.keep |= HB_KEEP_HEIGHT;
+                uiGeo.geometry.height = height;
+            }
+            uiGeo.maxWidth = maxWidth;
+            uiGeo.maxHeight = maxHeight;
+            if( par_width && par_height )
+            {
+                uiGeo.geometry.par.num = par_width;
+                uiGeo.geometry.par.den = par_height;
+            }
+            else if (display_width != 0 && width != 0)
+            {
+                if (height != 0)
+                {
+                    fprintf(stderr, "display_width (%d), width (%d), and height (%d) can not all be specified, ignoring height", display_width, width, height);
+                }
+                uiGeo.geometry.par.num = display_width;
+                uiGeo.geometry.par.den = width;
+            }
+            else if (display_width != 0)
+            {
+                uiGeo.geometry.par.num = display_width;
+                uiGeo.geometry.par.den = uiGeo.geometry.width;
+            }
+            else
+            {
+                uiGeo.geometry.par = srcGeo.par;
+            }
+
+            hb_set_anamorphic_size2(&srcGeo, &uiGeo, &resultGeo);
+            job->par = resultGeo.par;
 
             // Add filter that does cropping and scaling
             char * filter_str;
             filter_str = hb_strdup_printf("%d:%d:%d:%d:%d:%d",
-                job->width, job->height, 
-                job->crop[0], job->crop[1], job->crop[2], job->crop[3] );
+                resultGeo.width, resultGeo.height,
+                crop[0], crop[1], crop[2], crop[3] );
                     
             filter = hb_filter_init( HB_FILTER_CROP_SCALE );
             hb_add_filter( job, filter, filter_str );
@@ -1934,21 +1800,20 @@ static int HandleEvents( hb_handle_t * h )
             // Add framerate shaping filter
             if (vrate)
             {
-                filter_cfr        = cfr;
-                filter_vrate      = 27000000;
-                filter_vrate_base = vrate;
+                filter_cfr       = cfr;
+                filter_vrate.num = 27000000;
+                filter_vrate.den = vrate;
             }
             else if (cfr)
             {
                 // cfr or pfr flag with no rate specified implies
                 // use the title rate.
                 filter_cfr        = cfr;
-                filter_vrate      = title->rate;
-                filter_vrate_base = title->rate_base;
+                filter_vrate      = title->vrate;
             }
             filter     = hb_filter_init(HB_FILTER_VFR);
-            filter_str = hb_strdup_printf("%d:%d:%d", filter_cfr, filter_vrate,
-                                          filter_vrate_base);
+            filter_str = hb_strdup_printf("%d:%d:%d", filter_cfr,
+                                          filter_vrate.num, filter_vrate.den);
             hb_add_filter(job, filter, filter_str);
             free(filter_str);
 
@@ -1960,10 +1825,6 @@ static int HandleEvents( hb_handle_t * h )
                 job->mux = mux;
             }
             // then, muxer options
-            if (largeFileSize)
-            {
-                job->largeFileSize = 1;
-            }
             if (mp4_optimize)
             {
                 job->mp4_optimize = 1;
@@ -2663,14 +2524,6 @@ static int HandleEvents( hb_handle_t * h )
                             "%s requested and input codec is not compatible for track %d, using %s encoder\n",
                             hb_audio_encoder_get_name(requested_passthru), audio->out.track,
                             hb_audio_encoder_get_name(audio->out.codec));
-                    // we didn't drop the track, set the mixdown and bitrate from libhb defaults
-                    audio->out.mixdown =
-                        hb_mixdown_get_default(audio->out.codec,
-                                               audio->in.channel_layout);
-                    audio->out.bitrate =
-                        hb_audio_bitrate_get_default(audio->out.codec,
-                                                     audio->out.samplerate,
-                                                     audio->out.mixdown);
                 }
                 // we didn't drop the track
                 i++;
@@ -2835,7 +2688,7 @@ static int HandleEvents( hb_handle_t * h )
             {
                 char * filter_str;
                 filter_str = hb_strdup_printf("%d:%d:%d:%d",
-                    job->crop[0], job->crop[1], job->crop[2], job->crop[3] );
+                    crop[0], crop[1], crop[2], crop[3] );
                 filter = hb_filter_init( HB_FILTER_RENDER_SUB );
                 hb_add_filter( job, filter, filter_str);
                 free( filter_str );
@@ -2924,11 +2777,6 @@ static int HandleEvents( hb_handle_t * h )
             hb_job_set_encoder_profile(job, h264_profile);
             hb_job_set_encoder_level  (job, h264_level);
 
-            if (maxWidth)
-                job->maxWidth = maxWidth;
-            if (maxHeight)
-                job->maxHeight = maxHeight;
-
             if( start_at_preview )
             {
                 job->start_at_preview = start_at_preview - 1;
@@ -2962,74 +2810,11 @@ static int HandleEvents( hb_handle_t * h )
             /* OpenCL */
             job->use_opencl = use_opencl;
 
-            if( subtitle_scan )
-            {
-                /*
-                 * When subtitle scan is enabled do a fast pre-scan job
-                 * which will determine which subtitles to enable, if any.
-                 */
-                job->pass = -1;
-
-                hb_job_set_encoder_options(job, NULL);
-
-                job->indepth_scan = subtitle_scan;
-                fprintf( stderr, "Subtitle Scan Enabled - enabling "
-                         "subtitles if found for foreign language segments\n");
-
-                /*
-                 * Add the pre-scan job
-                 */
-                hb_add( h, job );
-            }
-
+            job->indepth_scan = subtitle_scan;
+            job->twopass = twoPass;
             hb_job_set_encoder_options(job, advanced_opts);
 
-            if( twoPass )
-            {
-                /*
-                 * If subtitle_scan is enabled then only turn it on
-                 * for the first pass and then off again for the
-                 * second.
-                 */
-                job->pass = 1;
-
-                job->indepth_scan = 0;
-
-                /* Turbo first pass */
-                if( turbo_opts_enabled )
-                {
-                    job->fastfirstpass = 1;
-                }
-                else
-                {
-                    job->fastfirstpass = 0;
-                }
-
-                hb_add( h, job );
-
-                job->pass = 2;
-                /*
-                 * On the second pass we turn off subtitle scan so that we
-                 * can actually encode using any subtitles that were auto
-                 * selected in the first pass (using the whacky select-subtitle
-                 * attribute of the job).
-                 */
-                job->indepth_scan = 0;
-
-                hb_add( h, job );
-            }
-            else
-            {
-                /*
-                 * Turn on subtitle scan if requested, note that this option
-                 * precludes encoding of any actual subtitles.
-                 */
-
-                job->indepth_scan = 0;
-                job->pass = 0;
-
-                hb_add( h, job );
-            }
+            hb_add( h, job );
             hb_job_close( &job );
             hb_start( h );
             break;
@@ -3187,8 +2972,6 @@ static void ShowHelp()
     fprintf(out,
     "                            (default: autodetected from file name)\n"
     "    -m, --markers           Add chapter markers\n"
-    "    -4, --large-file        Create 64-bit mp4 files that can hold more than 4 GB\n"
-    "                            of data. Note: breaks pre-iOS iPod compatibility.\n"
     "    -O, --optimize          Optimize mp4 files for HTTP streaming (\"fast start\")\n"
     "    -I, --ipod-atom         Mark mp4 files so 5.5G iPods will accept them\n"
     "    -P, --use-opencl        Use OpenCL where applicable\n"
@@ -3448,7 +3231,7 @@ static void ShowHelp()
 
     "### Filters---------------------------------------------------------\n\n"
 
-     "    -d, --deinterlace       Deinterlace video with Libav, yadif or mcdeint\n"
+     "    -d, --deinterlace       Unconditionally deinterlaces all frames\n"
      "          <fast/slow/slower/bob");
 #ifdef USE_QSV
 if (hb_qsv_available())
@@ -3458,7 +3241,7 @@ if (hb_qsv_available())
 #endif
      fprintf( out, "> or omitted (default settings)\n"
      "           or\n"
-     "          <YM:FD:MM:QP>     (default 0:-1:-1:1)\n"
+     "          <YM:FD>           (default 0:-1)\n"
      "    -5, --decomb            Selectively deinterlaces when it detects combing\n"
      "          <fast/bob> or omitted (default settings)\n"
      "           or\n"
@@ -3470,7 +3253,7 @@ if (hb_qsv_available())
      "                            specify a constant framerate (--rate 29.97)\n"
      "          <L:R:T:B:SB:MP:FD> (default 1:1:4:4:0:0:-1)\n"
      "    -8, --denoise           Denoise video with hqdn3d filter\n"
-     "          <weak/medium/strong> or omitted (default settings)\n"
+     "          <ultralight/light/medium/strong> or omitted (default settings)\n"
      "           or\n"
      "          <SL:SCb:SCr:TL:TCb:TCr>\n"
      "          (default: 4:3:3:6:4.5:4.5)\n"
@@ -3485,8 +3268,12 @@ if (hb_qsv_available())
      "          <none/film/grain/highmotion/animation> or omitted (default none)\n"
      "    -7, --deblock           Deblock video with pp7 filter\n"
      "          <QP:M>            (default 5:2)\n"
-     "        --rotate            Flips images axes\n"
-     "          <M>               (default 3)\n"
+     "        --rotate     <mode> Rotate image or flip its axes.\n"
+     "                            Modes: (can be combined)\n"
+     "                               1 vertical flip\n"
+     "                               2 horizontal flip\n"
+     "                               4 rotate clockwise 90 degrees\n"
+     "                            Default: 3 (vertical and horizontal flip)\n"
     "    -g, --grayscale         Grayscale encoding\n"
     "\n"
 
@@ -3548,6 +3335,9 @@ if (hb_qsv_available())
     "                            means no subtitle will be automatically displayed\n"
     "                            If \"number\" is omitted, the first srt is default.\n"
     "                            \"number\" is an 1 based index into the srt-file list\n"
+    "        --srt-burn          \"Burn\" the selected srt subtitle into the video track\n"
+    "          <number>          If \"number\" is omitted, the first srt is burned.\n"
+    "                            \"number\" is an 1 based index into the srt-file list\n"
     "\n"
     );
 
@@ -3576,28 +3366,68 @@ static void ShowPresets()
     printf("\n< Devices\n");
     printf("\n   + Universal:  -e x264  -q 20.0 -r 30 --pfr  -a 1,1 -E ffaac,copy:ac3 -B 160,160 -6 dpl2,none -R Auto,Auto -D 0.0,0.0 --audio-copy-mask aac,ac3,dtshd,dts,mp3 --audio-fallback ffac3 -f mp4 -X 720 -Y 576 --loose-anamorphic --modulus 2 -m --x264-preset fast --h264-profile baseline --h264-level 3.0\n");
     printf("\n   + iPod:  -e x264  -q 22.0 -r 30 --pfr  -a 1 -E ffaac -B 160 -6 dpl2 -R Auto -D 0.0 --audio-copy-mask aac,ac3,dtshd,dts,mp3 --audio-fallback ffac3 -f mp4 -I -X 320 -Y 240 --modulus 2 -m --x264-preset medium --h264-profile baseline --h264-level 1.3\n");
-    printf("\n   + iPhone & iPod touch:  -e x264  -q 22.0 -r 30 --pfr  -a 1 -E ffaac -B 160 -6 dpl2 -R Auto -D 0.0 --audio-copy-mask aac,ac3,dtshd,dts,mp3 --audio-fallback ffac3 -f mp4 -4 -X 960 -Y 640 --loose-anamorphic --modulus 2 -m --x264-preset medium --h264-profile high --h264-level 3.1\n");
-    printf("\n   + iPad:  -e x264  -q 20.0 -r 30 --pfr  -a 1 -E ffaac -B 160 -6 dpl2 -R Auto -D 0.0 --audio-copy-mask aac,ac3,dtshd,dts,mp3 --audio-fallback ffac3 -f mp4 -4 -X 1280 -Y 720 --loose-anamorphic --modulus 2 -m --x264-preset medium --h264-profile high --h264-level 3.1\n");
-    printf("\n   + AppleTV:  -e x264  -q 20.0 -r 30 --pfr  -a 1,1 -E ffaac,copy:ac3 -B 160,160 -6 dpl2,none -R Auto,Auto -D 0.0,0.0 --audio-copy-mask aac,ac3,dtshd,dts,mp3 --audio-fallback ffac3 -f mp4 -4 -X 960 -Y 720 --loose-anamorphic --modulus 2 -m --x264-preset medium --h264-profile high --h264-level 3.1 -x qpmin=4:cabac=0:ref=2:b-pyramid=none:weightb=0:weightp=0:vbv-maxrate=9500:vbv-bufsize=9500\n");
-    printf("\n   + AppleTV 2:  -e x264  -q 20.0 -r 30 --pfr  -a 1,1 -E ffaac,copy:ac3 -B 160,160 -6 dpl2,none -R Auto,Auto -D 0.0,0.0 --audio-copy-mask aac,ac3,dtshd,dts,mp3 --audio-fallback ffac3 -f mp4 -4 -X 1280 -Y 720 --loose-anamorphic --modulus 2 -m --x264-preset medium --h264-profile high --h264-level 3.1\n");
-    printf("\n   + AppleTV 3:  -e x264  -q 20.0 -r 30 --pfr  -a 1,1 -E ffaac,copy:ac3 -B 160,160 -6 dpl2,none -R Auto,Auto -D 0.0,0.0 --audio-copy-mask aac,ac3,dtshd,dts,mp3 --audio-fallback ffac3 -f mp4 -4 -X 1920 -Y 1080 --decomb=fast --loose-anamorphic --modulus 2 -m --x264-preset medium --h264-profile high --h264-level 4.0\n");
+    printf("\n   + iPhone & iPod touch:  -e x264  -q 22.0 -r 30 --pfr  -a 1 -E ffaac -B 160 -6 dpl2 -R Auto -D 0.0 --audio-copy-mask aac,ac3,dtshd,dts,mp3 --audio-fallback ffac3 -f mp4 -X 960 -Y 640 --loose-anamorphic --modulus 2 -m --x264-preset medium --h264-profile high --h264-level 3.1\n");
+    printf("\n   + iPad:  -e x264  -q 20.0 -r 30 --pfr  -a 1 -E ffaac -B 160 -6 dpl2 -R Auto -D 0.0 --audio-copy-mask aac,ac3,dtshd,dts,mp3 --audio-fallback ffac3 -f mp4 -X 1280 -Y 720 --loose-anamorphic --modulus 2 -m --x264-preset medium --h264-profile high --h264-level 3.1\n");
+    printf("\n   + AppleTV:  -e x264  -q 20.0 -r 30 --pfr  -a 1,1 -E ffaac,copy:ac3 -B 160,160 -6 dpl2,none -R Auto,Auto -D 0.0,0.0 --audio-copy-mask aac,ac3,dtshd,dts,mp3 --audio-fallback ffac3 -f mp4 -X 960 -Y 720 --loose-anamorphic --modulus 2 -m --x264-preset medium --h264-profile high --h264-level 3.1 -x qpmin=4:cabac=0:ref=2:b-pyramid=none:weightb=0:weightp=0:vbv-maxrate=9500:vbv-bufsize=9500\n");
+    printf("\n   + AppleTV 2:  -e x264  -q 20.0 -r 30 --pfr  -a 1,1 -E ffaac,copy:ac3 -B 160,160 -6 dpl2,none -R Auto,Auto -D 0.0,0.0 --audio-copy-mask aac,ac3,dtshd,dts,mp3 --audio-fallback ffac3 -f mp4 -X 1280 -Y 720 --loose-anamorphic --modulus 2 -m --x264-preset medium --h264-profile high --h264-level 3.1\n");
+    printf("\n   + AppleTV 3:  -e x264  -q 20.0 -r 30 --pfr  -a 1,1 -E ffaac,copy:ac3 -B 160,160 -6 dpl2,none -R Auto,Auto -D 0.0,0.0 --audio-copy-mask aac,ac3,dtshd,dts,mp3 --audio-fallback ffac3 -f mp4 -X 1920 -Y 1080 --decomb=fast --loose-anamorphic --modulus 2 -m --x264-preset medium --h264-profile high --h264-level 4.0\n");
     printf("\n   + Android:  -e x264  -q 22.0 -r 30 --pfr  -a 1 -E ffaac -B 128 -6 dpl2 -R Auto -D 0.0 --audio-copy-mask aac,ac3,dtshd,dts,mp3 --audio-fallback ffac3 -f mp4 -X 720 -Y 576 --loose-anamorphic --modulus 2 --x264-preset medium --h264-profile main --h264-level 3.0\n");
     printf("\n   + Android Tablet:  -e x264  -q 22.0 -r 30 --pfr  -a 1 -E ffaac -B 128 -6 dpl2 -R Auto -D 0.0 --audio-copy-mask aac,ac3,dtshd,dts,mp3 --audio-fallback ffac3 -f mp4 -X 1280 -Y 720 --loose-anamorphic --modulus 2 --x264-preset medium --h264-profile main --h264-level 3.1\n");
     printf("\n   + Windows Phone 8:  -e x264  -q 22.0 -r 30 --pfr  -a 1 -E ffaac -B 128 -6 dpl2 -R Auto -D 0.0 --audio-copy-mask aac,ac3,dtshd,dts,mp3 --audio-fallback ffac3 -f mp4 -X 1280 -Y 720 --modulus 2 --x264-preset medium --h264-profile main --h264-level 3.1\n");
 	printf("\n>\n");
     printf("\n< Regular\n");
     printf("\n   + Normal:  -e x264  -q 20.0 -a 1 -E ffaac -B 160 -6 dpl2 -R Auto -D 0.0 --audio-copy-mask aac,ac3,dtshd,dts,mp3 --audio-fallback ffac3 -f mp4 --loose-anamorphic --modulus 2 -m --x264-preset veryfast --h264-profile main --h264-level 4.0\n");
-    printf("\n   + High Profile:  -e x264  -q 20.0 -a 1,1 -E ffaac,copy:ac3 -B 160,160 -6 dpl2,none -R Auto,Auto -D 0.0,0.0 --audio-copy-mask aac,ac3,dtshd,dts,mp3 --audio-fallback ffac3 -f mp4 -4 --decomb --loose-anamorphic --modulus 2 -m --x264-preset medium --h264-profile high --h264-level 4.1\n");
+    printf("\n   + High Profile:  -e x264  -q 20.0 -a 1,1 -E ffaac,copy:ac3 -B 160,160 -6 dpl2,none -R Auto,Auto -D 0.0,0.0 --audio-copy-mask aac,ac3,dtshd,dts,mp3 --audio-fallback ffac3 -f mp4 --decomb --loose-anamorphic --modulus 2 -m --x264-preset medium --h264-profile high --h264-level 4.1\n");
     printf("\n>\n");
 }
-static char * hb_strndup( char * str, int len )
+
+static char* strchr_quote(char *pos, char c, char q)
 {
+    if (pos == NULL)
+        return NULL;
+
+    while (*pos != 0 && *pos != c)
+    {
+        if (*pos == q)
+        {
+            pos = strchr_quote(pos+1, q, 0);
+            if (pos == NULL)
+                return NULL;
+            pos++;
+        }
+        else if (*pos == '\\' && *(pos+1) != 0)
+            pos += 2;
+        else
+            pos++;
+    }
+    if (*pos != c)
+        return NULL;
+    return pos;
+}
+
+static char *strndup_quote(char *str, char q, int len)
+{
+    if (str == NULL)
+        return NULL;
+
     char * res;
     int str_len = strlen( str );
-
+    int src = 0, dst = 0;
     res = malloc( len > str_len ? str_len + 1 : len + 1 );
-    strncpy( res, str, len );
-    res[len] = '\0';
+
+    while (str[src] != 0 && src < len)
+    {
+        if (str[src] == q)
+            src++;
+        else if (str[src] == '\\' && str[src+1] != 0)
+        {
+            res[dst++] = str[src+1];
+            src += 2;
+        }
+        else
+            res[dst++] = str[src++];
+    }
+    res[dst] = '\0';
     return res;
 }
 
@@ -3607,7 +3437,12 @@ static char** str_split( char *str, char delem )
     char *  end;
     char ** ret;
     int     count, i;
+    char quote = '"';
 
+    if (delem == '"')
+    {
+        quote = '\'';
+    }
     if ( str == NULL || str[0] == 0 )
     {
         ret = malloc( sizeof(char*) );
@@ -3618,7 +3453,7 @@ static char** str_split( char *str, char delem )
     // Find number of elements in the string
     count = 1;
     pos = str;
-    while ( ( pos = strchr( pos, delem ) ) != NULL )
+    while ( ( pos = strchr_quote( pos, delem, quote ) ) != NULL )
     {
         count++;
         pos++;
@@ -3629,11 +3464,11 @@ static char** str_split( char *str, char delem )
     pos = str;
     for ( i = 0; i < count - 1; i++ )
     {
-        end = strchr( pos, delem );
-        ret[i] = hb_strndup(pos, end - pos);
+        end = strchr_quote( pos, delem, quote );
+        ret[i] = strndup_quote(pos, quote, end - pos);
         pos = end + 1;
     }
-    ret[i] = strdup(pos);
+    ret[i] = strndup_quote(pos, quote, strlen(pos));
 
     return ret;
 }
@@ -3737,7 +3572,6 @@ static int ParseOptions( int argc, char ** argv )
             { "format",      required_argument, NULL,    'f' },
             { "input",       required_argument, NULL,    'i' },
             { "output",      required_argument, NULL,    'o' },
-            { "large-file",  no_argument,       NULL,    '4' },
             { "optimize",    no_argument,       NULL,    'O' },
             { "ipod-atom",   no_argument,       NULL,    'I' },
             { "use-opencl",  no_argument,       NULL,    'P' },
@@ -3909,9 +3743,6 @@ static int ParseOptions( int argc, char ** argv )
                 break;
             case 'o':
                 output = strdup( optarg );
-                break;
-            case '4':
-                largeFileSize = 1;
                 break;
             case 'O':
                 mp4_optimize = 1;
@@ -4113,22 +3944,8 @@ static int ParseOptions( int argc, char ** argv )
             case '8':
                 if( optarg != NULL )
                 {
-                    if (!( strcmp( optarg, "weak" ) ))
-                    {
-                        denoise_opt = "2:1:1:2:3:3";
-                    }
-                    else if (!( strcmp( optarg, "medium" ) ))
-                    {
-                        denoise_opt = "3:2:2:2:3:3";
-                    }
-                    else if (!( strcmp( optarg, "strong" ) ))
-                    {
-                        denoise_opt = "7:7:7:5:5:5";
-                    }
-                    else
-                    {
-                        denoise_opt = strdup( optarg );
-                    }
+                    free(denoise_opt);
+                    denoise_opt = strdup( optarg );
                 }
                 denoise = 1;
                 break;
@@ -4450,179 +4267,38 @@ static int ParseOptions( int argc, char ** argv )
 
     }
 
-    /* NL-means presets (--nlmeans) and tunes (--nlmeans-tune)
-     *
-     * Presets adjust strength:
-     * ultralight - visually transparent
-     * light
-     * medium
-     * strong
-     *
-     * Tunes adjust settings to the specified content type:
-     * none
-     * film       - most content, live action
-     * grain      - like film but preserves luma grain
-     * highmotion - like film but avoids color smearing with stronger settings
-     * animation  - cel animation such as cartoons, anime
-     */
-    if (nlmeans == 1 && nlmeans_opt != NULL)
+    if (nlmeans)
     {
-        if (!strcmp(nlmeans_opt, "ultralight") ||
-            !strcmp(nlmeans_opt, "light") ||
-            !strcmp(nlmeans_opt, "medium") ||
-            !strcmp(nlmeans_opt, "strong"))
+        char *opt = hb_generate_filter_settings(HB_FILTER_NLMEANS,
+                                                nlmeans_opt, nlmeans_tune_opt);
+        if (opt != NULL)
         {
-            char   opt[1024];
-            double strength[2],
-                   origin_tune[2];
-            int    patch_size[2],
-                   range[2],
-                   frames[2],
-                   prefilter[2];
-
-            if (nlmeans_tune_opt == NULL || !strcmp(nlmeans_tune_opt, "none"))
-            {
-                strength[0]    = strength[1]    = 6;
-                origin_tune[0] = origin_tune[1] = 1;
-                patch_size[0]  = patch_size[1]  = 7;
-                range[0]       = range[1]       = 3;
-                frames[0]      = frames[1]      = 2;
-                prefilter[0]   = prefilter[1]   = 0;
-                if (!strcmp(nlmeans_opt, "ultralight"))
-                {
-                    strength[0] = strength[1] = 1.5;
-                }
-                else if (!strcmp(nlmeans_opt, "light"))
-                {
-                    strength[0] = strength[1] = 3;
-                }
-                else if (!strcmp(nlmeans_opt, "strong"))
-                {
-                    strength[0] = strength[1] = 10;
-                }
-            }
-            else if (!strcmp(nlmeans_tune_opt, "film"))
-            {
-                strength[0]    = 6; strength[1] = 8;
-                origin_tune[0] = origin_tune[1] = 0.8;
-                patch_size[0]  = patch_size[1]  = 7;
-                range[0]       = range[1]       = 3;
-                frames[0]      = frames[1]      = 2;
-                prefilter[0]   = prefilter[1]   = 0;
-                if (!strcmp(nlmeans_opt, "ultralight"))
-                {
-                    strength[0]    = 1.5;   strength[1]  = 2.4;
-                    origin_tune[0] = 0.9; origin_tune[1] = 0.9;
-                }
-                else if (!strcmp(nlmeans_opt, "light"))
-                {
-                    strength[0]    = 3;   strength[1]    = 4;
-                    origin_tune[0] = 0.9; origin_tune[1] = 0.9;
-                }
-                else if (!strcmp(nlmeans_opt, "strong"))
-                {
-                    strength[0]    = 8;   strength[1]    = 10;
-                    origin_tune[0] = 0.6; origin_tune[1] = 0.6;
-                }
-            }
-            else if (!strcmp(nlmeans_tune_opt, "grain"))
-            {
-                strength[0]    = 0; strength[1] = 6;
-                origin_tune[0] = origin_tune[1] = 0.8;
-                patch_size[0]  = patch_size[1]  = 7;
-                range[0]       = range[1]       = 3;
-                frames[0]      = frames[1]      = 2;
-                prefilter[0]   = prefilter[1]   = 0;
-                if (!strcmp(nlmeans_opt, "ultralight"))
-                {
-                    strength[0]    = 0;   strength[1]    = 2.4;
-                    origin_tune[0] = 0.9; origin_tune[1] = 0.9;
-                }
-                else if (!strcmp(nlmeans_opt, "light"))
-                {
-                    strength[0]    = 0;   strength[1]    = 3.5;
-                    origin_tune[0] = 0.9; origin_tune[1] = 0.9;
-                }
-                else if (!strcmp(nlmeans_opt, "strong"))
-                {
-                    strength[0]    = 0;   strength[1]    = 8;
-                    origin_tune[0] = 0.6; origin_tune[1] = 0.6;
-                }
-            }
-            else if (!strcmp(nlmeans_tune_opt, "highmotion"))
-            {
-                strength[0]    = 6;   strength[1]    = 6;
-                origin_tune[0] = 0.8; origin_tune[1] = 0.7;
-                patch_size[0]  = 7;   patch_size[1]  = 7;
-                range[0]       = 3;   range[1]       = 5;
-                frames[0]      = 2;   frames[1]      = 1;
-                prefilter[0]   = 0;   prefilter[1]   = 0;
-                if (!strcmp(nlmeans_opt, "ultralight"))
-                {
-                    strength[0]    = 1.5;   strength[1]  = 2.4;
-                    origin_tune[0] = 0.9; origin_tune[1] = 0.9;
-                }
-                else if (!strcmp(nlmeans_opt, "light"))
-                {
-                    strength[0]    = 3;   strength[1]    = 3.25;
-                    origin_tune[0] = 0.9; origin_tune[1] = 0.8;
-                }
-                else if (!strcmp(nlmeans_opt, "strong"))
-                {
-                    strength[0]    = 8;   strength[1]    = 6.75;
-                    origin_tune[0] = 0.6; origin_tune[1] = 0.5;
-                }
-            }
-            else if (!strcmp(nlmeans_tune_opt, "animation"))
-            {
-                strength[0]    = 5; strength[1] = 4;
-                origin_tune[0] = origin_tune[1] = 0.15;
-                patch_size[0]  = patch_size[1]  = 5;
-                range[0]       = range[1]       = 7;
-                frames[0]      = frames[1]      = 4;
-                prefilter[0]   = prefilter[1]   = 0;
-                if (!strcmp(nlmeans_opt, "ultralight"))
-                {
-                    strength[0] = 2.5; strength[1] = 2;
-                    frames[0]   = 2;   frames[1]   = 2;
-                }
-                else if (!strcmp(nlmeans_opt, "light"))
-                {
-                    strength[0] = 3; strength[1] = 2.25;
-                    frames[0]   = 3; frames[1]   = 3;
-                }
-                else if (!strcmp(nlmeans_opt, "strong"))
-                {
-                    strength[0] = 10; strength[1] = 8;
-                }
-            }
-            else
-            {
-                fprintf(stderr, "Unrecognized nlmeans tune (%s).\n", nlmeans_tune_opt);
-                return -1;
-            }
-
-            sprintf(opt, "%lf:%lf:%d:%d:%d:%d:%lf:%lf:%d:%d:%d:%d",
-                    strength[0], origin_tune[0], patch_size[0], range[0], frames[0], prefilter[0],
-                    strength[1], origin_tune[1], patch_size[1], range[1], frames[1], prefilter[1]);
-
             free(nlmeans_opt);
-            nlmeans_opt = strdup(opt);
-
+            nlmeans_opt = opt;
         }
-        else
+        else if (nlmeans_opt != NULL)
         {
-            if (nlmeans_tune_opt != NULL)
-            {
-                fprintf(stdout, "Custom nlmeans parameters specified; ignoring nlmeans tune (%s).\n", nlmeans_tune_opt);
-            }
+            fprintf(stderr, "Invalid parameters for nlmeans (%s).", nlmeans_opt);
+            return -1;
         }
-    }
-    else if (nlmeans == 1 && nlmeans_opt == NULL)
-    {
-        if (nlmeans_tune_opt != NULL)
+        else if (nlmeans_tune_opt != NULL)
         {
             fprintf(stdout, "Default nlmeans parameters specified; ignoring nlmeans tune (%s).\n", nlmeans_tune_opt);
+        }
+    }
+    if (denoise)
+    {
+        char *opt = hb_generate_filter_settings(HB_FILTER_DENOISE,
+                                                denoise_opt, NULL);
+        if (opt != NULL)
+        {
+            free(denoise_opt);
+            denoise_opt = opt;
+        }
+        else if (denoise_opt != NULL)
+        {
+            fprintf(stderr, "Invalid parameters for hqdn3d (%s).", denoise_opt);
+            return -1;
         }
     }
 

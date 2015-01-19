@@ -1,58 +1,70 @@
-/* $Id: HBSubtitles.h,v 1.35 2005/08/01 14:29:50 titer Exp $
+/*  HBSubtitles.h $
 
-   This file is part of the HandBrake source code.
-   Homepage: <http://handbrake.fr/>.
-   It may be used under the terms of the GNU General Public License. */
+ This file is part of the HandBrake source code.
+ Homepage: <http://handbrake.fr/>.
+ It may be used under the terms of the GNU General Public License. */
 
-#import <Cocoa/Cocoa.h>
-#include "hb.h"
+#import <Foundation/Foundation.h>
+#import "HBPresetCoding.h"
 
+extern NSString *keySubTrackSelectionIndex;
+extern NSString *keySubTrackName;
+extern NSString *keySubTrackIndex;
+extern NSString *keySubTrackLanguage;
+extern NSString *keySubTrackLanguageIsoCode;
+extern NSString *keySubTrackType;
 
+extern NSString *keySubTrackForced;
+extern NSString *keySubTrackBurned;
+extern NSString *keySubTrackDefault;
 
+extern NSString *keySubTrackSrtOffset;
+extern NSString *keySubTrackSrtFilePath;
+extern NSString *keySubTrackSrtCharCode;
+extern NSString *keySubTrackSrtCharCodeIndex;
+extern NSString *keySubTrackLanguageIndex;
 
-@interface HBSubtitles : NSObject <NSTableViewDataSource, NSTableViewDelegate> {
-hb_title_t                   *fTitle;
+@class HBTitle;
+@class HBSubtitlesDefaults;
 
-NSMutableArray               *subtitleArray; // contains the output subtitle track info
-NSMutableArray               *subtitleSourceArray;// contains the source subtitle track info
-NSString                     *foreignAudioSearchTrackName;
-NSMutableArray               *languagesArray; // array of languages taken from lang.c
-NSInteger                     languagesArrayDefIndex;
-NSMutableArray               *charCodeArray; // array of character codes
-int                           charCodeArrayDefIndex;
-int                           container;
+@interface HBSubtitles : NSObject <NSCoding, NSCopying, HBPresetCoding>
 
-}
+- (instancetype)initWithTitle:(HBTitle *)title;
 
-// Trigger a refresh of data
-- (void)resetWithTitle:(hb_title_t *)title;
+- (void)addAllTracks;
+- (void)removeAll;
+- (void)reloadDefaults;
 
-// Create new subtitle track
-- (void)addSubtitleTrack;
-- (NSDictionary *)createSubtitleTrack;
-- (NSMutableArray*) getSubtitleArray;
-// Add an srt file
-- (void)createSubtitleSrtTrack:(NSURL *)fileURL;
+- (void)validatePassthru;
+- (NSMutableDictionary *)createSubtitleTrack;
+- (NSMutableDictionary *)trackFromSourceTrackIndex:(NSInteger)index;
 
-- (void)containerChanged:(int) newContainer;
+@property (nonatomic, readonly) NSMutableArray *masterTrackArray;  // the master list of audio tracks from the title
+@property (nonatomic, readonly) NSMutableArray *tracks;
 
-- (void)setNewSubtitles:(NSMutableArray*) newSubtitleArray;
+@property (nonatomic, readwrite, retain) NSString *foreignAudioSearchTrackName;
+@property (nonatomic, readonly) NSArray *charCodeArray;
 
-// Table View Delegates
-- (NSUInteger)numberOfRowsInTableView:(NSTableView *)aTableView;
+@property (nonatomic, readonly) NSArray *languagesArray;
+@property (nonatomic, readonly) NSInteger languagesArrayDefIndex;
 
-- (id)tableView:(NSTableView *)aTableView
-      objectValueForTableColumn:(NSTableColumn *)aTableColumn
-      row:(NSInteger)rowIndex;
-      
-- (void)tableView:(NSTableView *)aTableView
-        setObjectValue:(id)anObject
-        forTableColumn:(NSTableColumn *)aTableColumn
-        row:(NSInteger)rowIndex;
+@property (nonatomic, readwrite, retain) HBSubtitlesDefaults *defaults;
 
-- (void)tableView:(NSTableView *)aTableView
-        willDisplayCell:(id)aCell
-        forTableColumn:(NSTableColumn *)aTableColumn
-        row:(NSInteger)rowIndex;
+/**
+ *  For internal use
+ */
+
+- (void)containerChanged:(int)container;
+@property (nonatomic, readwrite) int container; // initially is the default HB_MUX_MP4
 
 @end
+
+@interface HBSubtitles (KVC)
+
+- (NSUInteger)countOfTracks;
+- (id)objectInTracksAtIndex:(NSUInteger)index;
+- (void)insertObject:(id)audioObject inTracksAtIndex:(NSUInteger)index;
+- (void)removeObjectFromTracksAtIndex:(NSUInteger)index;
+
+@end
+

@@ -111,12 +111,20 @@ hb_dvd_t * hb_dvdread_init( char * path )
     hb_dvd_t * e;
     hb_dvdread_t * d;
     int region_mask;
+    char * path_ccp;
 
     e = calloc( sizeof( hb_dvd_t ), 1 );
     d = &(e->dvdread);
 
+    /*
+     * Convert UTF-8 path to current code page on Windows
+     * hb_utf8_to_cp() is the same as strdup on non-Windows,
+     * so no #ifdef required here
+     */
+    path_ccp = hb_utf8_to_cp( path );
+
 	/* Log DVD drive region code */
-    if ( hb_dvd_region( path, &region_mask ) == 0 )
+    if ( hb_dvd_region( path_ccp, &region_mask ) == 0 )
     {
         hb_log( "dvd: Region mask 0x%02x", region_mask );
         if ( region_mask == 0xFF )
@@ -126,7 +134,7 @@ hb_dvd_t * hb_dvdread_init( char * path )
     }
 
     /* Open device */
-    if( !( d->reader = DVDOpen( path ) ) )
+    if( !( d->reader = DVDOpen( path_ccp ) ) )
     {
         /*
          * Not an error, may be a stream - which we'll try in a moment.
@@ -138,11 +146,12 @@ hb_dvd_t * hb_dvdread_init( char * path )
     /* Open main IFO */
     if( !( d->vmg = ifoOpen( d->reader, 0 ) ) )
     {
-        hb_error( "dvd: ifoOpen failed" );
+        hb_log( "dvd: not a dvd - trying as a stream/file instead" );
         goto fail;
     }
 
-    d->path = strdup( path );
+    d->path = strdup( path ); /* hb_dvdread_title_scan assumes UTF-8 path, so not path_ccp here */
+    free( path_ccp );
 
     return e;
 
@@ -150,6 +159,7 @@ fail:
     if( d->vmg )    ifoClose( d->vmg );
     if( d->reader ) DVDClose( d->reader );
     free( e );
+    free( path_ccp );
     return NULL;
 }
 
@@ -481,7 +491,7 @@ static hb_title_t * hb_dvdread_title_scan( hb_dvd_t * e, int t, uint64_t min_dur
         lang = lang_for_code( vts->vtsi_mat->vts_subp_attr[i].lang_code );
 
         subtitle = calloc( sizeof( hb_subtitle_t ), 1 );
-        subtitle->track = i+1;
+        subtitle->track = i;
         subtitle->id = ( ( 0x20 + position ) << 8 ) | 0xbd;
         snprintf( subtitle->lang, sizeof( subtitle->lang ), "%s",
              strlen(lang->native_name) ? lang->native_name : lang->eng_name);
@@ -613,17 +623,20 @@ static hb_title_t * hb_dvdread_title_scan( hb_dvd_t * e, int t, uint64_t min_dur
     switch( vts->vtsi_mat->vts_video_attr.display_aspect_ratio )
     {
         case 0:
-            title->container_aspect = 4. / 3.;
+            title->container_dar.num = 4;
+            title->container_dar.den = 3;
             break;
         case 3:
-            title->container_aspect = 16. / 9.;
+            title->container_dar.num = 16;
+            title->container_dar.den = 9;
             break;
         default:
             hb_log( "scan: unknown aspect" );
             goto fail;
     }
 
-    hb_log( "scan: aspect = %g", title->container_aspect );
+    hb_log("scan: aspect = %d:%d",
+           title->container_dar.num, title->container_dar.den);
 
     /* This title is ok so far */
     goto cleanup;

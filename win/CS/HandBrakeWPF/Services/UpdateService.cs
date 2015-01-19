@@ -15,9 +15,12 @@ namespace HandBrakeWPF.Services
     using System.Threading;
 
     using HandBrake.ApplicationServices.Utilities;
+    using HandBrake.Interop;
 
     using HandBrakeWPF.Model;
     using HandBrakeWPF.Services.Interfaces;
+
+    using AppcastReader = HandBrakeWPF.Utilities.AppcastReader;
 
     /// <summary>
     /// The Update Service
@@ -61,8 +64,10 @@ namespace HandBrakeWPF.Services
             // Make sure it's running on the calling thread
             if (this.userSettingService.GetUserSetting<bool>(UserSettingConstants.UpdateStatus))
             {
-                if (DateTime.Now.Subtract(this.userSettingService.GetUserSetting<DateTime>(UserSettingConstants.LastUpdateCheckDate)).TotalDays
-                    > this.userSettingService.GetUserSetting<int>(UserSettingConstants.DaysBetweenUpdateCheck))
+                DateTime lastUpdateCheck = this.userSettingService.GetUserSetting<DateTime>(UserSettingConstants.LastUpdateCheckDate);
+                int checkFrequency = this.userSettingService.GetUserSetting<int>(UserSettingConstants.DaysBetweenUpdateCheck) == 0 ? 7 : 30;
+
+                if (DateTime.Now.Subtract(lastUpdateCheck).TotalDays > checkFrequency)
                 {
                     this.userSettingService.SetUserSetting(UserSettingConstants.LastUpdateCheckDate, DateTime.Now);
 
@@ -85,22 +90,20 @@ namespace HandBrakeWPF.Services
                     try
                     {
                         string url =
-                            VersionHelper.Is64Bit()
+                            VersionHelper.Is64Bit() || Environment.Is64BitOperatingSystem
                                 ? Constants.Appcast64
                                 : Constants.Appcast32;
 
                         if (VersionHelper.IsNightly())
                         {
                             url =
-                            VersionHelper.Is64Bit()
+                            VersionHelper.Is64Bit() || Environment.Is64BitOperatingSystem
                                 ? Constants.AppcastUnstable64
                                 : Constants.AppcastUnstable32;
                         }
-                        
-                        var currentBuild =
-                            this.userSettingService.GetUserSetting<int>(UserSettingConstants.HandBrakeBuild);
-                        var skipBuild = this.userSettingService.GetUserSetting<int>(
-                            UserSettingConstants.Skipversion);
+
+                        var currentBuild = HandBrakeUtils.Build;
+                        var skipBuild = this.userSettingService.GetUserSetting<int>(UserSettingConstants.Skipversion);
 
                         // Initialize variables
                         WebRequest request = WebRequest.Create(url);

@@ -213,9 +213,6 @@ void hb_display_job_info(hb_job_t *job)
     hb_log("   + container: %s", hb_container_get_long_name(job->mux));
     switch (job->mux)
     {
-        case HB_MUX_MP4V2:
-            if (job->largeFileSize)
-                hb_log("     + 64-bit chunk offsets");
         case HB_MUX_AV_MP4:
             if (job->mp4_optimize)
                 hb_log("     + optimized for HTTP streaming (fast start)");
@@ -274,31 +271,15 @@ void hb_display_job_info(hb_job_t *job)
         }
     }
     
-    if( job->anamorphic.mode )
-    {
-        hb_log( "   + %s anamorphic", job->anamorphic.mode == 1 ? "strict" : job->anamorphic.mode == 2? "loose" : "custom" );
-        if( job->anamorphic.mode == 3 && job->anamorphic.keep_display_aspect )
-        {
-            hb_log( "     + keeping source display aspect ratio"); 
-        }
-        hb_log( "     + storage dimensions: %d * %d, mod %i",
-                    job->width, job->height, job->modulus );
-        if( job->anamorphic.itu_par )
-        {
-            hb_log( "     + using ITU pixel aspect ratio values"); 
-        }
-        hb_log( "     + pixel aspect ratio: %i / %i", job->anamorphic.par_width, job->anamorphic.par_height );
-        hb_log( "     + display dimensions: %.0f * %i",
-            (float)( job->width * job->anamorphic.par_width / job->anamorphic.par_height ), job->height );
-    }
-    else
-    {
-        hb_log( "   + dimensions: %d * %d, mod %i",
-                job->width, job->height, job->modulus );
-    }
-
     if ( job->grayscale )
-        hb_log( "   + grayscale mode" );
+        hb_log( "     + grayscale mode" );
+
+    hb_log( "   + Output geometry" );
+    hb_log( "     + storage dimensions: %d x %d", job->width, job->height );
+    hb_log( "     + pixel aspect ratio: %d : %d", job->par.num, job->par.den );
+    hb_log( "     + display dimensions: %d x %d",
+            job->width * job->par.num / job->par.den, job->height );
+
 
     if( !job->indepth_scan )
     {
@@ -366,18 +347,20 @@ void hb_display_job_info(hb_job_t *job)
         else
         {
             hb_log( "     + bitrate: %d kbps, pass: %d", job->vbitrate, job->pass );
-            if( job->pass == 1 && job->fastfirstpass == 1 &&
-                job->vcodec == HB_VCODEC_X264 )
+            if(job->pass == 1 && job->fastfirstpass == 1 &&
+               (job->vcodec == HB_VCODEC_X264 || job->vcodec == HB_VCODEC_X265))
             {
                 hb_log( "     + fast first pass" );
-                hb_log( "     + options: ref=1:8x8dct=0:me=dia:trellis=0" );
-                hb_log( "                analyse=i4x4 (if originally enabled, else analyse=none)" );
-                hb_log( "                subq=2 (if originally greater than 2, else subq unchanged)" );
+                if (job->vcodec == HB_VCODEC_X264)
+                {
+                    hb_log( "     + options: ref=1:8x8dct=0:me=dia:trellis=0" );
+                    hb_log( "                analyse=i4x4 (if originally enabled, else analyse=none)" );
+                    hb_log( "                subq=2 (if originally greater than 2, else subq unchanged)" );
+                }
             }
         }
 
-        if (job->color_matrix_code && (job->vcodec == HB_VCODEC_X264 ||
-                                       job->mux    == HB_MUX_MP4V2))
+        if (job->color_matrix_code && job->vcodec == HB_VCODEC_X264)
         {
             // color matrix is set:
             // 1) at the stream    level (x264  only),
@@ -518,8 +501,9 @@ void correct_framerate( hb_job_t * job )
         return; // Interjob information is for a different encode.
 
     // compute actual output vrate from first pass
-    interjob->vrate = job->vrate_base * ( (double)interjob->out_frame_count * 90000 / interjob->total_time );
-    interjob->vrate_base = job->vrate_base;
+    interjob->vrate.den = (int64_t)job->vrate.num * interjob->total_time /
+                          ((int64_t)interjob->out_frame_count * 90000);
+    interjob->vrate.num = job->vrate.num;
 }
 
 /**
@@ -695,19 +679,30 @@ static void do_job(hb_job_t *job)
         }
         if (one_burned)
         {
-            // Add subtitle rendering filter
-            // Note that if the filter is already in the filter chain, this
-            // has no effect. Note also that this means the front-end is
-            // not required to add the subtitle rendering filter since
-            // we will always try to do it here.
-            hb_filter_object_t *filter = hb_filter_init(HB_FILTER_RENDER_SUB);
-            char *filter_settings      = hb_strdup_printf("%d:%d:%d:%d",
-                                                          job->crop[0],
-                                                          job->crop[1],
-                                                          job->crop[2],
-                                                          job->crop[3]);
-            hb_add_filter(job, filter, filter_settings);
-            free(filter_settings);
+            int found = 0;
+            // Check that the HB_FILTER_RENDER_SUB is in the filter chain.
+            // We can not add it automatically because it needs crop
+            // values which only the frontend knows.
+            if (job->list_filter != NULL)
+            {
+                int ii;
+                for (ii = 0; ii < hb_list_count(job->list_filter); ii++)
+                {
+                    hb_filter_object_t *filter;
+                    filter = hb_list_item(job->list_filter, ii);
+                    if (filter->id == HB_FILTER_RENDER_SUB)
+                    {
+                        found = 1;
+                        break;
+                    }
+                }
+            }
+            if (!found)
+            {
+                // If this happens, it is a programming error that
+                // needs to be fixed in the frontend
+                hb_error("Subtitle burned, but no rendering filter");
+            }
         }
     }
 
@@ -770,8 +765,8 @@ static void do_job(hb_job_t *job)
         int num_cpu_filters = 0;
         hb_filter_object_t *filter;
         // default values for VPP filter
-        vpp_settings[0] = job->title->width;
-        vpp_settings[1] = job->title->height;
+        vpp_settings[0] = job->title->geometry.width;
+        vpp_settings[1] = job->title->geometry.height;
         vpp_settings[2] = job->title->crop[0];
         vpp_settings[3] = job->title->crop[1];
         vpp_settings[4] = job->title->crop[2];
@@ -843,8 +838,8 @@ static void do_job(hb_job_t *job)
                 filter = hb_filter_init(HB_FILTER_QSV_POST);
                 hb_add_filter(job, filter, NULL);
             }
-            if (vpp_settings[0] != job->title->width  ||
-                vpp_settings[1] != job->title->height ||
+            if (vpp_settings[0] != job->title->geometry.width  ||
+                vpp_settings[1] != job->title->geometry.height ||
                 vpp_settings[2] >= 1 /* crop */       ||
                 vpp_settings[3] >= 1 /* crop */       ||
                 vpp_settings[4] >= 1 /* crop */       ||
@@ -876,17 +871,15 @@ static void do_job(hb_job_t *job)
 
         init.job = job;
         init.pix_fmt = AV_PIX_FMT_YUV420P;
-        init.width = title->width;
-        init.height = title->height;
+        init.geometry.width = title->geometry.width;
+        init.geometry.height = title->geometry.height;
 
         /* DXVA2 */
         init.use_dxva = hb_use_dxva(title);
 
-        init.par_width = job->anamorphic.par_width;
-        init.par_height = job->anamorphic.par_height;
+        init.geometry.par = job->par;
         memcpy(init.crop, title->crop, sizeof(int[4]));
-        init.vrate_base = title->rate_base;
-        init.vrate = title->rate;
+        init.vrate = title->vrate;
         init.cfr = 0;
         for( i = 0; i < hb_list_count( job->list_filter ); )
         {
@@ -901,38 +894,39 @@ static void do_job(hb_job_t *job)
             }
             i++;
         }
-        job->width = init.width;
-        job->height = init.height;
-        job->anamorphic.par_width = init.par_width;
-        job->anamorphic.par_height = init.par_height;
+        job->width = init.geometry.width;
+        job->height = init.geometry.height;
+        job->par = init.geometry.par;
         memcpy(job->crop, init.crop, sizeof(int[4]));
-        job->vrate_base = init.vrate_base;
         job->vrate = init.vrate;
         job->cfr = init.cfr;
     }
-
-    if( job->anamorphic.mode )
+    else
     {
-        /* While x264 is smart enough to reduce fractions on its own, libavcodec and
-         * the MacGUI need some help with the math, so lose superfluous factors. */
-        hb_reduce( &job->anamorphic.par_width, &job->anamorphic.par_height,
-                    job->anamorphic.par_width,  job->anamorphic.par_height );
-        if( job->vcodec & HB_VCODEC_FFMPEG_MASK )
-        {
-            /* Just to make working with ffmpeg even more fun,
-             * lavc's MPEG-4 encoder can't handle PAR values >= 255,
-             * even though AVRational does. Adjusting downwards
-             * distorts the display aspect slightly, but such is life. */
-            while( ( job->anamorphic.par_width  & ~0xFF ) ||
-                   ( job->anamorphic.par_height & ~0xFF ) )
-            {
-                job->anamorphic.par_width  >>= 1;
-                job->anamorphic.par_height >>= 1;
-                hb_reduce( &job->anamorphic.par_width, &job->anamorphic.par_height,
-                            job->anamorphic.par_width,  job->anamorphic.par_height );
-            }
-        }
+        job->width = title->geometry.width;
+        job->height = title->geometry.height;
+        job->par = title->geometry.par;
+        memset(job->crop, 0, sizeof(int[4]));
+        job->vrate = title->vrate;
+        job->cfr = 0;
     }
+
+    /*
+     * MPEG-4 Part 2 stores the PAR num/den as unsigned 8-bit fields,
+     * and libavcodec's encoder fails to initialize if we don't handle it.
+     */
+    if (job->vcodec == HB_VCODEC_FFMPEG_MPEG4)
+    {
+        hb_limit_rational(&job->par.num, &job->par.den,
+                           job->par.num,  job->par.den, 255);
+    }
+
+    /*
+     * The frame rate may affect the bitstream's time base, lose superfluous
+     * factors for consistency (some encoders reduce fractions, some don't).
+     */
+    hb_reduce(&job->vrate.num, &job->vrate.den,
+               job->vrate.num,  job->vrate.den);
 
 #ifdef USE_QSV
     if (hb_qsv_decode_is_enabled(job))
@@ -1002,16 +996,23 @@ static void do_job(hb_job_t *job)
             audio->priv.fifo_out  = hb_fifo_init(FIFO_LARGE, FIFO_LARGE_WAKE);
             audio->priv.fifo_in   = hb_fifo_init(FIFO_LARGE, FIFO_LARGE_WAKE);
 
-            /* Passthru audio, nothing to sanitize here */
+            /* Passthru audio */
             if (audio->config.out.codec & HB_ACODEC_PASS_FLAG)
+            {
+                // Muxer needs these to be set correctly in order to
+                // set audio track MP4 time base.
+                audio->config.out.samples_per_frame =
+                                        audio->config.in.samples_per_frame;
+                audio->config.out.samplerate = audio->config.in.samplerate;
                 continue;
+            }
 
             /* Vorbis language information */
             if (audio->config.out.codec == HB_ACODEC_VORBIS)
                 audio->priv.config.vorbis.language = audio->config.lang.simple;
 
             /* sense-check the requested samplerate */
-            if (audio->config.out.samplerate < 0)
+            if (audio->config.out.samplerate <= 0)
             {
                 // if not specified, set to same as input
                 audio->config.out.samplerate = audio->config.in.samplerate;
@@ -1745,7 +1746,7 @@ static void work_loop( void * _w )
 static void filter_loop( void * _f )
 {
     hb_filter_object_t * f = _f;
-    hb_buffer_t      * buf_in, * buf_out;
+    hb_buffer_t      * buf_in, * buf_out = NULL;
 
     while( !*f->done && f->status != HB_FILTER_DONE )
     {

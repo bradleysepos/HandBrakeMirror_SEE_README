@@ -9,12 +9,10 @@
 
 namespace HandBrake.Interop.Helpers
 {
-    using HandBrake.Interop.Model.Encoding;
-
     /// <summary>
     /// The utilities.
     /// </summary>
-    public static class Utilities
+    internal static class Utilities
 	{
         /// <summary>
         /// Get the Greatest Common Factor
@@ -46,21 +44,6 @@ namespace HandBrake.Interop.Helpers
 			}
             
             return GreatestCommonFactor(a, b % a);
-		}
-
-		/// <summary>
-		/// Determines if the given audio encoder is a passthrough encoder choice.
-		/// </summary>
-		/// <param name="encoder">The audio encoder to examine.</param>
-		/// <returns>True if the encoder is passthrough.</returns>
-		public static bool IsPassthrough(AudioEncoder encoder)
-		{
-			return encoder == AudioEncoder.Ac3Passthrough ||
-                   encoder == AudioEncoder.DtsHDPassthrough ||
-                   encoder == AudioEncoder.DtsPassthrough ||
-                   encoder == AudioEncoder.Mp3Passthru || 
-                   encoder == AudioEncoder.AacPassthru ||
-                   encoder == AudioEncoder.Passthrough;
 		}
 	}
 }

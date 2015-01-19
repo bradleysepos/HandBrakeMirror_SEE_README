@@ -89,10 +89,8 @@
         <real>1</real>
         <key>start_frame</key>
         <integer>-1</integer>
-        <key>title_no</key>
-        <integer>0</integer>
         <key>title</key>
-        <string>none</string>
+        <integer>0</integer>
         <key>title_selected</key>
         <false />
         <key>volume_label</key>
@@ -126,7 +124,7 @@
         <true />
         <key>PictureDeinterlaceDecomb</key>
         <false />
-        <key>x264PresetSlider</key>
+        <key>VideoPresetSlider</key>
         <integer>0</integer>
         <key>x264ZeroLatency</key>
         <false />
@@ -145,8 +143,6 @@
         <false />
         <key>EncodeLogLocation</key>
         <false />
-        <key>show_status</key>
-        <true />
         <key>allow_tweaks</key>
         <false />
         <key>last_update_check</key>
@@ -248,8 +244,12 @@
         <string>off</string>
         <key>PictureDeinterlaceCustom</key>
         <string></string>
-        <key>PictureDenoise</key>
+        <key>PictureDenoiseFilter</key>
         <string>off</string>
+        <key>PictureDenoisePreset</key>
+        <string>medium</string>
+        <key>PictureDenoiseTune</key>
+        <string>none</string>
         <key>PictureDenoiseCustom</key>
         <string></string>
         <key>PictureDetelecine</key>
@@ -278,8 +278,6 @@
         <false />
         <key>PictureKeepRatio</key>
         <true />
-        <key>Mp4LargeFile</key>
-        <false />
         <key>AudioAllowMP3Pass</key>
         <true />
         <key>AudioAllowAACPass</key>
@@ -355,21 +353,19 @@
         <integer>2</integer>
         <key>VideoQualitySlider</key>
         <real>0.60</real>
-        <key>lavcOption</key>
-        <string></string>
         <key>x264Option</key>
         <string></string>
-        <key>x264Preset</key>
+        <key>VideoPreset</key>
         <string>custom</string>
-        <key>x264Tune</key>
+        <key>VideoTune</key>
         <string></string>
-        <key>h264Profile</key>
+        <key>VideoProfile</key>
         <string></string>
-        <key>h264Level</key>
+        <key>VideoLevel</key>
         <string></string>
         <key>x264UseAdvancedOptions</key>
         <false />
-        <key>x264OptionExtra</key>
+        <key>VideoOptionExtra</key>
         <string></string>
     </dict>
 </dict>

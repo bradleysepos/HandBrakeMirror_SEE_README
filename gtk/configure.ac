@@ -60,14 +60,6 @@ AC_ARG_ENABLE(fdk-aac,
 	AS_HELP_STRING([--enable-fdk-aac], [enable fdk aac encoder]),
 	use_fdk_aac=yes, use_fdk_aac=no)
 
-AC_ARG_ENABLE(mp4v2,
-	AS_HELP_STRING([--enable-mp4v2], [enable mp4v2 muxer]),
-	use_mp4v2=yes, use_mp4v2=no)
-
-AC_ARG_ENABLE(libmkv,
-	AS_HELP_STRING([--enable-libmkv], [enable libmkv muxer]),
-	use_libmkv=yes, use_libmkv=no)
-
 AC_ARG_ENABLE(x265,
 	AS_HELP_STRING([--enable-x265], [enable x265 encoder]),
 	use_x265=yes, use_x265=no)
@@ -150,13 +142,6 @@ else
 	CFLAGS="$CFLAGS -D_NO_UPDATE_CHECK"
 fi
 
-PKG_CHECK_MODULES(libappindicator3, appindicator3-0.1, have_appind=yes, have_appind=no)
-if test "x$have_appind" = "xyes" ; then
-    GHB_PACKAGES="$GHB_PACKAGES appindicator3-0.1"
-    CXXFLAGS="$CXXFLAGS -D_USE_APP_IND"
-    CFLAGS="$CFLAGS -D_USE_APP_IND"
-fi
-
 AM_CONDITIONAL([MINGW], [test "x$mingw_flag" = "xyes"])
 
 PKG_CHECK_MODULES(GHB, [$GHB_PACKAGES])
@@ -168,17 +153,17 @@ if test x"$BUILD_PKG_CONFIG" = x"no"; then
 	AC_MSG_ERROR([You need to install pkg-config])
 fi
 
-GHB_TOOLS_CFLAGS=`$BUILD_PKG_CONFIG --cflags glib-2.0 gdk-pixbuf-2.0`
+GHB_TOOLS_CFLAGS=`$BUILD_PKG_CONFIG --cflags glib-2.0 gdk-pixbuf-2.0 gtk+-3.0`
 GHB_TOOLS_LIBS=`$BUILD_PKG_CONFIG --libs glib-2.0 gdk-pixbuf-2.0`
 
-HB_LIBS="-lhandbrake -lavresample -lavformat -lavcodec -lavutil -ldvdnav -ldvdread -lmp3lame -lvorbis -lvorbisenc -logg -lsamplerate -lx264 -lswscale -ltheoraenc -ltheoradec -lvpx -lz -lbz2 -lbluray -lass -lfontconfig -lfreetype -lxml2"
+HB_LIBS="-lhandbrake -lavresample -lavformat -lavcodec -lavutil -ldvdnav -ldvdread -lmp3lame -lvorbis -lvorbisenc -logg -lsamplerate -lx264 -lswscale -ltheoraenc -ltheoradec -lvpx -lz -lbz2 -lbluray -lass -lfontconfig -lfreetype -lxml2 -ljansson"
 
 case $host in
   *-*-mingw*)
     if test "x$use_libdl" = "xyes" ; then
 		HB_LIBS+=" -ldl -lpthreadGC2"
 	fi
-    HB_LIBS+=" -lpthreadGC2"
+    HB_LIBS+=" -lpthreadGC2 -lregex"
     ;;
   *)
     HB_LIBS+=" -ldl -lpthread"
@@ -187,14 +172,6 @@ esac
 
 if test "x$use_fdk_aac" = "xyes" ; then
     HB_LIBS+=" -lfdk-aac"
-fi
-
-if test "x$use_mp4v2" = "xyes" ; then
-    HB_LIBS+=" -lmp4v2"
-fi
-
-if test "x$use_libmkv" = "xyes" ; then
-    HB_LIBS+=" -lmkv"
 fi
 
 if test "x$use_x265" = "xyes" ; then

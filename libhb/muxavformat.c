@@ -7,8 +7,6 @@
    For full terms see the file COPYING file or visit http://www.gnu.org/licenses/gpl-2.0.html
  */
 
-#if defined(USE_AVFORMAT)
-
 #include <ogg/ogg.h>
 #include "libavformat/avformat.h"
 #include "libavutil/avstring.h"
@@ -157,7 +155,9 @@ static int avformatInit( hb_mux_object_t * m )
 
             av_dict_set(&av_opts, "brand", "mp42", 0);
             if (job->mp4_optimize)
-                av_dict_set( &av_opts, "movflags", "faststart", 0 );
+                av_dict_set(&av_opts, "movflags", "faststart+disable_chpl", 0);
+            else
+                av_dict_set(&av_opts, "movflags", "+disable_chpl", 0);
             break;
 
         case HB_MUX_AV_MKV:
@@ -221,7 +221,7 @@ static int avformatInit( hb_mux_object_t * m )
             priv_data = av_malloc(priv_size);
             if (priv_data == NULL)
             {
-                hb_error("malloc failure");
+                hb_error("H.264 extradata: malloc failure");
                 goto error;
             }
 
@@ -257,7 +257,7 @@ static int avformatInit( hb_mux_object_t * m )
                 priv_data = av_malloc(priv_size);
                 if (priv_data == NULL)
                 {
-                    hb_error("malloc failure");
+                    hb_error("MPEG4 extradata: malloc failure");
                     goto error;
                 }
                 memcpy(priv_data, job->config.mpeg4.bytes, priv_size);
@@ -273,7 +273,7 @@ static int avformatInit( hb_mux_object_t * m )
                 priv_data = av_malloc(priv_size);
                 if (priv_data == NULL)
                 {
-                    hb_error("malloc failure");
+                    hb_error("MPEG2 extradata: malloc failure");
                     goto error;
                 }
                 memcpy(priv_data, job->config.mpeg4.bytes, priv_size);
@@ -303,7 +303,7 @@ static int avformatInit( hb_mux_object_t * m )
             priv_data = av_malloc(priv_size);
             if (priv_data == NULL)
             {
-                hb_error("malloc failure");
+                hb_error("Theora extradata: malloc failure");
                 goto error;
             }
 
@@ -327,7 +327,7 @@ static int avformatInit( hb_mux_object_t * m )
                 priv_data = av_malloc(priv_size);
                 if (priv_data == NULL)
                 {
-                    hb_error("malloc failure");
+                    hb_error("H.265 extradata: malloc failure");
                     goto error;
                 }
                 memcpy(priv_data, job->config.h265.headers, priv_size);
@@ -341,34 +341,22 @@ static int avformatInit( hb_mux_object_t * m )
     track->st->codec->extradata = priv_data;
     track->st->codec->extradata_size = priv_size;
 
-    if (job->anamorphic.mode > 0)
-    {
-        track->st->sample_aspect_ratio.num        = job->anamorphic.par_width;
-        track->st->sample_aspect_ratio.den        = job->anamorphic.par_height;
-        track->st->codec->sample_aspect_ratio.num = job->anamorphic.par_width;
-        track->st->codec->sample_aspect_ratio.den = job->anamorphic.par_height;
-    }
-    else
-    {
-        track->st->sample_aspect_ratio.num        = 1;
-        track->st->sample_aspect_ratio.den        = 1;
-        track->st->codec->sample_aspect_ratio.num = 1;
-        track->st->codec->sample_aspect_ratio.den = 1;
-    }
-    track->st->codec->width = job->width;
-    track->st->codec->height = job->height;
+    track->st->sample_aspect_ratio.num        = job->par.num;
+    track->st->sample_aspect_ratio.den        = job->par.den;
+    track->st->codec->sample_aspect_ratio.num = job->par.num;
+    track->st->codec->sample_aspect_ratio.den = job->par.den;
+    track->st->codec->width                   = job->width;
+    track->st->codec->height                  = job->height;
     track->st->disposition |= AV_DISPOSITION_DEFAULT;
 
-    int vrate_base, vrate;
+    hb_rational_t vrate;
     if( job->pass == 2 )
     {
         hb_interjob_t * interjob = hb_interjob_get( job->h );
-        vrate_base = interjob->vrate_base;
         vrate = interjob->vrate;
     }
     else
     {
-        vrate_base = job->vrate_base;
         vrate = job->vrate;
     }
 
@@ -378,32 +366,32 @@ static int avformatInit( hb_mux_object_t * m )
     // measuring framerate, the actual value may not be exact.  So
     // we look for rates that are "close" and make an adjustment
     // to fps.den.
-    if (vrate == 27000000)
+    if (vrate.num == 27000000)
     {
         const hb_rate_t *video_framerate = NULL;
         while ((video_framerate = hb_video_framerate_get_next(video_framerate)) != NULL)
         {
-            if (abs(vrate_base - video_framerate->rate) < 10)
+            if (abs(vrate.den - video_framerate->rate) < 10)
             {
-                vrate_base = video_framerate->rate;
+                vrate.den = video_framerate->rate;
                 break;
             }
         }
     }
-    hb_reduce(&vrate_base, &vrate, vrate_base, vrate);
+    hb_reduce(&vrate.num, &vrate.den, vrate.num, vrate.den);
     if (job->mux == HB_MUX_AV_MP4)
     {
         // libavformat mp4 muxer requires that the codec time_base have the
         // same denominator as the stream time_base, it uses it for the
         // mdhd timescale.
-        double scale = (double)track->st->time_base.den / vrate;
+        double scale = (double)track->st->time_base.den / vrate.num;
         track->st->codec->time_base.den = track->st->time_base.den;
-        track->st->codec->time_base.num = vrate_base * scale;
+        track->st->codec->time_base.num = vrate.den * scale;
     }
     else
     {
-        track->st->codec->time_base.num = vrate_base;
-        track->st->codec->time_base.den = vrate;
+        track->st->codec->time_base.num = vrate.den;
+        track->st->codec->time_base.den = vrate.num;
     }
 
     /* add the audio tracks */
@@ -469,7 +457,7 @@ static int avformatInit( hb_mux_object_t * m )
                 priv_data = av_malloc(priv_size);
                 if (priv_data == NULL)
                 {
-                    hb_error("malloc failure");
+                    hb_error("Vorbis extradata: malloc failure");
                     goto error;
                 }
 
@@ -487,13 +475,13 @@ static int avformatInit( hb_mux_object_t * m )
             case HB_ACODEC_FFFLAC24:
                 track->st->codec->codec_id = AV_CODEC_ID_FLAC;
 
-                if (audio->priv.config.extradata.bytes)
+                if (audio->priv.config.extradata.length)
                 {
                     priv_size = audio->priv.config.extradata.length;
                     priv_data = av_malloc(priv_size);
                     if (priv_data == NULL)
                     {
-                        hb_error("malloc failure");
+                        hb_error("FLAC extradata: malloc failure");
                         goto error;
                     }
                     memcpy(priv_data,
@@ -508,19 +496,25 @@ static int avformatInit( hb_mux_object_t * m )
             case HB_ACODEC_FDK_HAAC:
                 track->st->codec->codec_id = AV_CODEC_ID_AAC;
 
-                if (audio->priv.config.extradata.bytes)
+                // TODO: fix AAC in TS parsing.  We need to fill
+                // extradata with AAC config. Some players will play
+                // an AAC stream that is missing extradata and some
+                // will not.
+                //
+                // libav mkv muxer expects there to be extradata for
+                // AAC and will crash if it is NULL.  So allocate extra
+                // byte so that av_malloc does not return NULL when length
+                // is 0.
+                priv_size = audio->priv.config.extradata.length;
+                priv_data = av_malloc(priv_size + 1);
+                if (priv_data == NULL)
                 {
-                    priv_size = audio->priv.config.extradata.length;
-                    priv_data = av_malloc(priv_size);
-                    if (priv_data == NULL)
-                    {
-                        hb_error("malloc failure");
-                        goto error;
-                    }
-                    memcpy(priv_data,
-                           audio->priv.config.extradata.bytes,
-                           audio->priv.config.extradata.length);
+                    hb_error("AAC extradata: malloc failure");
+                    goto error;
                 }
+                memcpy(priv_data,
+                       audio->priv.config.extradata.bytes,
+                       audio->priv.config.extradata.length);
                 break;
             default:
                 hb_error("muxavformat: Unknown audio codec: %x",
@@ -575,7 +569,14 @@ static int avformatInit( hb_mux_object_t * m )
         {
             name = audio->config.out.name;
         }
+        // Set audio track title
         av_dict_set(&track->st->metadata, "title", name, 0);
+        if (job->mux == HB_MUX_AV_MP4)
+        {
+            // Some software (MPC, mediainfo) use hdlr description
+            // for track title
+            av_dict_set(&track->st->metadata, "handler", name, 0);
+        }
     }
 
     char * subidx_fmt =
@@ -667,7 +668,7 @@ static int avformatInit( hb_mux_object_t * m )
                 priv_data = av_malloc(priv_size);
                 if (priv_data == NULL)
                 {
-                    hb_error("malloc failure");
+                    hb_error("VOBSUB extradata: malloc failure");
                     goto error;
                 }
                 memcpy(priv_data, subidx, priv_size);
@@ -700,7 +701,7 @@ static int avformatInit( hb_mux_object_t * m )
                         priv_data = av_malloc(priv_size);
                         if (priv_data == NULL)
                         {
-                            hb_error("malloc failure");
+                            hb_error("SSA extradata: malloc failure");
                             goto error;
                         }
                         memcpy(priv_data, subtitle->extradata, priv_size);
@@ -738,10 +739,7 @@ static int avformatInit( hb_mux_object_t * m )
             };
 
             int width, height = 60;
-            if (job->anamorphic.mode)
-                width = job->width * ((float)job->anamorphic.par_width / job->anamorphic.par_height);
-            else
-                width = job->width;
+            width = job->width * job->par.num / job->par.den;
             track->st->codec->width = width;
             track->st->codec->height = height;
             properties[14] = height >> 8;
@@ -753,7 +751,7 @@ static int avformatInit( hb_mux_object_t * m )
             priv_data = av_malloc(priv_size);
             if (priv_data == NULL)
             {
-                hb_error("malloc failure");
+                hb_error("TX3G extradata: malloc failure");
                 goto error;
             }
             memcpy(priv_data, properties, priv_size);
@@ -799,7 +797,7 @@ static int avformatInit( hb_mux_object_t * m )
                 priv_data = av_malloc(priv_size);
                 if (priv_data == NULL)
                 {
-                    hb_error("malloc failure");
+                    hb_error("Font extradata: malloc failure");
                     goto error;
                 }
                 memcpy(priv_data, attachment->data, priv_size);
@@ -925,14 +923,14 @@ static int add_chapter(hb_mux_object_t *m, int64_t start, int64_t end, char * ti
     chapters = av_realloc(m->oc->chapters, nchap * sizeof(AVChapter*));
     if (chapters == NULL)
     {
-        hb_error("malloc failure");
+        hb_error("chapter array: malloc failure");
         return -1;
     }
 
     chap = av_mallocz(sizeof(AVChapter));
     if (chap == NULL)
     {
-        hb_error("malloc failure");
+        hb_error("chapter: malloc failure");
         return -1;
     }
 
@@ -1032,8 +1030,10 @@ static int avformatMux(hb_mux_object_t *m, hb_mux_data_t *track, hb_buffer_t *bu
     {
         // There is a possiblility that some subtitles get through the pipeline
         // without ever discovering their true duration.  Make the duration
-        // 10 seconds in this case.
-        if (track->type == MUX_TYPE_SUBTITLE)
+        // 10 seconds in this case. Unless they are PGS subs which should
+        // have zero duration.
+        if (track->type == MUX_TYPE_SUBTITLE &&
+            track->st->codec->codec_id != AV_CODEC_ID_HDMV_PGS_SUBTITLE)
             duration = av_rescale_q(10, (AVRational){1,1},
                                     track->st->time_base);
         else
@@ -1057,8 +1057,6 @@ static int avformatMux(hb_mux_object_t *m, hb_mux_data_t *track, hb_buffer_t *bu
     {
         pkt.flags |= AV_PKT_FLAG_KEY;
     }
-
-    track->duration += pkt.duration;
 
     switch (track->type)
     {
@@ -1126,7 +1124,6 @@ static int avformatMux(hb_mux_object_t *m, hb_mux_data_t *track, hb_buffer_t *bu
                         *job->die = 1;
                         return -1;
                     }
-                    track->duration = pts;
                 }
                 if (track->st->codec->codec_id == AV_CODEC_ID_MOV_TEXT)
                 {
@@ -1161,18 +1158,18 @@ static int avformatMux(hb_mux_object_t *m, hb_mux_data_t *track, hb_buffer_t *bu
             {
                 // avformat requires the this additional information
                 // which it parses and then strips away
-                int start_hh, start_mm, stop_hh, stop_mm, layer;
-                float start_ss, stop_ss;
+                int start_hh, start_mm, start_ss, start_ms;
+                int stop_hh, stop_mm, stop_ss, stop_ms, layer;
                 char *ssa;
 
                 start_hh = buf->s.start / (90000 * 60 * 60);
-                start_mm = (buf->s.start / (90000 * 60));
-                start_ss = ((float)buf->s.start / 90000) - start_mm * 60;
-                start_mm %= 60;
+                start_mm = (buf->s.start / (90000 * 60)) % 60;
+                start_ss = (buf->s.start / 90000) % 60;
+                start_ms = (buf->s.start / 900) % 100;
                 stop_hh = buf->s.stop / (90000 * 60 * 60);
-                stop_mm = (buf->s.stop / (90000 * 60));
-                stop_ss = ((float)buf->s.stop / 90000) - stop_mm * 60;
-                stop_mm %= 60;
+                stop_mm = (buf->s.stop / (90000 * 60)) % 60;
+                stop_ss = (buf->s.stop / 90000) % 60;
+                stop_ms = (buf->s.stop / 900) % 100;
 
                 // Skip the read-order field
                 ssa = strchr((char*)buf->data, ',');
@@ -1184,9 +1181,10 @@ static int avformatMux(hb_mux_object_t *m, hb_mux_data_t *track, hb_buffer_t *bu
                 if (ssa != NULL)
                     ssa++;
                 sprintf((char*)sub_out,
-                    "Dialogue: %d,%d:%02d:%05.2f,%d:%02d:%05.2f,%s", layer,
-                    start_hh, start_mm, start_ss,
-                    stop_hh, stop_mm, stop_ss, ssa);
+                    "Dialogue: %d,%d:%02d:%02d.%02d,%d:%02d:%02d.%02d,%s",
+                    layer,
+                    start_hh, start_mm, start_ss, start_ms,
+                    stop_hh, stop_mm, stop_ss, stop_ms, ssa);
                 pkt.data = sub_out;
                 pkt.size = strlen((char*)sub_out) + 1;
             }
@@ -1197,6 +1195,7 @@ static int avformatMux(hb_mux_object_t *m, hb_mux_data_t *track, hb_buffer_t *bu
         default:
             break;
     }
+    track->duration = pts + pkt.duration;
 
     pkt.stream_index = track->st->index;
     int ret = av_interleaved_write_frame(m->oc, &pkt);
@@ -1275,7 +1274,7 @@ static int avformatEnd(hb_mux_object_t *m)
         {
             case HB_ACODEC_FFFLAC:
             case HB_ACODEC_FFFLAC24:
-                if( audio->priv.config.extradata.bytes )
+                if( audio->priv.config.extradata.length )
                 {
                     uint8_t *priv_data;
                     int priv_size;
@@ -1301,6 +1300,7 @@ static int avformatEnd(hb_mux_object_t *m)
     av_write_trailer(m->oc);
     avio_close(m->oc->pb);
     avformat_free_context(m->oc);
+    free(m->tracks);
     m->oc = NULL;
 
     return 0;
@@ -1315,5 +1315,3 @@ hb_mux_object_t * hb_mux_avformat_init( hb_job_t * job )
     m->job       = job;
     return m;
 }
-
-#endif // USE_AVFORMAT

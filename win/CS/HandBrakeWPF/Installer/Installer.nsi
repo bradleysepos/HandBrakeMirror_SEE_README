@@ -8,8 +8,8 @@
 
 ; HM NIS Edit Wizard helper defines
 !define PRODUCT_NAME "HandBrake"
-!define PRODUCT_VERSION "0.9.9.1"
-!define PRODUCT_VERSION_NUMBER "0.9.9.1"
+!define PRODUCT_VERSION "0.10.0"
+!define PRODUCT_VERSION_NUMBER "0.10.0"
 !define PRODUCT_DIR_REGKEY "Software\Microsoft\Windows\CurrentVersion\App Paths\Handbrake.exe"
 !define PRODUCT_UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}"
 !define PRODUCT_UNINST_ROOT_KEY "HKLM"
@@ -23,6 +23,7 @@ SetCompressor lzma
 
 ; MUI 1.67 compatible ------
 !include "MUI.nsh"
+!include WinVer.nsh
 
 ; MUI Settings
 !define MUI_ABORTWARNING
@@ -72,6 +73,12 @@ Function .onInit
   StrCmp $R0 0 +3
   MessageBox MB_OK|MB_ICONEXCLAMATION "The installer is already running." /SD IDOK
   Abort
+  
+  ; Detect if the intsaller is running on Windows XP and abort if it is.
+  ${IfNot} ${AtLeastWinVista}
+    MessageBox MB_OK "Windows Vista with Service Pack 1 or later is required in order to run HandBrake."
+    Quit
+  ${EndIf}
 
   ;Remove previous version
   ReadRegStr $R0 HKLM \

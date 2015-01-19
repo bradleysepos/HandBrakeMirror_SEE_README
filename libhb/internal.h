@@ -51,6 +51,41 @@ void hb_set_state( hb_handle_t *, hb_state_t * );
  * May have metadata associated with it via extra fields
  * that are conditionally used depending on the type of packet.
  */
+struct hb_buffer_settings_s
+{
+    enum { AUDIO_BUF, VIDEO_BUF, SUBTITLE_BUF, FRAME_BUF, OTHER_BUF } type;
+
+    int           id;           // ID of the track that the packet comes from
+    int64_t       start;        // start time of frame
+    double        duration;     // Actual duration, may be fractional ticks
+    int64_t       stop;         // stop time of frame
+    int64_t       renderOffset; // DTS used by b-frame offsets in muxmp4
+    int64_t       pcr;
+    uint8_t       discontinuity;
+    int           new_chap;     // Video packets: if non-zero, is the index of the chapter whose boundary was crossed
+
+#define HB_FRAME_IDR      0x01
+#define HB_FRAME_I        0x02
+#define HB_FRAME_AUDIO    0x04
+#define HB_FRAME_SUBTITLE 0x08
+#define HB_FRAME_P        0x10
+#define HB_FRAME_B        0x20
+#define HB_FRAME_BREF     0x40
+#define HB_FRAME_KEY      0x0F
+#define HB_FRAME_REF      0xF0
+    uint8_t       frametype;
+    uint16_t      flags;
+};
+
+struct hb_image_format_s
+{
+    int           x;
+    int           y;
+    int           width;
+    int           height;
+    int           fmt;
+};
+
 struct hb_buffer_s
 {
     int           size;     // size of this packet
@@ -71,42 +106,10 @@ struct hb_buffer_s
      */
     int64_t       sequence;
 
-    struct settings
-    {
-        enum { AUDIO_BUF, VIDEO_BUF, SUBTITLE_BUF, FRAME_BUF, OTHER_BUF } type;
+    hb_buffer_settings_t s;
+    hb_image_format_t f;
 
-        int           id;           // ID of the track that the packet comes from
-        int64_t       start;        // start time of frame
-        double        duration;     // Actual duration, may be fractional ticks
-        int64_t       stop;         // stop time of frame
-        int64_t       renderOffset; // DTS used by b-frame offsets in muxmp4
-        int64_t       pcr;
-        uint8_t       discontinuity;
-        int           new_chap;     // Video packets: if non-zero, is the index of the chapter whose boundary was crossed
-
-    #define HB_FRAME_IDR      0x01
-    #define HB_FRAME_I        0x02
-    #define HB_FRAME_AUDIO    0x04
-    #define HB_FRAME_SUBTITLE 0x08
-    #define HB_FRAME_P        0x10
-    #define HB_FRAME_B        0x20
-    #define HB_FRAME_BREF     0x40
-    #define HB_FRAME_KEY      0x0F
-    #define HB_FRAME_REF      0xF0
-        uint8_t       frametype;
-        uint16_t      flags;
-    } s;
-
-    struct format
-    {
-        int           x;
-        int           y;
-        int           width;
-        int           height;
-        int           fmt;
-    } f;
-
-    struct plane
+    struct buffer_plane
     {
         uint8_t     * data;
         int           stride;
@@ -163,6 +166,8 @@ hb_buffer_t * hb_buffer_dup( const hb_buffer_t * src );
 int           hb_buffer_copy( hb_buffer_t * dst, const hb_buffer_t * src );
 void          hb_buffer_swap_copy( hb_buffer_t *src, hb_buffer_t *dst );
 void          hb_buffer_move_subs( hb_buffer_t * dst, hb_buffer_t * src );
+hb_image_t  * hb_image_init(int pix_fmt, int width, int height);
+hb_image_t  * hb_buffer_to_image(hb_buffer_t *buf);
 
 hb_fifo_t   * hb_fifo_init( int capacity, int thresh );
 int           hb_fifo_size( hb_fifo_t * );
@@ -283,11 +288,6 @@ void hb_demux_null( hb_buffer_t * ps_buf, hb_list_t * es_list, hb_psdemux_t * );
 extern const hb_muxer_t hb_demux[];
 
 /***********************************************************************
- * decmetadata.c
- **********************************************************************/
-extern int decmetadata( hb_title_t *title );
-
-/***********************************************************************
  * batch.c
  **********************************************************************/
 typedef struct hb_batch_s hb_batch_t;
@@ -344,6 +344,7 @@ int          hb_stream_seek_chapter( hb_stream_t *, int );
 int          hb_stream_chapter( hb_stream_t * );
 
 hb_buffer_t * hb_ts_decode_pkt( hb_stream_t *stream, const uint8_t * pkt );
+void hb_stream_set_need_keyframe( hb_stream_t *stream, int need_keyframe );
 
 
 #define STR4_TO_UINT32(p) \

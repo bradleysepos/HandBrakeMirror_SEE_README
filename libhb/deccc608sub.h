@@ -1,3 +1,12 @@
+/* deccc608sub.h
+
+   Copyright (c) 2003-2014 HandBrake Team
+   This file is part of the HandBrake source code
+   Homepage: <http://handbrake.fr/>.
+   It may be used under the terms of the GNU General Public License v2.
+   For full terms see the file COPYING file or visit http://www.gnu.org/licenses/gpl-2.0.html
+ */
+
 /*
  * From ccextractor...
  */
@@ -49,6 +58,7 @@ struct eia608_screen // A CC buffer
     unsigned char fonts[15][33]; // Extra char at the end for a 0
     int row_used[15]; // Any data in row?
     int empty; // Buffer completely empty?
+    int dirty; // Flag indicates buffer has changed since written
 };
 
 struct eia608
@@ -86,10 +96,13 @@ struct s_write {
                             // subtitle to clear the current subtitle
 
     int rollup_cr;  // Flag indicates if CR command performed by rollup
+    int direct_rollup;
     int line;   // SSA line number
     int width;
     int height;
     int crop[4];
+    uint8_t prev_font_style;
+    uint8_t prev_font_color;
 };
 
 enum command_code

@@ -17,11 +17,6 @@ namespace HandBrakeWPF
         #region Constants and Fields
 
         /// <summary>
-        /// HandBrakes build
-        /// </summary>
-        public const string HandBrakeBuild = "HandBrakeBuild";
-
-        /// <summary>
         /// Auto name format
         /// </summary>
         public const string AutoNameFormat = "autoNameFormat";
@@ -114,7 +109,7 @@ namespace HandBrakeWPF
         /// <summary>
         /// Enable the use of LibHb instead of HandBrakeCLI
         /// </summary>
-        public const string EnableLibHb = "EnableLibHb";
+        public const string UseLibHb = "UseLibHb";
 
         /// <summary>
         /// Growl Encodes
@@ -125,11 +120,6 @@ namespace HandBrakeWPF
         /// Growl Queues
         /// </summary>
         public const string GrowlQueue = "GrowlQueue";
-
-        /// <summary>
-        /// HandBrakes CLI Exe SHA1 Hash
-        /// </summary>
-        public const string HandBrakeExeHash = "HandBrakeExeHash";
 
         /// <summary>
         /// The Instance Id

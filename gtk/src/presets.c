@@ -18,6 +18,7 @@
 #include <glib.h>
 #include <glib-object.h>
 #include <glib/gstdio.h>
+#include <glib/gi18n.h>
 #include <string.h>
 #include "ghbcompat.h"
 #include "hb.h"
@@ -31,6 +32,7 @@
 #include "presets.h"
 #include "values.h"
 #include "lang.h"
+#include "videohandler.h"
 
 #define MAX_NESTED_PRESET 3
 
@@ -1147,6 +1149,7 @@ ghb_get_user_config_dir(gchar *subdir)
             if (!g_file_test(config, G_FILE_TEST_IS_DIR))
                 g_mkdir (config, 0755);
         }
+        g_strfreev(split);
     }
     return config;
 }
@@ -1607,7 +1610,7 @@ ghb_presets_list_init(
     presets = presets_get_folder(presetsPlist, indices, len);
     if (presets == NULL)
     {
-        g_warning("Failed to find parent folder when adding child.");
+        g_warning(_("Failed to find parent folder when adding child."));
         g_free(more_indices);
         return;
     }
@@ -1759,7 +1762,7 @@ presets_list_insert(
     presets = presets_get_folder(presetsPlist, indices, len-1);
     if (presets == NULL)
     {
-        g_warning("Failed to find parent folder while adding child.");
+        g_warning(_("Failed to find parent folder while adding child."));
         return;
     }
     parent_path = ghb_tree_path_new_from_indices(indices, len-1);
@@ -1927,9 +1930,10 @@ value_map_t denoise_xlat[] =
 {
     {"0", "off"},
     {"1", "custom"},
-    {"2", "weak"},
+    {"2", "light"},
     {"3", "medium"},
     {"4", "strong"},
+    {"5", "ultralight"},
     {NULL, NULL}
 };
 
@@ -2178,11 +2182,13 @@ export_value_xlat(GValue *dict)
     gval = export_value_xlat2(deint_xlat, lin_val, G_TYPE_INT);
     if (gval)
         ghb_dict_insert(dict, g_strdup(key), gval);
-    key = "PictureDenoise";
+#if 0
+    key = "PictureDenoisePreset";
     lin_val = ghb_dict_lookup(dict, key);
     gval = export_value_xlat2(denoise_xlat, lin_val, G_TYPE_INT);
     if (gval)
         ghb_dict_insert(dict, g_strdup(key), gval);
+#endif
 
     gint count, ii;
     GValue *alist;
@@ -2429,7 +2435,7 @@ import_value_xlat(GValue *dict)
     gval = import_value_xlat2(defaults, deint_xlat, key, mac_val);
     if (gval)
         ghb_dict_insert(dict, g_strdup(key), gval);
-    key = "PictureDenoise";
+    key = "PictureDenoisePreset";
     mac_val = ghb_dict_lookup(dict, key);
     gval = import_value_xlat2(defaults, denoise_xlat, key, mac_val);
     if (gval)
@@ -2634,7 +2640,7 @@ import_xlat_preset(GValue *user_preset)
     } break;
     }
 
-    gchar *mode = ghb_settings_get_string(dict, "VideoFramerateMode");
+    const gchar *mode = ghb_settings_get_const_string(dict, "VideoFramerateMode");
     if (strcmp(mode, "cfr") == 0)
     {
         ghb_settings_set_boolean(dict, "VideoFramerateCFR", TRUE);
@@ -2653,16 +2659,15 @@ import_xlat_preset(GValue *user_preset)
         ghb_settings_set_boolean(dict, "VideoFrameratePFR", FALSE);
         ghb_settings_set_boolean(dict, "VideoFramerateVFR", TRUE);
     }
-    g_free(mode);
 
     if (ghb_settings_get_boolean(dict, "x264UseAdvancedOptions"))
     {
         // Force preset/tune/profile/level/opts to conform to option string
-        ghb_settings_set_string(dict, "x264Preset", "medium");
-        ghb_settings_set_string(dict, "x264Tune", "none");
-        ghb_settings_set_string(dict, "h264Profile", "auto");
-        ghb_settings_set_string(dict, "h264Level", "auto");
-        ghb_settings_set_value(dict, "x264OptionExtra",
+        ghb_settings_set_string(dict, "VideoPreset", "medium");
+        ghb_settings_set_string(dict, "VideoTune", "none");
+        ghb_settings_set_string(dict, "VideoProfile", "auto");
+        ghb_settings_set_string(dict, "VideoLevel", "auto");
+        ghb_settings_set_value(dict, "VideoOptionExtra",
             ghb_settings_get_value(dict, "x264Option"));
     }
     else
@@ -2670,23 +2675,35 @@ import_xlat_preset(GValue *user_preset)
         ghb_dict_remove(dict, "x264Option");
     }
 
-    const char * const *x264presets;
-    x264presets = hb_video_encoder_get_presets(HB_VCODEC_X264);
-    char *x264Preset = ghb_settings_get_string(dict, "x264Preset");
+    int encoder = ghb_get_video_encoder(dict);
+    const char * const *videoPresets;
+    videoPresets = hb_video_encoder_get_presets(encoder);
+    const char *videoPreset;
+    if (ghb_dict_lookup(user_preset, "x264Preset") != NULL)
+        videoPreset = ghb_settings_get_const_string(dict, "x264Preset");
+    else
+        videoPreset = ghb_settings_get_const_string(dict, "VideoPreset");
     int ii;
-    for (ii = 0; x264presets[ii]; ii++)
+    for (ii = 0; videoPreset && videoPresets && videoPresets[ii]; ii++)
     {
-        if (!strcasecmp(x264Preset, x264presets[ii]))
+        if (!strcasecmp(videoPreset, videoPresets[ii]))
         {
-            ghb_settings_set_int(dict, "x264PresetSlider", ii);
+            ghb_settings_set_int(dict, "VideoPresetSlider", ii);
         }
     }
-    g_free(x264Preset);
+    if (videoPreset != NULL)
+        ghb_settings_set_string(dict, "VideoPreset", videoPreset);
 
-    char *x264Tune = ghb_settings_get_string(dict, "x264Tune");
+    char *videoTune;
+    if (ghb_dict_lookup(user_preset, "x264Tune") != NULL)
+        videoTune = ghb_settings_get_string(dict, "x264Tune");
+    else
+        videoTune = ghb_settings_get_string(dict, "VideoTune");
     char *tune = NULL;
     char *saveptr;
-    char * tok = strtok_r(x264Tune, ",./-+", &saveptr);
+    char * tok = strtok_r(videoTune, ",./-+", &saveptr);
+    ghb_settings_set_boolean(dict, "x264FastDecode", FALSE);
+    ghb_settings_set_boolean(dict, "x264ZeroLatency", FALSE);
     while (tok != NULL)
     {
         if (!strcasecmp(tok, "fastdecode"))
@@ -2707,12 +2724,36 @@ import_xlat_preset(GValue *user_preset)
         }
         tok = strtok_r(NULL, ",./-+", &saveptr);
     }
-    g_free(x264Tune);
+    g_free(videoTune);
     if (tune != NULL)
     {
-        ghb_settings_set_string(dict, "x264Tune", tune);
+        ghb_settings_set_string(dict, "VideoTune", tune);
         g_free(tune);
     }
+
+    const char *videoProfile;
+    if (ghb_dict_lookup(user_preset, "x264Profile") != NULL)
+        videoProfile = ghb_settings_get_const_string(dict, "x264Profile");
+    else
+        videoProfile = ghb_settings_get_const_string(dict, "VideoProfile");
+    if (videoProfile != NULL)
+        ghb_settings_set_string(dict, "VideoProfile", videoProfile);
+
+    const char *videoLevel;
+    if (ghb_dict_lookup(user_preset, "x264Level") != NULL)
+        videoLevel = ghb_settings_get_const_string(dict, "x264Level");
+    else
+        videoLevel = ghb_settings_get_const_string(dict, "VideoLevel");
+    if (videoLevel != NULL)
+        ghb_settings_set_string(dict, "VideoLevel", videoLevel);
+
+    if (ghb_dict_lookup(user_preset, "x264OptionExtra") != NULL)
+    {
+        const char *optionExtra;
+        optionExtra = ghb_settings_get_const_string(dict, "x264OptionExtra");
+        ghb_settings_set_string(dict, "VideoOptionExtra", optionExtra);
+    }
+
     return dict;
 }
 
@@ -2824,13 +2865,13 @@ export_xlat_preset(GValue *dict)
 
     if (ghb_value_boolean(preset_dict_get_value(dict, "x264UseAdvancedOptions")))
     {
-        ghb_dict_remove(dict, "x264Preset");
-        ghb_dict_remove(dict, "x264Tune");
-        ghb_dict_remove(dict, "h264Profile");
-        ghb_dict_remove(dict, "h264Level");
-        ghb_dict_remove(dict, "x264OptionExtra");
+        ghb_dict_remove(dict, "VideoPreset");
+        ghb_dict_remove(dict, "VideoTune");
+        ghb_dict_remove(dict, "VideoProfile");
+        ghb_dict_remove(dict, "VideoLevel");
+        ghb_dict_remove(dict, "VideoOptionExtra");
     }
-    const char *tune = dict_get_string(dict, "x264Tune");
+    const char *tune = dict_get_string(dict, "VideoTune");
     if (tune != NULL)
     {
         GString *str = g_string_new("");
@@ -2846,7 +2887,7 @@ export_xlat_preset(GValue *dict)
             g_string_append_printf(str, ",%s", "zerolatency");
         }
         tunes = g_string_free(str, FALSE);
-        ghb_dict_insert(dict, g_strdup("x264Tune"),
+        ghb_dict_insert(dict, g_strdup("VideoTune"),
                         ghb_string_value_new(tunes));
 
         g_free(tunes);
@@ -3122,12 +3163,15 @@ settings_save(signal_user_data_t *ud, const GValue *path)
     {
         if (ghb_presets_get_folder(presetsPlist, indices, len))
         {
+            GtkWindow *hb_window;
             gchar *message;
+            hb_window = GTK_WINDOW(GHB_WIDGET(ud->builder, "hb_window"));
             message = g_strdup_printf(
-                        "%s: Folder already exists.\n"
-                        "You can not replace it with a preset.",
+                      _("%s: Folder already exists.\n"
+                        "You can not replace it with a preset."),
                         name);
-            ghb_message_dialog(GTK_MESSAGE_ERROR, message, "Cancel", NULL);
+            ghb_message_dialog(hb_window, GTK_MESSAGE_ERROR,
+                               message, _("Cancel"), NULL);
             g_free(message);
             return;
         }
@@ -3212,12 +3256,15 @@ folder_save(signal_user_data_t *ud, const GValue *path)
     {
         if (!ghb_presets_get_folder(presetsPlist, indices, len))
         {
+            GtkWindow *hb_window;
             gchar *message;
+            hb_window = GTK_WINDOW(GHB_WIDGET(ud->builder, "hb_window"));
             message = g_strdup_printf(
-                        "%s: Preset already exists.\n"
-                        "You can not replace it with a folder.",
+                      _("%s: Preset already exists.\n"
+                        "You can not replace it with a folder."),
                         name);
-            ghb_message_dialog(GTK_MESSAGE_ERROR, message, "Cancel", NULL);
+            ghb_message_dialog(hb_window, GTK_MESSAGE_ERROR,
+                               message, _("Cancel"), NULL);
             g_free(message);
             g_free(indices);
             return;
@@ -3349,7 +3396,7 @@ preset_import_clicked_cb(GtkWidget *xwidget, signal_user_data_t *ud)
 {
     GtkWidget *dialog;
     GtkResponseType response;
-    gchar *exportDir;
+    const gchar *exportDir;
     gchar *filename;
     GtkFileFilter *filter;
 
@@ -3362,23 +3409,22 @@ preset_import_clicked_cb(GtkWidget *xwidget, signal_user_data_t *ud)
                 NULL);
 
     filter = gtk_file_filter_new();
-    gtk_file_filter_set_name(filter, "All (*)");
+    gtk_file_filter_set_name(filter, _("All (*)"));
     gtk_file_filter_add_pattern(filter, "*");
     gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(dialog), filter);
 
     filter = gtk_file_filter_new();
-    gtk_file_filter_set_name(filter, "Presets (*.plist)");
+    gtk_file_filter_set_name(filter, _("Presets (*.plist)"));
     gtk_file_filter_add_pattern(filter, "*.plist");
     gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(dialog), filter);
     gtk_file_chooser_set_filter(GTK_FILE_CHOOSER(dialog), filter);
 
-    exportDir = ghb_settings_get_string(ud->prefs, "ExportDirectory");
+    exportDir = ghb_settings_get_const_string(ud->prefs, "ExportDirectory");
     if (exportDir == NULL || exportDir[0] == '\0')
     {
-        exportDir = g_strdup(".");
+        exportDir = ".";
     }
     gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog), exportDir);
-    g_free(exportDir);
 
     response = gtk_dialog_run(GTK_DIALOG(dialog));
     gtk_widget_hide(dialog);
@@ -3441,7 +3487,7 @@ preset_import_clicked_cb(GtkWidget *xwidget, signal_user_data_t *ud)
         }
         ghb_value_free(array);
 
-        exportDir = ghb_settings_get_string(ud->prefs, "ExportDirectory");
+        exportDir = ghb_settings_get_const_string(ud->prefs, "ExportDirectory");
         dir = g_path_get_dirname(filename);
         if (strcmp(dir, exportDir) != 0)
         {
@@ -3449,7 +3495,6 @@ preset_import_clicked_cb(GtkWidget *xwidget, signal_user_data_t *ud)
             ghb_pref_save(ud->prefs, "ExportDirectory");
         }
         g_free(filename);
-        g_free(exportDir);
         g_free(dir);
         store_presets();
     }
@@ -3490,7 +3535,7 @@ preset_export_clicked_cb(GtkWidget *xwidget, signal_user_data_t *ud)
     GValue *preset;
     const gchar *name = "";
     gint count, *indices, len;
-    gchar *exportDir;
+    const gchar *exportDir;
     gchar *filename;
 
     g_debug("preset_export_clicked_cb ()");
@@ -3507,22 +3552,21 @@ preset_export_clicked_cb(GtkWidget *xwidget, signal_user_data_t *ud)
 
     name = g_value_get_string(ghb_array_get_nth(preset, count-1));
 
-    dialog = gtk_file_chooser_dialog_new("Export Preset", NULL,
+    dialog = gtk_file_chooser_dialog_new(_("Export Preset"), NULL,
                 GTK_FILE_CHOOSER_ACTION_SAVE,
                 GHB_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
                 GHB_STOCK_SAVE, GTK_RESPONSE_ACCEPT,
                 NULL);
 
-    exportDir = ghb_settings_get_string(ud->prefs, "ExportDirectory");
+    exportDir = ghb_settings_get_const_string(ud->prefs, "ExportDirectory");
     if (exportDir == NULL || exportDir[0] == '\0')
     {
-        exportDir = g_strdup(".");
+        exportDir = ".";
     }
     filename = g_strdup_printf("%s.plist", name);
     gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog), exportDir);
     gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER(dialog), filename);
     g_free(filename);
-    g_free(exportDir);
 
     indices = ghb_preset_indices_from_path(presetsPlist, preset, &len);
     if (indices == NULL)
@@ -3559,14 +3603,13 @@ preset_export_clicked_cb(GtkWidget *xwidget, signal_user_data_t *ud)
         }
         ghb_value_free(array);
 
-        exportDir = ghb_settings_get_string(ud->prefs, "ExportDirectory");
+        exportDir = ghb_settings_get_const_string(ud->prefs, "ExportDirectory");
         dir = g_path_get_dirname(filename);
         if (strcmp(dir, exportDir) != 0)
         {
             ghb_settings_set_string(ud->prefs, "ExportDirectory", dir);
             ghb_pref_save(ud->prefs, "ExportDirectory");
         }
-        g_free(exportDir);
         g_free(dir);
         g_free(filename);
     }
@@ -3666,10 +3709,8 @@ presets_save_clicked_cb(GtkWidget *xwidget, signal_user_data_t *ud)
     int width = ghb_settings_get_int(ud->settings, "PictureWidth");
     int height = ghb_settings_get_int(ud->settings, "PictureHeight");
     gboolean autoscale = ghb_settings_get_boolean(ud->settings, "autoscale");
-    ghb_ui_update(ud, "PictureWidthEnable",
-        ghb_boolean_value(width!=0&&!autoscale));
-    ghb_ui_update(ud, "PictureHeightEnable",
-        ghb_boolean_value(height!=0&&!autoscale));
+    ghb_ui_update(ud, "PictureWidthEnable", ghb_boolean_value(!autoscale));
+    ghb_ui_update(ud, "PictureHeightEnable", ghb_boolean_value(!autoscale));
     if (!width)
     {
         width = ghb_settings_get_int(ud->settings, "scale_width");
@@ -3763,8 +3804,8 @@ presets_remove_clicked_cb(GtkWidget *xwidget, signal_user_data_t *ud)
         folder = ghb_presets_get_folder(presetsPlist, indices, len);
         dialog = gtk_message_dialog_new(NULL, GTK_DIALOG_MODAL,
                             GTK_MESSAGE_QUESTION, GTK_BUTTONS_YES_NO,
-                            "Confirm deletion of %s:\n\n%s",
-                            folder ? "folder" : "preset",
+                            _("Confirm deletion of %s:\n\n%s"),
+                            folder ? _("folder") : _("preset"),
                             preset);
         response = gtk_dialog_run(GTK_DIALOG(dialog));
         gtk_widget_destroy (dialog);
@@ -4196,7 +4237,7 @@ presets_list_selection_changed_cb(GtkTreeSelection *selection, signal_user_data_
     }
     else
     {
-        g_debug("No selection???  Perhaps unselected.");
+        g_debug(_("No selection???  Perhaps unselected."));
         gtk_widget_set_sensitive(widget, FALSE);
     }
 }
@@ -4310,5 +4351,6 @@ G_MODULE_EXPORT void
 preset_widget_changed_cb(GtkWidget *widget, signal_user_data_t *ud)
 {
     ghb_widget_to_setting(ud->settings, widget);
+    ghb_check_dependency(ud, widget, NULL);
 }
 

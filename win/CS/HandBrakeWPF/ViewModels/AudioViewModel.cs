@@ -17,13 +17,15 @@ namespace HandBrakeWPF.ViewModels
     using Caliburn.Micro;
 
     using HandBrake.ApplicationServices.Model;
-    using HandBrake.ApplicationServices.Model.Audio;
-    using HandBrake.ApplicationServices.Model.Encoding;
-    using HandBrake.ApplicationServices.Parsing;
+    using HandBrake.ApplicationServices.Services.Encode.Model;
+    using HandBrake.ApplicationServices.Services.Encode.Model.Models;
+    using HandBrake.ApplicationServices.Services.Scan.Model;
     using HandBrake.ApplicationServices.Utilities;
     using HandBrake.Interop.Model.Encoding;
 
+    using HandBrakeWPF.Model.Audio;
     using HandBrakeWPF.Services.Interfaces;
+    using HandBrakeWPF.Services.Presets.Model;
     using HandBrakeWPF.ViewModels.Interfaces;
 
     /// <summary>
@@ -198,7 +200,7 @@ namespace HandBrakeWPF.ViewModels
         {
             get
             {
-                return this.ShowAudioDefaultsPanel ? "Switch to Tracks" : "Switch to Defaults";
+                return this.ShowAudioDefaultsPanel ? "Switch Back To Tracks" : "Configure Defaults";
             }
         }
 
@@ -355,8 +357,6 @@ namespace HandBrakeWPF.ViewModels
 
         #region Implemented Interfaces
 
-        #region ITabInterface
-
         /// <summary>
         /// Setup this tab for the specified preset.
         /// </summary>
@@ -376,9 +376,9 @@ namespace HandBrakeWPF.ViewModels
 
             if (preset != null && preset.Task != null)
             {
-                this.SetupTracks();
-
                 this.Task.AllowedPassthruOptions = new AllowedPassthru(preset.Task.AllowedPassthruOptions);
+
+                this.SetupTracks();
             }
 
             this.NotifyOfPropertyChange(() => this.Task);
@@ -432,8 +432,6 @@ namespace HandBrakeWPF.ViewModels
             // Force UI Updates
             this.NotifyOfPropertyChange(() => this.Task);
         }
-
-        #endregion
 
         #endregion
 

@@ -89,31 +89,9 @@ namespace HandBrake.Interop.HbLib
 		[DllImport("hb.dll", EntryPoint = "hb_get_titles", CallingConvention = CallingConvention.Cdecl)]
 		public static extern IntPtr hb_get_titles(IntPtr hbHandle);
 
-		/// Return Type: void
-		///param0: hb_handle_t*
-		///param1: hb_title_t*
-		///param2: int
-		///param3: uint8_t*
-		[DllImport("hb.dll", EntryPoint = "hb_get_preview", CallingConvention = CallingConvention.Cdecl)]
-		public static extern void hb_get_preview(IntPtr hbHandle, ref hb_job_s title, int preview, IntPtr buffer);
-
-
-		/// Return Type: void
-		///param0: hb_job_t*
-		///ratio: double
-		///pixels: int
-		[DllImport("hb.dll", EntryPoint = "hb_set_size", CallingConvention = CallingConvention.Cdecl)]
-		public static extern void hb_set_size(ref hb_job_s param0, double ratio, int pixels);
-
-		/// Return Type: void
-		///param0: hb_job_t*
-		///output_width: int*
-		///output_height: int*
-		///output_par_width: int*
-		///output_par_height: int*
-		[DllImport("hb.dll", EntryPoint = "hb_set_anamorphic_size", CallingConvention = CallingConvention.Cdecl)]
-		public static extern void hb_set_anamorphic_size(ref hb_job_s job, ref int output_width, ref int output_height, ref int output_par_width, ref int output_par_height);
-
+        [DllImport("hb.dll", EntryPoint = "hb_set_anamorphic_size2", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void hb_set_anamorphic_size2(ref hb_geometry_s sourceGeometry, ref hb_geometry_settings_s uiGeometry, ref hb_geometry_s result);
+        
 
 		/// Return Type: int
 		///param0: hb_handle_t*
@@ -126,16 +104,6 @@ namespace HandBrake.Interop.HbLib
 		///param1: int
 		[DllImport("hb.dll", EntryPoint = "hb_job", CallingConvention = CallingConvention.Cdecl)]
 		public static extern IntPtr hb_job(IntPtr hbHandle, int jobIndex);
-
-		[DllImport("hb.dll", EntryPoint = "hb_set_job", CallingConvention = CallingConvention.Cdecl)]
-		public static extern void hb_set_job(IntPtr hbHandle, int title_index, ref hb_job_s job);
-
-		/// Return Type: void
-		///param0: hb_handle_t*
-		///param1: hb_job_t*
-		[DllImport("hb.dll", EntryPoint = "hb_add", CallingConvention = CallingConvention.Cdecl)]
-		public static extern void hb_add(IntPtr hbHandle, ref hb_job_s job);
-
 
 		/// Return Type: void
 		///param0: hb_handle_t*
@@ -166,19 +134,6 @@ namespace HandBrake.Interop.HbLib
 		///param0: hb_handle_t*
 		[DllImport("hb.dll", EntryPoint = "hb_stop", CallingConvention = CallingConvention.Cdecl)]
 		public static extern void hb_stop(IntPtr hbHandle);
-
-		/// Return Type: void
-		///param0: hb_handle_t*
-		///param1: hb_state_t*
-		[DllImport("hb.dll", EntryPoint = "hb_get_state", CallingConvention = CallingConvention.Cdecl)]
-		public static extern void hb_get_state(IntPtr hbHandle, ref hb_state_s state);
-
-
-		/// Return Type: void
-		///param0: hb_handle_t*
-		///param1: hb_state_t*
-		[DllImport("hb.dll", EntryPoint = "hb_get_state2", CallingConvention = CallingConvention.Cdecl)]
-		public static extern void hb_get_state2(IntPtr hbHandle, ref hb_state_s param1);
 
 
 		/// Return Type: int
@@ -223,13 +178,6 @@ namespace HandBrake.Interop.HbLib
 		[DllImport("hb.dll", EntryPoint = "hb_list_close", CallingConvention = CallingConvention.Cdecl)]
 		public static extern void hb_list_close(IntPtr listPtrPtr);
 
-
-		[DllImport("hb.dll", EntryPoint = "hb_subtitle_add", CallingConvention = CallingConvention.Cdecl)]
-		public static extern int hb_subtitle_add(ref hb_job_s job, ref hb_subtitle_config_s subtitleConfig, int track);
-
-		[DllImport("hb.dll", EntryPoint = "hb_srt_add", CallingConvention = CallingConvention.Cdecl)]
-		public static extern int hb_srt_add(ref hb_job_s job, ref hb_subtitle_config_s subtitleConfig, string lang);
-
 		[DllImport("hb.dll", EntryPoint = "hb_subtitle_can_force", CallingConvention = CallingConvention.Cdecl)]
 		public static extern int hb_subtitle_can_force(int source);
 
@@ -240,8 +188,10 @@ namespace HandBrake.Interop.HbLib
 		public static extern int hb_subtitle_can_pass(int source, int mux);
 
 
+        // int hb_video_framerate_get_from_name(const char *name)
+        [DllImport("hb.dll", EntryPoint = "hb_video_framerate_get_from_name", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int hb_video_framerate_get_from_name(IntPtr name);
 
-//int              hb_video_framerate_get_from_name(const char *name);
 //const char*      hb_video_framerate_get_name(int framerate);
 //const char*      hb_video_framerate_sanitize_name(const char *name);
 
@@ -302,8 +252,9 @@ namespace HandBrake.Interop.HbLib
 //const char*        hb_audio_dither_get_description(int method);
 //const hb_dither_t* hb_audio_dither_get_next(const hb_dither_t *last);
 
-		[DllImport("hb.dll", EntryPoint = "hb_audio_can_apply_drc", CallingConvention = CallingConvention.Cdecl)]
-		public static extern int hb_audio_can_apply_drc(uint codec, uint codec_param, int encoder);
+        // hb_audio_can_apply_drc2(hb_handle_t *h, int title_idx, int audio_idx, int encoder)
+        [DllImport("hb.dll", EntryPoint = "hb_audio_can_apply_drc2", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int hb_audio_can_apply_drc2(IntPtr handle, int title_index, int audio_index, int encoder);
 
 		[DllImport("hb.dll", EntryPoint = "hb_mixdown_is_supported", CallingConvention = CallingConvention.Cdecl)]
 		public static extern int hb_mixdown_is_supported(int mixdown, uint codec, ulong layout);
@@ -393,13 +344,6 @@ namespace HandBrake.Interop.HbLib
 		public static extern IntPtr lang_for_code2([In] [MarshalAs(UnmanagedType.LPStr)] string code2);
 
 
-
-
-
-		/// void hb_autopassthru_apply_settings( hb_job_t * job )
-		[DllImport("hb.dll", EntryPoint = "hb_autopassthru_apply_settings", CallingConvention = CallingConvention.Cdecl)]
-		public static extern void hb_autopassthru_apply_settings(ref hb_job_s job);
-
 		///hb_title_set_t  * hb_get_title_set( hb_handle_t * );
 		[DllImport("hb.dll", EntryPoint = "hb_get_title_set", CallingConvention = CallingConvention.Cdecl)]
 		public static extern IntPtr hb_get_title_set(IntPtr hbHandle);
@@ -408,25 +352,9 @@ namespace HandBrake.Interop.HbLib
 		[DllImport("hb.dll", EntryPoint = "hb_job_init_by_index", CallingConvention = CallingConvention.Cdecl)]
 		public static extern IntPtr hb_job_init_by_index(IntPtr hbHandle, int title_index);
 
-		///hb_job_t * hb_job_init( hb_title_t * title );
-		[DllImport("hb.dll", EntryPoint = "hb_job_init", CallingConvention = CallingConvention.Cdecl)]
-		public static extern hb_job_s hb_job_init(ref hb_title_s title);
-
-		///void hb_job_reset( hb_job_t * job );
-		[DllImport("hb.dll", EntryPoint = "hb_job_reset", CallingConvention = CallingConvention.Cdecl)]
-		public static extern void hb_job_reset(ref hb_job_s job);
-
 		///void hb_job_close( hb_job_t ** job );
 		[DllImport("hb.dll", EntryPoint = "hb_job_close", CallingConvention = CallingConvention.Cdecl)]
 		public static extern void hb_job_close(IntPtr job);
-
-		///void hb_job_set_advanced_opts( hb_job_t *job, const char *advanced_opts );
-        [DllImport("hb.dll", EntryPoint = "hb_job_set_encoder_options", CallingConvention = CallingConvention.Cdecl)]
-        public static extern void hb_job_set_encoder_options(ref hb_job_s job, IntPtr advanced_opts);
-
-		///void hb_job_set_file( hb_job_t *job, const char *file );
-		[DllImport("hb.dll", EntryPoint = "hb_job_set_file", CallingConvention = CallingConvention.Cdecl)]
-		public static extern void hb_job_set_file(ref hb_job_s job, IntPtr file);
 
 		///void hb_chapter_set_title(hb_chapter_t *chapter, const char *title);
 		[DllImport("hb.dll", EntryPoint = "hb_chapter_set_title", CallingConvention = CallingConvention.Cdecl)]
@@ -436,13 +364,15 @@ namespace HandBrake.Interop.HbLib
 		[DllImport("hb.dll", EntryPoint = "hb_chapter_set_title", CallingConvention = CallingConvention.Cdecl)]
 		public static extern void hb_chapter_set_title__ptr(IntPtr chapter, IntPtr title);
 
-		/// void hb_add_filter( hb_job_t * job, hb_filter_object_t * filter, const char * settings ); 
-		[DllImport("hb.dll", EntryPoint = "hb_add_filter", CallingConvention = CallingConvention.Cdecl)]
-		public static extern void hb_add_filter(ref hb_job_s job, ref hb_filter_object_s filter, IntPtr settings);
-
 		/// hb_filter_object_t * hb_filter_init( int filter_id );
 		[DllImport("hb.dll", EntryPoint = "hb_filter_init", CallingConvention = CallingConvention.Cdecl)]
 		public static extern IntPtr hb_filter_init(int filter_id);
+
+		[DllImport("hb.dll", EntryPoint = "hb_generate_filter_settings", CallingConvention = CallingConvention.Cdecl)]
+		public static extern IntPtr hb_generate_filter_settings(
+			int filter_id,
+			[In] [MarshalAs(UnmanagedType.LPStr)] string preset,
+			[In] [MarshalAs(UnmanagedType.LPStr)] string tune);
 
 		[DllImport("hb.dll", EntryPoint = "hb_x264_encopt_name", CallingConvention = CallingConvention.Cdecl)]
 		public static extern IntPtr hb_x264_encopt_name(IntPtr name);
@@ -469,5 +399,44 @@ namespace HandBrake.Interop.HbLib
 		
 		[DllImport("hb.dll", EntryPoint = "hb_qsv_info_init", CallingConvention = CallingConvention.Cdecl)]
 		public static extern int hb_qsv_info_init();
+
+        // hb_image_t* hb_get_preview2(hb_handle_t* h, int title_idx, int picture, hb_geometry_settings_t* geo, int deinterlace);
+        [DllImport("hb.dll", EntryPoint = "hb_get_preview2", CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr hb_get_preview2(IntPtr hbHandle, int title_idx, int preview_idx,  ref hb_geometry_settings_s geo, int deinterlace);
+
+        // void hb_image_close(hb_image_t **_image);
+        [DllImport("hb.dll", EntryPoint = "hb_image_close", CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr hb_image_close(IntPtr image);
+
+
+        /* JSON API */
+
+        // char     * hb_get_title_set_json(hb_handle_t * h);
+        [DllImport("hb.dll", EntryPoint = "hb_get_title_set_json", CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr hb_get_title_set_json(IntPtr hbHandle);
+
+        // char     * hb_job_init_json(hb_handle_t *h, int title_index);
+        [DllImport("hb.dll", EntryPoint = "hb_job_init_json", CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr hb_job_init_json(IntPtr hbHandle, int title_index);
+
+        // hb_job_t * hb_json_to_job(hb_handle_t * h, const char * json_job);
+        [DllImport("hb.dll", EntryPoint = "hb_json_to_job", CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr hb_json_to_job(IntPtr hbHandle, IntPtr json_job);
+
+        // int           hb_add_json( hb_handle_t *, const char * ) 
+        [DllImport("hb.dll", EntryPoint = "hb_add_json", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int hb_add_json(IntPtr hbHandle, IntPtr json_job);
+
+        //char     * hb_set_anamorphic_size_json(const char * json_param);
+        [DllImport("hb.dll", EntryPoint = "hb_set_anamorphic_size_json", CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr hb_set_anamorphic_size_json(IntPtr json_param);
+
+        // char     * hb_get_state_json(hb_handle_t * h);
+        [DllImport("hb.dll", EntryPoint = "hb_get_state_json", CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr hb_get_state_json(IntPtr hbHandle);
+
+        // char* hb_get_preview_params_json(int title_idx, int preview_idx, int deinterlace, hb_geometry_settings_t *settings)
+        [DllImport("hb.dll", EntryPoint = "hb_get_preview_params_json", CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr hb_get_preview_params_json(int title_idx, int preview_idx, int deinterlace, ref hb_geometry_settings_s settings);
 	}
 }

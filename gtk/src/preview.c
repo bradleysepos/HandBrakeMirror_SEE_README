@@ -546,6 +546,8 @@ live_preview_cb(GstBus *bus, GstMessage *msg, gpointer data)
         //printf("element\n");
         if (gst_is_missing_plugin_message(msg))
         {
+            GtkWindow *hb_window;
+            hb_window = GTK_WINDOW(GHB_WIDGET(ud->builder, "hb_window"));
             gst_element_set_state(ud->preview->play, GST_STATE_PAUSED);
             gchar *message, *desc;
             desc = gst_missing_plugin_message_get_description(msg);
@@ -553,7 +555,8 @@ live_preview_cb(GstBus *bus, GstMessage *msg, gpointer data)
                         _("Missing GStreamer plugin\n"
                         "Audio or Video may not play as expected\n\n%s"),
                         desc);
-            ghb_message_dialog(GTK_MESSAGE_WARNING, message, "Ok", NULL);
+            ghb_message_dialog(hb_window, GTK_MESSAGE_WARNING,
+                               message, "Ok", NULL);
             g_free(message);
             gst_element_set_state(ud->preview->play, GST_STATE_PLAYING);
         }
@@ -1214,7 +1217,7 @@ fullscreen_clicked_cb(GtkWidget *toggle, signal_user_data_t *ud)
     if (active)
     {
         gtk_window_set_resizable(window, TRUE);
-        gtk_button_set_label(GTK_BUTTON(toggle), "Windowed");
+        gtk_button_set_label(GTK_BUTTON(toggle), _("Windowed"));
         // Changing resizable property doesn't take effect immediately
         // need to delay fullscreen till after this callback returns
         // to mainloop
@@ -1224,7 +1227,7 @@ fullscreen_clicked_cb(GtkWidget *toggle, signal_user_data_t *ud)
     {
         gtk_window_unfullscreen(window);
         gtk_window_set_resizable(window, FALSE);
-        gtk_button_set_label(GTK_BUTTON(toggle), "Fullscreen");
+        gtk_button_set_label(GTK_BUTTON(toggle), _("Fullscreen"));
         ghb_set_preview_image(ud);
     }
 }

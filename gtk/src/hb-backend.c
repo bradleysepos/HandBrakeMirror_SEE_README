@@ -33,6 +33,7 @@
 #include "callbacks.h"
 #include "subtitlehandler.h"
 #include "audiohandler.h"
+#include "videohandler.h"
 #include "x264handler.h"
 #include "preview.h"
 #include "values.h"
@@ -222,16 +223,42 @@ combo_opts_t deint_opts =
 
 static options_map_t d_denoise_opts[] =
 {
-    {N_("Off"),    "off",    0, ""},
-    {N_("Custom"), "custom", 1, ""},
-    {N_("Weak"),   "weak",   2, "2:1:1:2:3:3"},
-    {N_("Medium"), "medium", 3, "3:2:2:2:3:3"},
-    {N_("Strong"), "strong", 4, "7:7:7:5:5:5"},
+    {N_("Off"),     "off",     0, ""},
+    {N_("NLMeans"), "nlmeans", 1, ""},
+    {N_("HQDN3D"),  "hqdn3d",  2, ""},
 };
 combo_opts_t denoise_opts =
 {
     sizeof(d_denoise_opts)/sizeof(options_map_t),
     d_denoise_opts
+};
+
+static options_map_t d_denoise_preset_opts[] =
+{
+    {N_("Custom"),     "custom",     1, ""},
+    {N_("Ultralight"), "ultralight", 5, ""},
+    {N_("Light"),      "light",      2, ""},
+    {N_("Medium"),     "medium",     3, ""},
+    {N_("Strong"),     "strong",     4, ""},
+};
+combo_opts_t denoise_preset_opts =
+{
+    sizeof(d_denoise_preset_opts)/sizeof(options_map_t),
+    d_denoise_preset_opts
+};
+
+static options_map_t d_nlmeans_tune_opts[] =
+{
+    {N_("None"),        "none",       0, ""},
+    {N_("Film"),        "film",       1, ""},
+    {N_("Grain"),       "grain",      2, ""},
+    {N_("High Motion"), "highmotion", 3, ""},
+    {N_("Animation"),   "animation",  4, ""},
+};
+combo_opts_t nlmeans_tune_opts =
+{
+    sizeof(d_nlmeans_tune_opts)/sizeof(options_map_t),
+    d_nlmeans_tune_opts
 };
 
 static options_map_t d_direct_opts[] =
@@ -365,7 +392,9 @@ combo_name_map_t combo_name_map[] =
     {"PictureDeinterlace", &deint_opts},
     {"PictureDecomb", &decomb_opts},
     {"PictureDetelecine", &detel_opts},
-    {"PictureDenoise", &denoise_opts},
+    {"PictureDenoiseFilter", &denoise_opts},
+    {"PictureDenoisePreset", &denoise_preset_opts},
+    {"PictureDenoiseTune", &nlmeans_tune_opts},
     {"x264_direct", &direct_opts},
     {"x264_b_adapt", &badapt_opts},
     {"x264_bpyramid", &bpyramid_opts},
@@ -665,6 +694,7 @@ ghb_vquality_default(signal_user_data_t *ud)
 
     switch (vcodec)
     {
+    case HB_VCODEC_X265:
     case HB_VCODEC_X264:
         return 20;
     case HB_VCODEC_THEORA:
@@ -1816,7 +1846,7 @@ ghb_create_title_label(const hb_title_t *title)
         if (title->duration != 0)
         {
             char *tmp;
-            tmp  = g_strdup_printf ("%d - %02dh%02dm%02ds - %s",
+            tmp  = g_strdup_printf (_("%d - %02dh%02dm%02ds - %s"),
                 title->index, title->hours, title->minutes, title->seconds,
                 title->name);
             label = g_markup_escape_text(tmp, -1);
@@ -1835,13 +1865,13 @@ ghb_create_title_label(const hb_title_t *title)
     {
         if (title->duration != 0)
         {
-            label = g_strdup_printf("%d (%05d.MPLS) - %02dh%02dm%02ds",
+            label = g_strdup_printf(_("%d (%05d.MPLS) - %02dh%02dm%02ds"),
                 title->index, title->playlist, title->hours,
                 title->minutes, title->seconds);
         }
         else
         {
-            label = g_strdup_printf("%d (%05d.MPLS) - Unknown Length",
+            label = g_strdup_printf(_("%d (%05d.MPLS) - Unknown Length"),
                 title->index, title->playlist);
         }
     }
@@ -1849,12 +1879,12 @@ ghb_create_title_label(const hb_title_t *title)
     {
         if (title->duration != 0)
         {
-            label  = g_strdup_printf("%d - %02dh%02dm%02ds",
+            label  = g_strdup_printf(_("%d - %02dh%02dm%02ds"),
                 title->index, title->hours, title->minutes, title->seconds);
         }
         else
         {
-            label  = g_strdup_printf("%d - Unknown Length",
+            label  = g_strdup_printf(_("%d - Unknown Length"),
                                     title->index);
         }
     }
@@ -1984,18 +2014,26 @@ ghb_lookup_queue_title(int title_id, int *index)
 }
 
 static void
-x264_tune_opts_set(GtkBuilder *builder, const gchar *name)
+video_tune_opts_set(signal_user_data_t *ud, const gchar *name)
 {
     GtkTreeIter iter;
     GtkListStore *store;
     gint ii, count = 0;
 
-    const char * const *tunes;
-    tunes = hb_video_encoder_get_tunes(HB_VCODEC_X264);
-    while (tunes && tunes[count]) count++;
+    // Check if encoder has been set yet.
+    // If not, bail
+    GValue *value = ghb_dict_lookup(ud->settings, "VideoEncoder");
+    if (value == NULL) return;
 
-    g_debug("x264_tune_opts_set ()\n");
-    GtkComboBox *combo = GTK_COMBO_BOX(GHB_WIDGET(builder, name));
+    int encoder = ghb_get_video_encoder(ud->settings);
+    const char * const *tunes;
+    tunes = hb_video_encoder_get_tunes(encoder);
+
+    while (tunes && tunes[count]) count++;
+    if (count == 0) return;
+
+    g_debug("video_tune_opts_set ()\n");
+    GtkComboBox *combo = GTK_COMBO_BOX(GHB_WIDGET(ud->builder, name));
     store = GTK_LIST_STORE(gtk_combo_box_get_model (combo));
     gtk_list_store_clear(store);
 
@@ -2025,18 +2063,26 @@ x264_tune_opts_set(GtkBuilder *builder, const gchar *name)
 }
 
 static void
-h264_profile_opts_set(GtkBuilder *builder, const gchar *name)
+video_profile_opts_set(signal_user_data_t *ud, const gchar *name)
 {
     GtkTreeIter iter;
     GtkListStore *store;
     gint ii, count = 0;
 
-    const char * const *profiles;
-    profiles = hb_video_encoder_get_profiles(HB_VCODEC_X264);
-    while (profiles && profiles[count]) count++;
+    // Check if encoder has been set yet.
+    // If not, bail
+    GValue *value = ghb_dict_lookup(ud->settings, "VideoEncoder");
+    if (value == NULL) return;
 
-    g_debug("h264_profile_opts_set ()\n");
-    GtkComboBox *combo = GTK_COMBO_BOX(GHB_WIDGET(builder, name));
+    int encoder = ghb_get_video_encoder(ud->settings);
+    const char * const *profiles;
+    profiles = hb_video_encoder_get_profiles(encoder);
+
+    while (profiles && profiles[count]) count++;
+    if (count == 0) return;
+
+    g_debug("video_profile_opts_set ()\n");
+    GtkComboBox *combo = GTK_COMBO_BOX(GHB_WIDGET(ud->builder, name));
     store = GTK_LIST_STORE(gtk_combo_box_get_model (combo));
     gtk_list_store_clear(store);
 
@@ -2054,18 +2100,26 @@ h264_profile_opts_set(GtkBuilder *builder, const gchar *name)
 }
 
 static void
-h264_level_opts_set(GtkBuilder *builder, const gchar *name)
+video_level_opts_set(signal_user_data_t *ud, const gchar *name)
 {
     GtkTreeIter iter;
     GtkListStore *store;
     gint ii, count = 0;
 
-    const char * const *levels;
-    levels = hb_video_encoder_get_levels(HB_VCODEC_X264);
-    while (levels && levels[count]) count++;
+    // Check if encoder has been set yet.
+    // If not, bail
+    GValue *value = ghb_dict_lookup(ud->settings, "VideoEncoder");
+    if (value == NULL) return;
 
-    g_debug("h264_level_opts_set ()\n");
-    GtkComboBox *combo = GTK_COMBO_BOX(GHB_WIDGET(builder, name));
+    int encoder = ghb_get_video_encoder(ud->settings);
+    const char * const *levels;
+    levels = hb_video_encoder_get_levels(encoder);
+
+    while (levels && levels[count]) count++;
+    if (count == 0) return;
+
+    g_debug("video_level_opts_set ()\n");
+    GtkComboBox *combo = GTK_COMBO_BOX(GHB_WIDGET(ud->builder, name));
     store = GTK_LIST_STORE(gtk_combo_box_get_model (combo));
     gtk_list_store_clear(store);
 
@@ -2526,7 +2580,9 @@ ghb_update_ui_combo_box(
         small_opts_set(ud->builder, "PictureDeinterlace", &deint_opts);
         small_opts_set(ud->builder, "PictureDetelecine", &detel_opts);
         small_opts_set(ud->builder, "PictureDecomb", &decomb_opts);
-        small_opts_set(ud->builder, "PictureDenoise", &denoise_opts);
+        small_opts_set(ud->builder, "PictureDenoiseFilter", &denoise_opts);
+        small_opts_set(ud->builder, "PictureDenoisePreset", &denoise_preset_opts);
+        small_opts_set(ud->builder, "PictureDenoiseTune", &nlmeans_tune_opts);
         small_opts_set(ud->builder, "x264_direct", &direct_opts);
         small_opts_set(ud->builder, "x264_b_adapt", &badapt_opts);
         small_opts_set(ud->builder, "x264_bpyramid", &bpyramid_opts);
@@ -2535,9 +2591,9 @@ ghb_update_ui_combo_box(
         small_opts_set(ud->builder, "x264_subme", &subme_opts);
         small_opts_set(ud->builder, "x264_analyse", &analyse_opts);
         small_opts_set(ud->builder, "x264_trellis", &trellis_opts);
-        x264_tune_opts_set(ud->builder, "x264Tune");
-        h264_profile_opts_set(ud->builder, "h264Profile");
-        h264_level_opts_set(ud->builder, "h264Level");
+        video_tune_opts_set(ud, "VideoTune");
+        video_profile_opts_set(ud, "VideoProfile");
+        video_level_opts_set(ud, "VideoLevel");
         container_opts_set(ud->builder, "FileFormat");
     }
     else
@@ -2566,12 +2622,12 @@ ghb_update_ui_combo_box(
             subtitle_track_opts_set(ud->builder, "SubtitleTrack", user_data);
         else if (strcmp(name, "AudioTrack") == 0)
             audio_track_opts_set(ud->builder, "AudioTrack", user_data);
-        else if (strcmp(name, "x264Tune") == 0)
-            x264_tune_opts_set(ud->builder, "x264Tune");
-        else if (strcmp(name, "h264Profile") == 0)
-            h264_profile_opts_set(ud->builder, "h264Profile");
-        else if (strcmp(name, "h264Level") == 0)
-            h264_level_opts_set(ud->builder, "h264Level");
+        else if (strcmp(name, "VideoTune") == 0)
+            video_tune_opts_set(ud, "VideoTune");
+        else if (strcmp(name, "VideoProfile") == 0)
+            video_profile_opts_set(ud, "VideoProfile");
+        else if (strcmp(name, "VideoLevel") == 0)
+            video_level_opts_set(ud, "VideoLevel");
         else if (strcmp(name, "FileFormat") == 0)
             container_opts_set(ud->builder, "FileFormat");
         else
@@ -2600,9 +2656,9 @@ init_ui_combo_boxes(GtkBuilder *builder)
     init_combo_box(builder, "VideoEncoder");
     init_combo_box(builder, "AudioEncoder");
     init_combo_box(builder, "AudioEncoderFallback");
-    init_combo_box(builder, "x264Tune");
-    init_combo_box(builder, "h264Profile");
-    init_combo_box(builder, "h264Level");
+    init_combo_box(builder, "VideoTune");
+    init_combo_box(builder, "VideoProfile");
+    init_combo_box(builder, "VideoLevel");
     init_combo_box(builder, "FileFormat");
     for (ii = 0; combo_name_map[ii].name != NULL; ii++)
     {
@@ -2622,10 +2678,6 @@ ghb_build_advanced_opts_string(GValue *settings)
         case HB_VCODEC_X264:
             return ghb_settings_get_string(settings, "x264Option");
 
-        case HB_VCODEC_FFMPEG_MPEG2:
-        case HB_VCODEC_FFMPEG_MPEG4:
-            return ghb_settings_get_string(settings, "lavcOption");
-
         default:
             return NULL;
     }
@@ -2637,9 +2689,11 @@ void ghb_set_video_encoder_opts(hb_job_t *job, GValue *js)
 
     switch (vcodec)
     {
+        case HB_VCODEC_X265:
         case HB_VCODEC_X264:
         {
-            if (ghb_settings_get_boolean(js, "x264UseAdvancedOptions"))
+            if (vcodec == HB_VCODEC_X264 &&
+                ghb_settings_get_boolean(js, "x264UseAdvancedOptions"))
             {
                 char *opts = ghb_settings_get_string(js, "x264Option");
                 hb_job_set_encoder_options(job, opts);
@@ -2648,21 +2702,24 @@ void ghb_set_video_encoder_opts(hb_job_t *job, GValue *js)
             else
             {
                 GString *str = g_string_new("");
-                char *preset = ghb_settings_get_string(js, "x264Preset");
-                char *tune = ghb_settings_get_string(js, "x264Tune");
-                char *profile = ghb_settings_get_string(js, "h264Profile");
-                char *level = ghb_settings_get_string(js, "h264Level");
-                char *opts = ghb_settings_get_string(js, "x264OptionExtra");
+                char *preset = ghb_settings_get_string(js, "VideoPreset");
+                char *tune = ghb_settings_get_string(js, "VideoTune");
+                char *profile = ghb_settings_get_string(js, "VideoProfile");
+                char *level = ghb_settings_get_string(js, "VideoLevel");
+                char *opts = ghb_settings_get_string(js, "VideoOptionExtra");
                 char *tunes;
 
                 g_string_append_printf(str, "%s", tune);
-                if (ghb_settings_get_boolean(js, "x264FastDecode"))
+                if (vcodec == HB_VCODEC_X264)
                 {
-                    g_string_append_printf(str, "%s%s", str->str[0] ? "," : "", "fastdecode");
-                }
-                if (ghb_settings_get_boolean(js, "x264ZeroLatency"))
-                {
-                    g_string_append_printf(str, "%s%s", str->str[0] ? "," : "", "zerolatency");
+                    if (ghb_settings_get_boolean(js, "x264FastDecode"))
+                    {
+                        g_string_append_printf(str, "%s%s", str->str[0] ? "," : "", "fastdecode");
+                    }
+                    if (ghb_settings_get_boolean(js, "x264ZeroLatency"))
+                    {
+                        g_string_append_printf(str, "%s%s", str->str[0] ? "," : "", "zerolatency");
+                    }
                 }
                 tunes = g_string_free(str, FALSE);
 
@@ -2690,8 +2747,9 @@ void ghb_set_video_encoder_opts(hb_job_t *job, GValue *js)
 
         case HB_VCODEC_FFMPEG_MPEG2:
         case HB_VCODEC_FFMPEG_MPEG4:
+        case HB_VCODEC_FFMPEG_VP8:
         {
-            gchar *opts = ghb_settings_get_string(js, "lavcOption");
+            gchar *opts = ghb_settings_get_string(js, "VideoOptionExtra");
             if (opts != NULL && opts[0])
             {
                 hb_job_set_encoder_options(job, opts);
@@ -2789,7 +2847,7 @@ ghb_get_chapters(const hb_title_t *title)
         if (chapter->title == NULL || chapter->title[0] == 0)
         {
             gchar *str;
-            str = g_strdup_printf ("Chapter %2d", ii+1);
+            str = g_strdup_printf (_("Chapter %2d"), ii+1);
             ghb_array_append(chapters, ghb_string_value_new(str));
             g_free(str);
         }
@@ -2841,7 +2899,7 @@ audio_bitrate_opts_add(GtkBuilder *builder, const gchar *name, gint rate)
     custom_audio_bitrate.rate = rate;
     if (rate < 0)
     {
-        snprintf(custom_audio_bitrate_str, 8, "N/A");
+        snprintf(custom_audio_bitrate_str, 8, _("N/A"));
     }
     else
     {
@@ -3480,20 +3538,21 @@ ghb_set_scale_settings(GValue *settings, gint mode)
     if (title == NULL) return;
 
     hb_geometry_t srcGeo, resultGeo;
-    hb_ui_geometry_t uiGeo;
+    hb_geometry_settings_t uiGeo;
 
-    srcGeo.width   = title->width;
-    srcGeo.height  = title->height;
-    srcGeo.par.num = title->pixel_aspect_width;
-    srcGeo.par.den = title->pixel_aspect_height;
+    srcGeo.width   = title->geometry.width;
+    srcGeo.height  = title->geometry.height;
+    srcGeo.par     = title->geometry.par;
 
     // First configure widgets
     mod = ghb_settings_combo_int(settings, "PictureModulus");
+    if (mod <= 0)
+        mod = 16;
     keep_aspect = ghb_settings_get_boolean(settings, "PictureKeepRatio");
     autocrop = ghb_settings_get_boolean(settings, "PictureAutoCrop");
     autoscale = ghb_settings_get_boolean(settings, "autoscale");
-    // "Noscale" is a flag that says we prefer to crop extra to satisfy
-    // alignment constraints rather than scaling to satisfy them.
+    // "PictureLooseCrop" is a flag that says we prefer to crop extra to
+    // satisfy alignment constraints rather than scaling to satisfy them.
     loosecrop = ghb_settings_get_boolean(settings, "PictureLooseCrop");
     // Align dimensions to either 16 or 2 pixels
     // The scaler crashes if the dimensions are not divisible by 2
@@ -3522,13 +3581,13 @@ ghb_set_scale_settings(GValue *settings, gint mode)
         crop[2] = ghb_settings_get_int(settings, "PictureLeftCrop");
         crop[3] = ghb_settings_get_int(settings, "PictureRightCrop");
         // Prevent manual crop from creating too small an image
-        if (title->height - crop[0] < crop[1] + 16)
+        if (title->geometry.height - crop[0] < crop[1] + 16)
         {
-            crop[0] = title->height - crop[1] - 16;
+            crop[0] = title->geometry.height - crop[1] - 16;
         }
-        if (title->width - crop[2] < crop[3] + 16)
+        if (title->geometry.width - crop[2] < crop[3] + 16)
         {
-            crop[2] = title->width - crop[3] - 16;
+            crop[2] = title->geometry.width - crop[3] - 16;
         }
     }
     if (loosecrop)
@@ -3536,8 +3595,8 @@ ghb_set_scale_settings(GValue *settings, gint mode)
         gint need1, need2;
 
         // Adjust the cropping to accomplish the desired width and height
-        crop_width = title->width - crop[2] - crop[3];
-        crop_height = title->height - crop[0] - crop[1];
+        crop_width = title->geometry.width - crop[2] - crop[3];
+        crop_height = title->geometry.height - crop[0] - crop[1];
         width = MOD_DOWN(crop_width, mod);
         height = MOD_DOWN(crop_height, mod);
 
@@ -3559,8 +3618,8 @@ ghb_set_scale_settings(GValue *settings, gint mode)
     uiGeo.crop[2] = crop[2];
     uiGeo.crop[3] = crop[3];
 
-    crop_width = title->width - crop[2] - crop[3];
-    crop_height = title->height - crop[0] - crop[1];
+    crop_width = title->geometry.width - crop[2] - crop[3];
+    crop_height = title->geometry.height - crop[0] - crop[1];
     if (autoscale)
     {
         width = crop_width;
@@ -3598,31 +3657,28 @@ ghb_set_scale_settings(GValue *settings, gint mode)
         uiGeo.keep |= HB_KEEP_DISPLAY_ASPECT;
     uiGeo.itu_par = 0;
     uiGeo.modulus = mod;
-    uiGeo.width = width;
-    uiGeo.height = height;
+    uiGeo.geometry.width = width;
+    uiGeo.geometry.height = height;
+    uiGeo.geometry.par = title->geometry.par;
     uiGeo.maxWidth = max_width;
     uiGeo.maxHeight = max_height;
-    uiGeo.par.num = title->pixel_aspect_width;
-    uiGeo.par.den = title->pixel_aspect_height;
-    uiGeo.dar.num = 0;
-    uiGeo.dar.den = 0;
     if (pic_par != HB_ANAMORPHIC_NONE)
     {
         if (pic_par == HB_ANAMORPHIC_CUSTOM && !keep_aspect)
         {
             if (mode & GHB_PIC_KEEP_PAR)
             {
-                uiGeo.par.num =
+                uiGeo.geometry.par.num =
                     ghb_settings_get_int(settings, "PicturePARWidth");
-                uiGeo.par.den =
+                uiGeo.geometry.par.den =
                     ghb_settings_get_int(settings, "PicturePARHeight");
             }
             else if (mode & (GHB_PIC_KEEP_DISPLAY_HEIGHT |
                              GHB_PIC_KEEP_DISPLAY_WIDTH))
             {
-                uiGeo.dar.num =
-                     ghb_settings_get_int(settings, "PictureDisplayWidth");
-                uiGeo.dar.den = height;
+                uiGeo.geometry.par.num =
+                        ghb_settings_get_int(settings, "PictureDisplayWidth");
+                uiGeo.geometry.par.den = width;
             }
         }
         else
@@ -3697,8 +3753,8 @@ ghb_set_scale(signal_user_data_t *ud, gint mode)
     widget = GHB_WIDGET (ud->builder, "scale_height");
     gtk_spin_button_set_increments (GTK_SPIN_BUTTON(widget), mod, 16);
 
-    // "Noscale" is a flag that says we prefer to crop extra to satisfy
-    // alignment constraints rather than scaling to satisfy them.
+    // "PictureLooseCrop" is a flag that says we prefer to crop extra to
+    // satisfy alignment constraints rather than scaling to satisfy them.
     gboolean loosecrop = ghb_settings_get_boolean(ud->settings, "PictureLooseCrop");
     if (loosecrop)
     {
@@ -3746,12 +3802,11 @@ ghb_set_scale(signal_user_data_t *ud, gint mode)
 
 static void
 get_preview_geometry(signal_user_data_t *ud, const hb_title_t *title,
-                     hb_geometry_t *srcGeo, hb_ui_geometry_t *uiGeo)
+                     hb_geometry_t *srcGeo, hb_geometry_settings_t *uiGeo)
 {
-    srcGeo->width = title->width;
-    srcGeo->height = title->height;
-    srcGeo->par.num = title->pixel_aspect_width;
-    srcGeo->par.den = title->pixel_aspect_height;
+    srcGeo->width  = title->geometry.width;
+    srcGeo->height = title->geometry.height;
+    srcGeo->par    = title->geometry.par;
 
     uiGeo->mode = ghb_settings_combo_int(ud->settings, "PicturePAR");
     uiGeo->keep = ghb_settings_get_boolean(ud->settings, "PictureKeepRatio") ||
@@ -3763,23 +3818,21 @@ get_preview_geometry(signal_user_data_t *ud, const hb_title_t *title,
     uiGeo->crop[1] = ghb_settings_get_int(ud->settings, "PictureBottomCrop");
     uiGeo->crop[2] = ghb_settings_get_int(ud->settings, "PictureLeftCrop");
     uiGeo->crop[3] = ghb_settings_get_int(ud->settings, "PictureRightCrop");
-    uiGeo->width = ghb_settings_get_int(ud->settings, "scale_width");
-    uiGeo->height = ghb_settings_get_int(ud->settings, "scale_height");
+    uiGeo->geometry.width = ghb_settings_get_int(ud->settings, "scale_width");
+    uiGeo->geometry.height = ghb_settings_get_int(ud->settings, "scale_height");
+    uiGeo->geometry.par.num = ghb_settings_get_int(ud->settings, "PicturePARWidth");
+    uiGeo->geometry.par.den = ghb_settings_get_int(ud->settings, "PicturePARHeight");
     uiGeo->maxWidth = 0;
     uiGeo->maxHeight = 0;
-    uiGeo->par.num = ghb_settings_get_int(ud->settings, "PicturePARWidth");
-    uiGeo->par.den = ghb_settings_get_int(ud->settings, "PicturePARHeight");
-    uiGeo->dar.num = 0;
-    uiGeo->dar.den = 0;
     if (ghb_settings_get_boolean(ud->prefs, "preview_show_crop"))
     {
-        gdouble xscale = (gdouble)uiGeo->width /
-                          (title->width - uiGeo->crop[2] - uiGeo->crop[3]);
-        gdouble yscale = (gdouble)uiGeo->height /
-                          (title->height - uiGeo->crop[0] - uiGeo->crop[1]);
+        gdouble xscale = (gdouble)uiGeo->geometry.width /
+                  (title->geometry.width - uiGeo->crop[2] - uiGeo->crop[3]);
+        gdouble yscale = (gdouble)uiGeo->geometry.height /
+                  (title->geometry.height - uiGeo->crop[0] - uiGeo->crop[1]);
 
-        uiGeo->width += xscale * (uiGeo->crop[2] + uiGeo->crop[3]);
-        uiGeo->height += yscale * (uiGeo->crop[0] + uiGeo->crop[1]);
+        uiGeo->geometry.width += xscale * (uiGeo->crop[2] + uiGeo->crop[3]);
+        uiGeo->geometry.height += yscale * (uiGeo->crop[0] + uiGeo->crop[1]);
         uiGeo->crop[0] = 0;
         uiGeo->crop[1] = 0;
         uiGeo->crop[2] = 0;
@@ -3816,7 +3869,7 @@ ghb_validate_filter_string(const gchar *str, gint max_fields)
 }
 
 gboolean
-ghb_validate_filters(GValue *settings)
+ghb_validate_filters(GValue *settings, GtkWindow *parent)
 {
     gchar *str;
     gint index;
@@ -3833,7 +3886,8 @@ ghb_validate_filters(GValue *settings)
             message = g_strdup_printf(
                         _("Invalid Deinterlace Settings:\n\n%s\n"),
                         str);
-            ghb_message_dialog(GTK_MESSAGE_ERROR, message, _("Cancel"), NULL);
+            ghb_message_dialog(parent, GTK_MESSAGE_ERROR,
+                               message, _("Cancel"), NULL);
             g_free(message);
             g_free(str);
             return FALSE;
@@ -3850,7 +3904,8 @@ ghb_validate_filters(GValue *settings)
             message = g_strdup_printf(
                         _("Invalid Detelecine Settings:\n\n%s\n"),
                         str);
-            ghb_message_dialog(GTK_MESSAGE_ERROR, message, _("Cancel"), NULL);
+            ghb_message_dialog(parent, GTK_MESSAGE_ERROR,
+                               message, _("Cancel"), NULL);
             g_free(message);
             g_free(str);
             return FALSE;
@@ -3867,35 +3922,21 @@ ghb_validate_filters(GValue *settings)
             message = g_strdup_printf(
                         _("Invalid Decomb Settings:\n\n%s\n"),
                         str);
-            ghb_message_dialog(GTK_MESSAGE_ERROR, message, _("Cancel"), NULL);
+            ghb_message_dialog(parent, GTK_MESSAGE_ERROR,
+                               message, _("Cancel"), NULL);
             g_free(message);
             g_free(str);
             return FALSE;
         }
         g_free(str);
     }
-    // denois
-    index = ghb_settings_combo_int(settings, "PictureDenoise");
-    if (index == 1)
-    {
-        str = ghb_settings_get_string(settings, "PictureDenoiseCustom");
-        if (!ghb_validate_filter_string(str, -1))
-        {
-            message = g_strdup_printf(
-                        _("Invalid Denoise Settings:\n\n%s\n"),
-                        str);
-            ghb_message_dialog(GTK_MESSAGE_ERROR, message, _("Cancel"), NULL);
-            g_free(str);
-            g_free(message);
-            return FALSE;
-        }
-        g_free(str);
-    }
+    // denoise
+    // TODO
     return TRUE;
 }
 
 gboolean
-ghb_validate_video(GValue *settings)
+ghb_validate_video(GValue *settings, GtkWindow *parent)
 {
     gint vcodec;
     gchar *message;
@@ -3913,7 +3954,8 @@ ghb_validate_video(GValue *settings)
                     _("Theora is not supported in the MP4 container.\n\n"
                     "You should choose a different video codec or container.\n"
                     "If you continue, FFMPEG will be chosen for you."));
-        if (!ghb_message_dialog(GTK_MESSAGE_WARNING, message, _("Cancel"), _("Continue")))
+        if (!ghb_message_dialog(parent, GTK_MESSAGE_WARNING,
+                                message, _("Cancel"), _("Continue")))
         {
             g_free(message);
             return FALSE;
@@ -3927,7 +3969,7 @@ ghb_validate_video(GValue *settings)
 }
 
 gboolean
-ghb_validate_subtitles(GValue *settings)
+ghb_validate_subtitles(GValue *settings, GtkWindow *parent)
 {
     gint title_id, titleindex;
     const hb_title_t * title;
@@ -3938,7 +3980,7 @@ ghb_validate_subtitles(GValue *settings)
     if (title == NULL)
     {
         /* No valid title, stop right there */
-        g_message("No title found.\n");
+        g_message(_("No title found.\n"));
         return FALSE;
     }
 
@@ -3961,7 +4003,8 @@ ghb_validate_subtitles(GValue *settings)
             _("Only one subtitle may be burned into the video.\n\n"
                 "You should change your subtitle selections.\n"
                 "If you continue, some subtitles will be lost."));
-            if (!ghb_message_dialog(GTK_MESSAGE_WARNING, message, _("Cancel"), _("Continue")))
+            if (!ghb_message_dialog(parent, GTK_MESSAGE_WARNING,
+                                    message, _("Cancel"), _("Continue")))
             {
                 g_free(message);
                 return FALSE;
@@ -3984,7 +4027,7 @@ ghb_validate_subtitles(GValue *settings)
                 _("Srt file does not exist or not a regular file.\n\n"
                     "You should choose a valid file.\n"
                     "If you continue, this subtitle will be ignored."));
-                if (!ghb_message_dialog(GTK_MESSAGE_WARNING, message,
+                if (!ghb_message_dialog(parent, GTK_MESSAGE_WARNING, message,
                     _("Cancel"), _("Continue")))
                 {
                     g_free(message);
@@ -3999,7 +4042,7 @@ ghb_validate_subtitles(GValue *settings)
 }
 
 gboolean
-ghb_validate_audio(GValue *settings)
+ghb_validate_audio(GValue *settings, GtkWindow *parent)
 {
     gint title_id, titleindex;
     const hb_title_t * title;
@@ -4010,7 +4053,7 @@ ghb_validate_audio(GValue *settings)
     if (title == NULL)
     {
         /* No valid title, stop right there */
-        g_message("No title found.\n");
+        g_message(_("No title found.\n"));
         return FALSE;
     }
 
@@ -4048,7 +4091,8 @@ ghb_validate_audio(GValue *settings)
                         _("The source does not support Pass-Thru.\n\n"
                         "You should choose a different audio codec.\n"
                         "If you continue, one will be chosen for you."));
-            if (!ghb_message_dialog(GTK_MESSAGE_WARNING, message, _("Cancel"), _("Continue")))
+            if (!ghb_message_dialog(parent, GTK_MESSAGE_WARNING,
+                                    message, _("Cancel"), _("Continue")))
             {
                 g_free(message);
                 return FALSE;
@@ -4088,7 +4132,8 @@ ghb_validate_audio(GValue *settings)
                         _("%s is not supported in the %s container.\n\n"
                         "You should choose a different audio codec.\n"
                         "If you continue, one will be chosen for you."), a_unsup, mux_s);
-            if (!ghb_message_dialog(GTK_MESSAGE_WARNING, message, _("Cancel"), _("Continue")))
+            if (!ghb_message_dialog(parent, GTK_MESSAGE_WARNING,
+                                    message, _("Cancel"), _("Continue")))
             {
                 g_free(message);
                 return FALSE;
@@ -4112,7 +4157,8 @@ ghb_validate_audio(GValue *settings)
                         _("The source audio does not support %s mixdown.\n\n"
                         "You should choose a different mixdown.\n"
                         "If you continue, one will be chosen for you."), mix_unsup);
-            if (!ghb_message_dialog(GTK_MESSAGE_WARNING, message, _("Cancel"), _("Continue")))
+            if (!ghb_message_dialog(parent, GTK_MESSAGE_WARNING,
+                                    message, _("Cancel"), _("Continue")))
             {
                 g_free(message);
                 return FALSE;
@@ -4126,89 +4172,12 @@ ghb_validate_audio(GValue *settings)
     return TRUE;
 }
 
-gboolean
-ghb_validate_vquality(GValue *settings)
-{
-    gint vcodec;
-    gchar *message;
-    gint min, max;
-
-    vcodec = ghb_settings_video_encoder_codec(settings, "VideoEncoder");
-    gdouble vquality;
-    vquality = ghb_settings_get_double(settings, "VideoQualitySlider");
-    if (ghb_settings_get_boolean(settings, "vquality_type_constant"))
-    {
-        switch (vcodec)
-        {
-            case HB_VCODEC_X264:
-            {
-                min = 16;
-                max = 30;
-            } break;
-
-            case HB_VCODEC_FFMPEG_MPEG2:
-            case HB_VCODEC_FFMPEG_MPEG4:
-            {
-                min = 1;
-                max = 8;
-            } break;
-
-            case HB_VCODEC_THEORA:
-            case HB_VCODEC_FFMPEG_VP8:
-            {
-                min = 0;
-                max = 63;
-            } break;
-
-            default:
-            {
-                min = 48;
-                max = 62;
-            } break;
-        }
-        if (vcodec == HB_VCODEC_X264 && vquality == 0.0)
-        {
-            message = g_strdup_printf(
-                        _("Warning: lossless h.264 selected\n\n"
-                        "Lossless h.264 is not well supported by\n"
-                        "many players and editors.\n\n"
-                        "It will produce enormous output files.\n\n"
-                        "Are you sure you wish to use this setting?"));
-            if (!ghb_message_dialog(GTK_MESSAGE_QUESTION, message,
-                                    _("Cancel"), _("Continue")))
-            {
-                g_free(message);
-                return FALSE;
-            }
-            g_free(message);
-            ghb_settings_set_string(settings, "h264Profile", "auto");
-        }
-        else if (vquality < min || vquality > max)
-        {
-            message = g_strdup_printf(
-                        _("Interesting video quality choice: %d\n\n"
-                        "Typical values range from %d to %d.\n\n"
-                        "Are you sure you wish to use this setting?"),
-                        (gint)vquality, min, max);
-            if (!ghb_message_dialog(GTK_MESSAGE_QUESTION, message,
-                                    _("Cancel"), _("Continue")))
-            {
-                g_free(message);
-                return FALSE;
-            }
-            g_free(message);
-        }
-    }
-    return TRUE;
-}
-
 static void
 add_job(hb_handle_t *h, GValue *js, gint unique_id, int titleindex)
 {
     hb_list_t  * list;
     const hb_title_t * title;
     hb_job_t   * job;
-    gint sub_id = 0;
     hb_filter_object_t * filter;
     gchar *filter_str;
     gchar *dest_str = NULL;
@@ -4248,12 +4217,10 @@ add_job(hb_handle_t *h, GValue *js, gint unique_id, int titleindex)
     job->mux = mux->format;
     if (job->mux & HB_MUX_MASK_MP4)
     {
-        job->largeFileSize = ghb_settings_get_boolean(js, "Mp4LargeFile");
         job->mp4_optimize = ghb_settings_get_boolean(js, "Mp4HttpOptimize");
     }
     else
     {
-        job->largeFileSize = FALSE;
         job->mp4_optimize = FALSE;
     }
     if (!job->start_at_preview)
@@ -4288,7 +4255,7 @@ add_job(hb_handle_t *h, GValue *js, gint unique_id, int titleindex)
             start = ghb_settings_get_int(js, "start_point");
             end = ghb_settings_get_int(js, "end_point");
             gint64 max_frames;
-            max_frames = (gint64)(duration * title->rate / title->rate_base);
+            max_frames = (gint64)duration * title->vrate.num / title->vrate.den;
             job->frame_to_start = (int64_t)MIN(max_frames-1, start-1);
             job->frame_to_stop = (int64_t)MAX(start, end-1) -
                                  job->frame_to_start;
@@ -4318,7 +4285,7 @@ add_job(hb_handle_t *h, GValue *js, gint unique_id, int titleindex)
                 name = ghb_value_string(chapter);
                 if (name == NULL)
                 {
-                    name = g_strdup_printf ("Chapter %2d", chap+1);
+                    name = g_strdup_printf (_("Chapter %2d"), chap+1);
                 }
                 chapter_s = hb_list_item( job->list_chapter, chap);
                 hb_chapter_set_title(chapter_s, name);
@@ -4330,19 +4297,10 @@ add_job(hb_handle_t *h, GValue *js, gint unique_id, int titleindex)
     gboolean decomb_deint = ghb_settings_get_boolean(js, "PictureDecombDeinterlace");
     gint decomb = ghb_settings_combo_int(js, "PictureDecomb");
     gint deint = ghb_settings_combo_int(js, "PictureDeinterlace");
-    if (!decomb_deint)
-        job->deinterlace = (deint != 0) ? 1 : 0;
-    else
-        job->deinterlace = 0;
     job->grayscale   = ghb_settings_get_boolean(js, "VideoGrayScale");
 
-    job->anamorphic.mode = ghb_settings_combo_int(js, "PicturePAR");
-    job->modulus = ghb_settings_combo_int(js, "PictureModulus");
-    job->anamorphic.par_width = ghb_settings_get_int(js, "PicturePARWidth");
-    job->anamorphic.par_height = ghb_settings_get_int(js, "PicturePARHeight");
-    job->anamorphic.dar_width = job->anamorphic.dar_height = 0;
-    job->anamorphic.keep_display_aspect =
-                            ghb_settings_get_boolean(js, "PictureKeepRatio");
+    job->par.num = ghb_settings_get_int(js, "PicturePARWidth");
+    job->par.den = ghb_settings_get_int(js, "PicturePARHeight");
 
     int width, height, crop[4];
     width = ghb_settings_get_int(js, "scale_width");
@@ -4389,7 +4347,7 @@ add_job(hb_handle_t *h, GValue *js, gint unique_id, int titleindex)
         hb_add_filter( job, filter, filter_str );
         g_free(filter_str);
     }
-    if( job->deinterlace )
+    if ( !decomb_deint && deint )
     {
         filter_str = NULL;
         if (deint != 1)
@@ -4403,20 +4361,29 @@ add_job(hb_handle_t *h, GValue *js, gint unique_id, int titleindex)
         hb_add_filter( job, filter, filter_str );
         g_free(filter_str);
     }
-    gint denoise = ghb_settings_combo_int(js, "PictureDenoise");
-    if( denoise )
+    if (strcmp(ghb_settings_get_const_string(js, "PictureDenoiseFilter"), "off"))
     {
-        filter_str = NULL;
-        if (denoise != 1)
+        int filter_id = HB_FILTER_HQDN3D;
+        if (!strcmp(ghb_settings_get_const_string(js, "PictureDenoiseFilter"), "nlmeans"))
+            filter_id = HB_FILTER_NLMEANS;
+
+        if (!strcmp(ghb_settings_get_const_string(js, "PictureDenoisePreset"), "custom"))
         {
-            if (denoise_opts.map[denoise].svalue != NULL)
-                filter_str = g_strdup(denoise_opts.map[denoise].svalue);
+            const char *filter_str;
+            filter_str = ghb_settings_get_const_string(js, "PictureDenoiseCustom");
+            filter = hb_filter_init(filter_id);
+            hb_add_filter( job, filter, filter_str );
         }
         else
-            filter_str = ghb_settings_get_string(js, "PictureDenoiseCustom");
-        filter = hb_filter_init(HB_FILTER_DENOISE);
-        hb_add_filter( job, filter, filter_str );
-        g_free(filter_str);
+        {
+            const char *preset, *tune;
+            preset = ghb_settings_get_const_string(js, "PictureDenoisePreset");
+            tune = ghb_settings_get_const_string(js, "PictureDenoiseTune");
+            filter_str = hb_generate_filter_settings(filter_id, preset, tune);
+            filter = hb_filter_init(filter_id);
+            hb_add_filter( job, filter, filter_str );
+            g_free(filter_str);
+        }
     }
     gint deblock = ghb_settings_get_int(js, "PictureDeblock");
     if( deblock >= 5 )
@@ -4451,8 +4418,8 @@ add_job(hb_handle_t *h, GValue *js, gint unique_id, int titleindex)
         job->vbitrate = ghb_settings_get_int(js, "VideoAvgBitrate");
     }
 
-    gint vrate;
-    gint vrate_base = ghb_settings_video_framerate_rate(js, "VideoFramerate");
+    gint vrate_num;
+    gint vrate_den = ghb_settings_video_framerate_rate(js, "VideoFramerate");
     gint cfr;
     if (ghb_settings_get_boolean(js, "VideoFrameratePFR"))
         cfr = 2;
@@ -4468,16 +4435,16 @@ add_job(hb_handle_t *h, GValue *js, gint unique_id, int titleindex)
         ghb_log("zerolatency x264 tune selected, forcing constant framerate");
     }
 
-    if( vrate_base == 0 )
+    if( vrate_den == 0 )
     {
-        vrate = title->rate;
-        vrate_base = title->rate_base;
+        vrate_num = title->vrate.num;
+        vrate_den = title->vrate.den;
     }
     else
     {
-        vrate = 27000000;
+        vrate_num = 27000000;
     }
-    filter_str = g_strdup_printf("%d:%d:%d", cfr, vrate, vrate_base);
+    filter_str = g_strdup_printf("%d:%d:%d", cfr, vrate_num, vrate_den);
     filter = hb_filter_init(HB_FILTER_VFR);
     hb_add_filter( job, filter, filter_str );
     g_free(filter_str);
@@ -4737,72 +4704,11 @@ add_job(hb_handle_t *h, GValue *js, gint unique_id, int titleindex)
     }
     free(meta);
 
-    if (job->indepth_scan == 1)
-    {
-        // Subtitle scan. Look for subtitle matching audio language
-
-        /*
-         * When subtitle scan is enabled do a fast pre-scan job
-         * which will determine which subtitles to enable, if any.
-         */
-        job->pass = -1;
-        job->indepth_scan = 1;
-        hb_job_set_encoder_options(job, NULL);
-
-        /*
-         * Add the pre-scan job
-         */
-        job->sequence_id = (unique_id & 0xFFFFFF) | (sub_id++ << 24);
-        hb_add( h, job );
-    }
-
-    if( ghb_settings_get_boolean(js, "VideoTwoPass") &&
-        !ghb_settings_get_boolean(js, "vquality_type_constant"))
-    {
-        /*
-         * If subtitle_scan is enabled then only turn it on
-         * for the second pass and then off again for the
-         * second.
-         */
-        job->pass = 1;
-        job->indepth_scan = 0;
-        ghb_set_video_encoder_opts(job, js);
-
-        /*
-         * If turbo options have been selected then set job->fastfirstpass
-         */
-        if( ghb_settings_get_boolean(js, "VideoTurboTwoPass") &&
-            job->vcodec == HB_VCODEC_X264 )
-        {
-            job->fastfirstpass = 1;
-        }
-        else
-        {
-            job->fastfirstpass = 0;
-        }
-
-        job->sequence_id = (unique_id & 0xFFFFFF) | (sub_id++ << 24);
-        hb_add( h, job );
-
-        job->pass = 2;
-        /*
-         * On the second pass we turn off subtitle scan so that we
-         * can actually encode using any subtitles that were auto
-         * selected in the first pass (using the whacky select-subtitle
-         * attribute of the job).
-         */
-        job->indepth_scan = 0;
-        job->sequence_id = (unique_id & 0xFFFFFF) | (sub_id++ << 24);
-        hb_add( h, job );
-    }
-    else
-    {
-        ghb_set_video_encoder_opts(job, js);
-        job->indepth_scan = 0;
-        job->pass = 0;
-        job->sequence_id = (unique_id & 0xFFFFFF) | (sub_id++ << 24);
-        hb_add( h, job );
-    }
+    job->twopass = ghb_settings_get_boolean(js, "VideoTwoPass");
+    job->fastfirstpass = ghb_settings_get_boolean(js, "VideoTurboTwoPass");
+    job->sequence_id = unique_id;
+    ghb_set_video_encoder_opts(job, js);
+    hb_add(h, job);
 
     hb_job_close(&job);
 }
@@ -4993,7 +4899,7 @@ ghb_get_preview_image(
     gint *out_height)
 {
     hb_geometry_t srcGeo, resultGeo;
-    hb_ui_geometry_t uiGeo;
+    hb_geometry_settings_t uiGeo;
 
     if( title == NULL ) return NULL;
 
@@ -5017,34 +4923,31 @@ ghb_get_preview_image(
     hb_set_anamorphic_size2(&srcGeo, &uiGeo, &resultGeo);
 
     // Rescale preview dimensions to adjust for screen PAR and settings PAR
-    ghb_par_scale(ud, &uiGeo.width, &uiGeo.height,
+    ghb_par_scale(ud, &uiGeo.geometry.width, &uiGeo.geometry.height,
                       resultGeo.par.num, resultGeo.par.den);
-    uiGeo.par.num = 1;
-    uiGeo.par.den = 1;
+    uiGeo.geometry.par.num = 1;
+    uiGeo.geometry.par.den = 1;
 
-    // Populate job with things needed by hb_get_preview
-    hb_job_t *job = hb_job_init((hb_title_t*)title);
-    job->width = uiGeo.width;
-    job->height = uiGeo.height;
-    job->deinterlace = deinterlace;
-    memcpy(job->crop, uiGeo.crop, sizeof(int[4]));
+    GdkPixbuf *preview;
+    hb_image_t *image;
+    image = hb_get_preview2(h_scan, title->index, index, &uiGeo, deinterlace);
 
-    // Make sure we have a big enough buffer to receive the image from libhb
-    guint8 *buffer = g_malloc(uiGeo.width * uiGeo.height * 4);
-
-    hb_get_preview( h_scan, job, index, buffer );
-    hb_job_close( &job );
+    if (image == NULL)
+    {
+        preview = gdk_pixbuf_new(GDK_COLORSPACE_RGB, FALSE, 8,
+                                 title->geometry.width, title->geometry.height);
+        return preview;
+    }
 
     // Create an GdkPixbuf and copy the libhb image into it, converting it from
     // libhb's format something suitable.
     // The image data returned by hb_get_preview is 4 bytes per pixel,
     // BGRA format. Alpha is ignored.
-    GdkPixbuf *preview;
     preview = gdk_pixbuf_new(GDK_COLORSPACE_RGB, FALSE, 8,
-                             uiGeo.width, uiGeo.height);
+                             image->width, image->height);
     guint8 *pixels = gdk_pixbuf_get_pixels(preview);
 
-    guint8 *src_line = buffer;
+    guint8 *src_line = image->data;
     guint8 *dst = pixels;
 
     gint ii, jj;
@@ -5052,11 +4955,11 @@ ghb_get_preview_image(
     gint stride = gdk_pixbuf_get_rowstride(preview);
     guint8 *tmp;
 
-    for (ii = 0; ii < uiGeo.height; ii++)
+    for (ii = 0; ii < image->height; ii++)
     {
         guint32 *src = (guint32*)src_line;
         tmp = dst;
-        for (jj = 0; jj < uiGeo.width; jj++)
+        for (jj = 0; jj < image->width; jj++)
         {
             tmp[0] = src[0] >> 16;
             tmp[1] = src[0] >> 8;
@@ -5064,7 +4967,7 @@ ghb_get_preview_image(
             tmp += channels;
             src++;
         }
-        src_line += uiGeo.width * 4;
+        src_line += image->plane[0].stride;
         dst += stride;
     }
     gint w = ghb_settings_get_int(ud->settings, "scale_width");
@@ -5077,14 +4980,14 @@ ghb_get_preview_image(
     c2 = ghb_settings_get_int(ud->settings, "PictureLeftCrop");
     c3 = ghb_settings_get_int(ud->settings, "PictureRightCrop");
 
-    gdouble xscale = (gdouble)w / (gdouble)(title->width - c2 - c3);
-    gdouble yscale = (gdouble)h / (gdouble)(title->height - c0 - c1);
+    gdouble xscale = (gdouble)w / (gdouble)(title->geometry.width - c2 - c3);
+    gdouble yscale = (gdouble)h / (gdouble)(title->geometry.height - c0 - c1);
 
     *out_width = w;
     *out_height = h;
 
-    int previewWidth = uiGeo.width;
-    int previewHeight = uiGeo.height;
+    int previewWidth = image->width;
+    int previewHeight = image->height;
 
     // If the preview is too large to fit the screen, reduce it's size.
     if (ghb_settings_get_boolean(ud->prefs, "reduce_hd_preview"))
@@ -5143,6 +5046,7 @@ ghb_get_preview_image(
         // Right
         hash_pixbuf(preview, previewWidth-c3, c0, c3, h, 32, 1);
     }
+    hb_image_close(&image);
     return preview;
 }
 

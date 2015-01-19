@@ -3,7 +3,7 @@
 //   This file is part of the HandBrake source code - It may be used under the terms of the GNU General Public License.
 // </copyright>
 // <summary>
-//   We have multiple implementations of IEncode. This is a wrapper class for the GUI so that the 
+//   We have multiple implementations of IEncode. This is a wrapper class for the GUI so that the
 //   implementation used is controllable via user settings.
 //   Over time, this class will go away when the LibHB and process isolation code matures.
 // </summary>
@@ -12,18 +12,15 @@
 namespace HandBrakeWPF.Services
 {
     using System;
-    using System.Windows.Forms;
 
     using HandBrake.ApplicationServices.Exceptions;
     using HandBrake.ApplicationServices.Isolation;
     using HandBrake.ApplicationServices.Model;
-    using HandBrake.ApplicationServices.Services;
-    using HandBrake.ApplicationServices.Services.Interfaces;
+    using HandBrake.ApplicationServices.Services.Encode;
+    using HandBrake.ApplicationServices.Services.Encode.EventArgs;
+    using HandBrake.ApplicationServices.Services.Encode.Interfaces;
 
     using HandBrakeWPF.Services.Interfaces;
-
-    using EncodeCompletedEventArgs = HandBrake.ApplicationServices.EventArgs.EncodeCompletedEventArgs;
-    using EncodeProgressEventArgs = HandBrake.ApplicationServices.EventArgs.EncodeProgressEventArgs;
 
     /// <summary>
     /// We have multiple implementations of Iencode. This is a wrapper class for the GUI so that the 
@@ -51,7 +48,7 @@ namespace HandBrakeWPF.Services
         /// </param>
         public EncodeServiceWrapper(IUserSettingService userSettingService)
         {
-            var useLibHb = userSettingService.GetUserSetting<bool>(UserSettingConstants.EnableLibHb);
+            var useLibHb = AppArguments.UseLibHb ? AppArguments.UseLibHb : userSettingService.GetUserSetting<bool>(UserSettingConstants.UseLibHb);
             var useProcessIsolation =
                 userSettingService.GetUserSetting<bool>(UserSettingConstants.EnableProcessIsolation);
             var port = userSettingService.GetUserSetting<string>(UserSettingConstants.ServerPort);
@@ -72,16 +69,15 @@ namespace HandBrakeWPF.Services
                 catch (Exception exc)
                 {
                     // Try to recover from errors.
-                    userSettingService.SetUserSetting(UserSettingConstants.EnableLibHb, false);
                     throw new GeneralApplicationException(
-                        "Unable to initialise LibHB or Background worker service",
-                        "Falling back to using HandBrakeCLI.exe. Setting has been reset",
+                        "Unable to initialise LibHB or Background worker service", 
+                        "Falling back to using HandBrakeCLI.exe. Setting has been reset", 
                         exc);
                 }
             }
             else
             {
-                this.encodeService = new Encode();
+                this.encodeService = new EncodeService();
             }
 
             this.encodeService.EncodeCompleted += this.EncodeServiceEncodeCompleted;

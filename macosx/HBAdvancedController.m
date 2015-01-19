@@ -5,60 +5,112 @@
     It may be used under the terms of the GNU General Public License. */
     
 #import "HBAdvancedController.h"
+#import "HBVideo.h"
+#import "HBVideo+UIAdditions.h"
+
+@interface HBAdvancedController ()
+{
+    /* Advanced Tab for opts fX264optView*/
+    IBOutlet NSBox              * fOptionsBox;
+
+    IBOutlet NSView             * fEmptyView;
+
+    IBOutlet NSView             * fX264optView;
+    IBOutlet NSTextField        * fX264optViewTitleLabel;
+    IBOutlet NSTextField        * fDisplayX264OptionsLabel;
+    IBOutlet NSTextField        * fDisplayX264Options;
+
+    IBOutlet NSTextField        * fX264optBframesLabel;
+    IBOutlet NSPopUpButton      * fX264optBframesPopUp;
+    IBOutlet NSTextField        * fX264optRefLabel;
+    IBOutlet NSPopUpButton      * fX264optRefPopUp;
+    IBOutlet NSButton           * fX264optWeightPSwitch;
+    IBOutlet NSTextField        * fX264optWeightPLabel;
+    IBOutlet NSTextField        * fX264optNodctdcmtLabel;
+    IBOutlet NSButton           * fX264optNodctdcmtSwitch;
+    IBOutlet NSTextField        * fX264optSubmeLabel;
+    IBOutlet NSPopUpButton      * fX264optSubmePopUp;
+    IBOutlet NSTextField        * fX264optTrellisLabel;
+    IBOutlet NSPopUpButton      * fX264optTrellisPopUp;
+    IBOutlet NSTextField        * fX264optMotionEstLabel;
+    IBOutlet NSPopUpButton      * fX264optMotionEstPopUp;
+    IBOutlet NSTextField        * fX264optMERangeLabel;
+    IBOutlet NSPopUpButton      * fX264optMERangePopUp;
+    IBOutlet NSTextField        * fX264optBPyramidLabel;
+    IBOutlet NSPopUpButton      * fX264optBPyramidPopUp;
+    IBOutlet NSTextField        * fX264optDirectPredLabel;
+    IBOutlet NSPopUpButton      * fX264optDirectPredPopUp;
+    IBOutlet NSTextField        * fX264optDeblockLabel;
+    IBOutlet NSPopUpButton      * fX264optAlphaDeblockPopUp;
+    IBOutlet NSPopUpButton      * fX264optBetaDeblockPopUp;
+    IBOutlet NSTextField        * fX264optAnalyseLabel;
+    IBOutlet NSPopUpButton      * fX264optAnalysePopUp;
+    IBOutlet NSTextField        * fX264opt8x8dctLabel;
+    IBOutlet NSButton           * fX264opt8x8dctSwitch;
+    IBOutlet NSTextField        * fX264optCabacLabel;
+    IBOutlet NSButton           * fX264optCabacSwitch;
+    IBOutlet NSSlider           * fX264optAqSlider;
+    IBOutlet NSTextField        * fX264optAqLabel;
+    IBOutlet NSSlider           * fX264optPsyRDSlider;
+    IBOutlet NSTextField        * fX264optPsyRDLabel;
+    IBOutlet NSSlider           * fX264optPsyTrellisSlider;
+    IBOutlet NSTextField        * fX264optPsyTrellisLabel;
+    IBOutlet NSPopUpButton      * fX264optBAdaptPopUp;
+    IBOutlet NSTextField        * fX264optBAdaptLabel;
+}
+
+- (IBAction) X264AdvancedOptionsAnimate: (id) sender;
+- (IBAction) X264AdvancedOptionsSet: (id) sender;
+- (IBAction) X264AdvancedOptionsStandardizeOptString: (id) sender;
+- (IBAction) X264AdvancedOptionsSetCurrentSettings: (id) sender;
+- (NSString *)  X264AdvancedOptionsStandardizeOptNames:(NSString *) cleanOptNameString;
+- (NSString *)  X264AdvancedOptionsOptIDToString: (id) sender;
+- (NSString *)  X264AdvancedOptionsWidgetToString: (NSString *) optName withID: (id) sender;
+- (BOOL) X264AdvancedOptionsIsOpt: (NSString *) optNameToChange inString: (NSString *) currentOptString;
+- (IBAction) X264AdvancedOptionsChanged: (id) sender;
+
+@end
 
 @implementation HBAdvancedController
 
-- (id)init
+@synthesize enabled = _enabled;
+
+- (instancetype)init
 {
-    if( self = [super init] )
+    self = [super initWithNibName:@"AdvancedView" bundle:nil];
+    if (self)
     {
-        [self loadMyNibFile];
+
     }
 
     return self;
 }
 
-- (void) setView: (NSBox *) box
+- (void)loadView
 {
-    fOptionsBox = box;
-    [fOptionsBox setContentView:fX264optView];
+    [super loadView];
+    [self setHidden:NO];
 }
 
-- (BOOL) loadMyNibFile
+- (void)setVideoSettings:(HBVideo *)videoSettings
 {
-    if(![NSBundle loadNibNamed:@"AdvancedView" owner:self])
+    [_videoSettings autorelease];
+    _videoSettings = [videoSettings retain];
+
+    if (_videoSettings)
     {
-        NSLog(@"Warning! Could not load myNib file.\n");
-        return NO;
+        fDisplayX264Options.stringValue = _videoSettings.unparseOptions;
     }
-    
-    return YES;
-}
-
-- (NSString *) optionsString
-{
-    return [fDisplayX264Options stringValue];
-}
-
-- (NSString *) optionsStringLavc
-{
-    return [fDisplayLavcOptions stringValue];
-}
-
-- (void) setOptions: (NSString *)string
-{
-    [fDisplayX264Options setStringValue:string];
+    else
+    {
+        fDisplayX264Options.stringValue = @"";
+    }
     [self X264AdvancedOptionsSet:nil];
 }
 
-- (void) setLavcOptions: (NSString *)string
+- (void)setHidden:(BOOL)hidden
 {
-    [fDisplayLavcOptions setStringValue:string];
-}
-
-- (void) setHidden: (BOOL) hide
-{
-    if(hide)
+    if (hidden)
     {
         [fOptionsBox setContentView:fEmptyView];
     }
@@ -66,28 +118,12 @@
     {
         [fOptionsBox setContentView:fX264optView];
     }
-    return;
 }
 
-- (void) setLavcOptsEnabled: (BOOL) lavc
+ - (void)setEnabled:(BOOL)flag
 {
-    if(lavc)
-    {
-        [fDisplayLavcOptions setHidden:NO];
-        [fDisplayLavcOptionsLabel setHidden:NO];
-        [fDisplayTheoraOptionsLabel setHidden:YES];
-    }
-    else
-    {
-        [fDisplayLavcOptions setHidden:YES];
-        [fDisplayLavcOptionsLabel setHidden:YES];
-        [fDisplayTheoraOptionsLabel setHidden:NO];
-    }
-    return;
-}
+    _enabled = flag;
 
- - (void) enableUI: (bool) b
-{
     unsigned i;
     NSControl * controls[] =
       { fX264optViewTitleLabel,fDisplayX264Options,fDisplayX264OptionsLabel,fX264optBframesLabel,
@@ -107,16 +143,14 @@
             NSTextField * tf = (NSTextField *) controls[i];
             if( ![tf isBezeled] )
             {
-                [tf setTextColor: b ? [NSColor controlTextColor] :
+                [tf setTextColor: flag ? [NSColor controlTextColor] :
                     [NSColor disabledControlTextColor]];
                 continue;
             }
         }
-        [controls[i] setEnabled: b];
+        [controls[i] setEnabled: flag];
 
     }
-    
-    [fX264optView setWantsLayer:YES];
 }
 
 - (void)dealloc
@@ -433,6 +467,7 @@
     
     /* Change the option string to reflect the new standardized option string */
     [fDisplayX264Options setStringValue:changedOptString];
+    self.videoSettings.videoOptionExtra = changedOptString;
 }
 
 /**
@@ -1273,7 +1308,6 @@
     
     NSString * thisOpt = @"";  // The separated option such as "bframes=3"
     NSString * optName = @"";  // The option name such as "bframes"
-    NSString * optValue = @""; // The option value such as "3"
     NSArray *currentOptsArray;
     
     /* Get the current opt string being displayed. */
@@ -1312,7 +1346,6 @@
                    already have at least one option=value pair in them. */
                    
                 optName = [thisOpt substringToIndex:splitOptRange.location];
-                optValue = [thisOpt substringFromIndex:splitOptRange.location + 1];
 
                 /*If the optNameToChange is found, appropriately change the value or delete it if
                     "Unspecified" is set.*/
@@ -1345,7 +1378,7 @@
         }
         
         /* Change the dislayed option string to reflect the new modified settings */
-        [fDisplayX264Options setStringValue:changedOptString];    
+        [fDisplayX264Options setStringValue:changedOptString];
     }
     else // if none exists, add it to the string
     {
@@ -1372,7 +1405,8 @@
     }
     
     /* We now need to reset the opt widgets since we changed some stuff */        
-    [self X264AdvancedOptionsSet:sender];        
+    [self X264AdvancedOptionsSet:sender];
+    self.videoSettings.videoOptionExtra = fDisplayX264Options.stringValue;
 }
 
 @end

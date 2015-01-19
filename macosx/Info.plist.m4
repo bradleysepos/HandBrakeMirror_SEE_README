@@ -26,6 +26,14 @@ dnl
  			<key>CFBundleTypeRole</key>
  			<string>Viewer</string>
  		</dict>
+ 		<dict>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.movie</string>
+			</array>
+			<key>CFBundleTypeRole</key>
+ 			<string>Viewer</string>
+		</dict>
  	</array>
 	<key>CFBundleExecutable</key>
 	<string>${EXECUTABLE_NAME}</string>
@@ -50,7 +58,7 @@ dnl
 	<key>LSMinimumSystemVersion</key>
 	<string>${MACOSX_DEPLOYMENT_TARGET}</string>
 	<key>NSHumanReadableCopyright</key>
-	<string>Copyright © 2003-2014 __HB_name Developers.
+	<string>Copyright © 2003-2015 __HB_name Developers.
 All rights reserved.</string>
 	<key>NSMainNibFile</key>
 	<string>MainMenu</string>

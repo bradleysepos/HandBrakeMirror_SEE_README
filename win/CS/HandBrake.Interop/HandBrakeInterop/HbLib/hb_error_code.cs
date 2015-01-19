@@ -1,11 +1,18 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
+﻿// --------------------------------------------------------------------------------------------------------------------
+// <copyright file="hb_error_code.cs" company="HandBrake Project (http://handbrake.fr)">
+//   This file is part of the HandBrake source code - It may be used under the terms of the GNU General Public License.
+// </copyright>
+// <summary>
+//   Defines the hb_error_code type.
+// </summary>
+// --------------------------------------------------------------------------------------------------------------------
 
 namespace HandBrake.Interop.HbLib
 {
-	public enum hb_error_code
+    /// <summary>
+    /// The hb_error_code.
+    /// </summary>
+    internal enum hb_error_code
 	{
 		HB_ERROR_NONE = 0,
 		HB_ERROR_CANCELED,

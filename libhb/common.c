@@ -339,16 +339,8 @@ static int hb_container_is_enabled(int format)
 {
     switch (format)
     {
-#ifdef USE_MP4V2
-        case HB_MUX_MP4V2:
-#endif
-#ifdef USE_LIBMKV
-        case HB_MUX_LIBMKV:
-#endif
-#ifdef USE_AVFORMAT
         case HB_MUX_AV_MP4:
         case HB_MUX_AV_MKV:
-#endif
             return 1;
 
         default:
@@ -2001,7 +1993,6 @@ void hb_autopassthru_apply_settings(hb_job_t *job)
                 hb_audio_close(&audio);
                 continue;
             }
-            audio->config.out.samplerate = audio->config.in.samplerate;
             if (!(audio->config.out.codec & HB_ACODEC_PASS_FLAG))
             {
                 if (audio->config.out.codec == job->acodec_fallback)
@@ -2014,15 +2005,65 @@ void hb_autopassthru_apply_settings(hb_job_t *job)
                     hb_log("Auto Passthru: passthru and fallback not possible for track %d, using default encoder",
                            audio->config.out.track);
                 }
-                audio->config.out.mixdown =
-                    hb_mixdown_get_default(audio->config.out.codec,
-                                           audio->config.in.channel_layout);
-                audio->config.out.bitrate =
-                    hb_audio_bitrate_get_default(audio->config.out.codec,
+                if (audio->config.out.mixdown <= 0)
+                {
+                    audio->config.out.mixdown =
+                        hb_mixdown_get_default(audio->config.out.codec,
+                                               audio->config.in.channel_layout);
+                }
+                else
+                {
+                    audio->config.out.mixdown =
+                        hb_mixdown_get_best(audio->config.out.codec,
+                                            audio->config.in.channel_layout,
+                                            audio->config.out.mixdown);
+                }
+                if (audio->config.out.samplerate <= 0)
+                    audio->config.out.samplerate = audio->config.in.samplerate;
+                audio->config.out.samplerate =
+                    hb_audio_samplerate_get_best(audio->config.out.codec,
+                                                 audio->config.out.samplerate,
+                                                 NULL);
+                int quality_not_allowed =
+                    hb_audio_quality_get_default(audio->config.out.codec)
+                            == HB_INVALID_AUDIO_QUALITY;
+                if (audio->config.out.bitrate > 0)
+                {
+                    // Use best bitrate
+                    audio->config.out.bitrate =
+                        hb_audio_bitrate_get_best(audio->config.out.codec,
+                                                  audio->config.out.bitrate,
+                                                  audio->config.out.samplerate,
+                                                  audio->config.out.mixdown);
+                }
+                else if (quality_not_allowed ||
+                         audio->config.out.quality != HB_INVALID_AUDIO_QUALITY)
+                {
+                    // Use default bitrate
+                    audio->config.out.bitrate =
+                        hb_audio_bitrate_get_default(audio->config.out.codec,
                                                  audio->config.out.samplerate,
                                                  audio->config.out.mixdown);
-                audio->config.out.compression_level =
-                    hb_audio_compression_get_default(audio->config.out.codec);
+                }
+                else
+                {
+                    // Use best quality
+                    audio->config.out.quality =
+                        hb_audio_quality_get_best(audio->config.out.codec,
+                                                  audio->config.out.quality);
+                }
+                if (audio->config.out.compression_level < 0)
+                {
+                    audio->config.out.compression_level =
+                        hb_audio_compression_get_default(
+                                        audio->config.out.codec);
+                }
+                else
+                {
+                    audio->config.out.compression_level =
+                        hb_audio_compression_get_best(audio->config.out.codec,
+                                        audio->config.out.compression_level);
+                }
             }
             else
             {
@@ -2273,6 +2314,32 @@ void hb_reduce( int *x, int *y, int num, int den )
         *x = num;
         *y = den;
     }
+}
+
+void hb_limit_rational( int *x, int *y, int num, int den, int limit )
+{
+    hb_reduce( &num, &den, num, den );
+    if ( num < limit && den < limit )
+    {
+        *x = num;
+        *y = den;
+        return;
+    }
+
+    if ( num > den )
+    {
+        double div = (double)limit / num;
+        num = limit;
+        den *= div;
+    }
+    else
+    {
+        double div = (double)limit / den;
+        den = limit;
+        num *= div;
+    }
+    *x = num;
+    *y = den;
 }
 
 /**********************************************************************
@@ -2836,14 +2903,14 @@ hb_title_t * hb_title_init( char * path, int index )
     t->list_subtitle = hb_list_init();
     t->list_attachment = hb_list_init();
     t->metadata      = hb_metadata_init();
-    strcat( t->path, path );
+    strncat(t->path, path, sizeof(t->path) - 1);
     // default to decoding mpeg2
     t->video_id      = 0xE0;
     t->video_codec   = WORK_DECAVCODECV;
     t->video_codec_param = AV_CODEC_ID_MPEG2VIDEO;
     t->angle_count   = 1;
-    t->pixel_aspect_width = 1;
-    t->pixel_aspect_height = 1;
+    t->geometry.par.num = 1;
+    t->geometry.par.den = 1;
 
     return t;
 }
@@ -2894,51 +2961,11 @@ void hb_title_close( hb_title_t ** _t )
     free( t->video_codec_name );
     free(t->container_name);
 
-#if defined(HB_TITLE_JOBS)
-    hb_job_close( &t->job );
-#endif
-
     free( t );
     *_t = NULL;
 }
 
-// The mac ui expects certain fields of the job struct to be cleaned up
-// and others to remain untouched.
-// e.g. picture settings like cropping, width, height, should remain untouched.
-//
-// So only initialize job elements that we know get set up by prepareJob and
-// prepareJobForPreview.
-//
-// This should all get resolved in some future mac ui refactoring.
-static void job_reset_for_mac_ui( hb_job_t * job, hb_title_t * title )
-{
-    if ( job == NULL || title == NULL )
-        return;
-
-    job->title = title;
-
-    /* Set defaults settings */
-    job->chapter_start = 1;
-    job->chapter_end   = hb_list_count( title->list_chapter );
-    job->list_chapter = hb_chapter_list_copy( title->list_chapter );
-
-    job->vcodec     = HB_VCODEC_FFMPEG_MPEG4;
-    job->vquality   = -1.0;
-    job->vbitrate   = 1000;
-    job->pass       = 0;
-    job->vrate      = title->rate;
-    job->vrate_base = title->rate_base;
-
-    job->list_audio = hb_list_init();
-    job->list_subtitle = hb_list_init();
-    job->list_filter = hb_list_init();
-
-    job->list_attachment = hb_attachment_list_copy( title->list_attachment );
-    job->metadata = hb_metadata_copy( title->metadata );
-}
-
-
-static void job_setup( hb_job_t * job, hb_title_t * title )
+static void job_setup(hb_job_t * job, hb_title_t * title)
 {
     if ( job == NULL || title == NULL )
         return;
@@ -2953,37 +2980,30 @@ static void job_setup( hb_job_t * job, hb_title_t * title )
     /* Autocrop by default. Gnark gnark */
     memcpy( job->crop, title->crop, 4 * sizeof( int ) );
 
-    /* Preserve a source's pixel aspect, if it's available. */
-    if( title->pixel_aspect_width && title->pixel_aspect_height )
-    {
-        job->anamorphic.par_width  = title->pixel_aspect_width;
-        job->anamorphic.par_height = title->pixel_aspect_height;
-    }
 
-    if( title->aspect != 0 && title->aspect != 1. &&
-        !job->anamorphic.par_width && !job->anamorphic.par_height)
-    {
-        hb_reduce( &job->anamorphic.par_width, &job->anamorphic.par_height,
-                   (int)(title->aspect * title->height + 0.5), title->width );
-    }
+    hb_geometry_t resultGeo, srcGeo;
+    hb_geometry_settings_t uiGeo;
 
-    job->width = title->width - job->crop[2] - job->crop[3];
-    job->height = title->height - job->crop[0] - job->crop[1];
-    job->anamorphic.keep_display_aspect = 1;
+    srcGeo = title->geometry;
 
-    int width, height, par_width, par_height;
-    hb_set_anamorphic_size(job, &width, &height, &par_width, &par_height);
-    job->width = width;
-    job->height = height;
-    job->anamorphic.par_width = par_width;
-    job->anamorphic.par_height = par_height;
+    memset(&uiGeo, 0, sizeof(uiGeo));
+    memcpy(uiGeo.crop, title->crop, 4 * sizeof( int ));
+    uiGeo.geometry.width = srcGeo.width - uiGeo.crop[2] - uiGeo.crop[3];
+    uiGeo.geometry.height = srcGeo.height - uiGeo.crop[0] - uiGeo.crop[1];
+    uiGeo.mode = HB_ANAMORPHIC_NONE;
+    uiGeo.keep = HB_KEEP_DISPLAY_ASPECT;
+
+    hb_set_anamorphic_size2(&srcGeo, &uiGeo, &resultGeo);
+    job->width = resultGeo.width;
+    job->height = resultGeo.height;
+    job->par = resultGeo.par;
 
     job->vcodec     = HB_VCODEC_FFMPEG_MPEG4;
     job->vquality   = -1.0;
     job->vbitrate   = 1000;
+    job->twopass    = 0;
     job->pass       = 0;
-    job->vrate      = title->rate;
-    job->vrate_base = title->rate_base;
+    job->vrate      = title->vrate;
 
     job->mux = HB_MUX_MP4;
 
@@ -3070,16 +3090,32 @@ static void job_clean( hb_job_t * job )
     }
 }
 
+hb_title_t * hb_find_title_by_index( hb_handle_t *h, int title_index )
+{
+    hb_title_set_t *title_set = hb_get_title_set( h );
+    int ii;
+
+    for (ii = 0; ii < hb_list_count(title_set->list_title); ii++)
+    {
+        hb_title_t *title = hb_list_item(title_set->list_title, ii);
+        if (title_index == title->index)
+        {
+            return title;
+        }
+    }
+    return NULL;
+}
+
 /*
  * Create a pristine job structure from a title
  * title_index is 1 based
  */
 hb_job_t * hb_job_init_by_index( hb_handle_t * h, int title_index )
 {
-    hb_title_set_t *title_set = hb_get_title_set( h );
-    hb_title_t * title = hb_list_item( title_set->list_title,
-                                       title_index - 1 );
-    return hb_job_init( title );
+    hb_title_t * title = hb_find_title_by_index(h, title_index);
+    if (title == NULL)
+        return NULL;
+    return hb_job_init(title);
 }
 
 hb_job_t * hb_job_init( hb_title_t * title )
@@ -3093,25 +3129,6 @@ hb_job_t * hb_job_init( hb_title_t * title )
     job_setup(job, title);
 
     return job;
-}
-
-/**
- * Clean up the job structure so that is is ready for setting up a new job.
- * Should be called by front-ends after hb_add().
- */
-/**********************************************************************
- * hb_job_reset
- **********************************************************************
- *
- *********************************************************************/
-void hb_job_reset( hb_job_t * job )
-{
-    if ( job )
-    {
-        hb_title_t * title = job->title;
-        job_clean(job);
-        job_reset_for_mac_ui(job, title);
-    }
 }
 
 /**********************************************************************
@@ -3517,6 +3534,8 @@ int hb_audio_add(const hb_job_t * job, const hb_audio_config_t * audiocfg)
      * HandBrakeCLI assumes this value is preserved in the jobs
      * audio list, but in.track in the title's audio list is not
      * required to be the same. */
+    // "track" in title->list_audio is an index into the source's tracks.
+    // "track" in job->list_audio is an index into title->list_audio
     audio->config.in.track = audiocfg->in.track;
 
     /* Really shouldn't ignore the passed out track, but there is currently no
@@ -3682,6 +3701,9 @@ int hb_subtitle_add(const hb_job_t * job, const hb_subtitle_config_t * subtitlec
         return 0;
     }
 
+    // "track" in title->list_audio is an index into the source's tracks.
+    // "track" in job->list_audio is an index into title->list_audio
+    subtitle->track = track;
     subtitle->config = *subtitlecfg;
     subtitle->out_track = hb_list_count(job->list_subtitle) + 1;
     hb_list_add(job->list_subtitle, subtitle);
@@ -3739,7 +3761,6 @@ int hb_subtitle_can_pass( int source, int mux )
     switch (mux)
     {
         case HB_MUX_AV_MKV:
-        case HB_MUX_LIBMKV:
             switch( source )
             {
                 case PGSSUB:
@@ -3756,14 +3777,10 @@ int hb_subtitle_can_pass( int source, int mux )
                     return 0;
             } break;
 
-        case HB_MUX_MP4V2:
-            if (source == VOBSUB)
-            {
-                return 1;
-            } // fall through to next case...
         case HB_MUX_AV_MP4:
             switch( source )
             {
+                case VOBSUB:
                 case SSASUB:
                 case SRTSUB:
                 case UTF8SUB:
@@ -3803,6 +3820,20 @@ int hb_audio_can_apply_drc(uint32_t codec, uint32_t codec_param, int encoder)
     {
         return 0;
     }
+}
+
+int hb_audio_can_apply_drc2(hb_handle_t *h, int title_idx, int audio_idx, int encoder)
+{
+    hb_title_t *title = hb_find_title_by_index(h, title_idx);
+    if (title == NULL)
+        return 0;
+
+    hb_audio_t *audio = hb_list_item(title->list_audio, audio_idx);
+    if (audio == NULL)
+        return 0;
+
+    return hb_audio_can_apply_drc(audio->config.in.codec,
+                                  audio->config.in.codec_param, encoder);
 }
 
 /**********************************************************************
@@ -4298,7 +4329,6 @@ void hb_hexdump( hb_debug_level_t level, const char * label, const uint8_t * dat
         else
             ascii[(ii & 0x0f) + 1] = '.';
     }
-    ascii[ii] = 0;
     if( p != line )
     {
         hb_deep_log( level, "    %-50s%20s", line, ascii );

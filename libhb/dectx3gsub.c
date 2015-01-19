@@ -77,7 +77,7 @@ static int write_ssa_markup(char *dst, StyleRecord *style)
     return strlen(dst);
 }
 
-static hb_buffer_t *tx3g_decode_to_ssa(hb_buffer_t *in, int line)
+static hb_buffer_t *tx3g_decode_to_ssa(hb_work_private_t *pv, hb_buffer_t *in)
 {
     uint8_t *pos = in->data;
     uint8_t *end = in->data + in->size;
@@ -158,11 +158,13 @@ static hb_buffer_t *tx3g_decode_to_ssa(hb_buffer_t *in, int line)
     if ( out == NULL )
         goto fail;
     uint8_t *dst = out->data;
+    uint8_t *start;
     int charIndex = 0;
     int styleIndex = 0;
 
-    sprintf((char*)dst, "%d,,Default,,0,0,0,,", line);
+    sprintf((char*)dst, "%d,,Default,,0,0,0,,", pv->line);
     dst += strlen((char*)dst);
+    start = dst;
     for (pos = text, end = text + textLength; pos < end; pos++)
     {
         if (IS_10xxxxxx(*pos))
@@ -199,6 +201,13 @@ static hb_buffer_t *tx3g_decode_to_ssa(hb_buffer_t *in, int line)
             WRITE_CHAR(*pos);
         }
         charIndex++;
+    }
+    if (start == dst)
+    {
+        // No text in the subtitle.  This sub is just filler, drop it.
+        free(styleRecords);
+        hb_buffer_close(&out);
+        return NULL;
     }
     *dst = '\0';
     dst++;
@@ -239,8 +248,8 @@ static int dectx3gInit( hb_work_object_t * w, hb_job_t * job )
     // parse w->subtitle->extradata txg3 sample description into
     // SSA format and replace extradata.
     // For now we just create a generic SSA Script Info.
-    int height = job->title->height - job->crop[0] - job->crop[1];
-    int width = job->title->width - job->crop[2] - job->crop[3];
+    int height = job->title->geometry.height - job->crop[0] - job->crop[1];
+    int width = job->title->geometry.width - job->crop[2] - job->crop[3];
     hb_subtitle_add_ssa_header(w->subtitle, width, height);
 
     return 0;
@@ -263,7 +272,7 @@ static int dectx3gWork( hb_work_object_t * w, hb_buffer_t ** buf_in,
         return HB_WORK_DONE;
     }
 
-    *buf_out = tx3g_decode_to_ssa(in, ++pv->line);
+    *buf_out = tx3g_decode_to_ssa(pv, in);
 
     return HB_WORK_OK;
 }

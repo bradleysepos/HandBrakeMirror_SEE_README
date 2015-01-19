@@ -9,6 +9,8 @@
 
 namespace HandBrakeWPF.ViewModels
 {
+    using System.IO;
+    using System.Linq;
     using System.Windows;
 
     using Caliburn.Micro;
@@ -186,6 +188,17 @@ namespace HandBrakeWPF.ViewModels
         #endregion
 
         /// <summary>
+        /// The files dropped on window. Pass this through to the active view model.
+        /// </summary>
+        /// <param name="e">
+        /// The DragEventArgs.
+        /// </param>
+        public void FilesDroppedOnWindow(DragEventArgs e)
+        {
+            this.MainViewModel.FilesDroppedOnWindow(e);
+        }
+
+        /// <summary>
         /// Checks with the use if this window can be closed.
         /// </summary>
         /// <returns>
@@ -198,7 +211,7 @@ namespace HandBrakeWPF.ViewModels
             {
                 MessageBoxResult result =
                     errorService.ShowMessageBox(
-                        "An Encode is currently running. Exiting HandBrake will stop this encode.\nAre you sure you wish to continue?",
+                        "An Encode is currently running. Exiting HandBrake will stop this encode.\nAre you sure you wish to exit HandBrake?",
                         Resources.Warning,
                         MessageBoxButton.YesNo,
                         MessageBoxImage.Warning);

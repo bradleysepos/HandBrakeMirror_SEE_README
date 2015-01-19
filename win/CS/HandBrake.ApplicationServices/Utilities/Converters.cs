@@ -12,7 +12,7 @@ namespace HandBrake.ApplicationServices.Utilities
     using System;
     using System.Text.RegularExpressions;
 
-    using HandBrake.ApplicationServices.Model.Encoding;
+    using HandBrake.ApplicationServices.Services.Encode.Model.Models;
     using HandBrake.Interop.Model.Encoding;
     using HandBrake.Interop.Model.Encoding.x264;
     using HandBrake.Interop.Model.Encoding.x265;
@@ -212,14 +212,16 @@ namespace HandBrake.ApplicationServices.Utilities
         {
             switch (audioEnc)
             {
-                case "AAC (faac)":
-                case "AAC (CoreAudio)":
+                case "AAC (faac)":         
                 case "AAC (ffmpeg)":
                 case "AAC (avcodec)":
                     return AudioEncoder.ffaac;
                 case "AAC (FDK)":
+                case "AAC (CoreAudio)":
                     return AudioEncoder.fdkaac;
                 case "HE-AAC (FDK)":
+                case "HE-AAC (CoreAudio)":
+                case "HE-AAC":
                     return AudioEncoder.fdkheaac;
                 case "MP3 (lame)":
                 case "MP3":
@@ -516,11 +518,11 @@ namespace HandBrake.ApplicationServices.Utilities
             switch (tune)
             {
                 case "psnr":
-                    return x265Tune.Psnr;
+                    return x265Tune.psnr;
                 case "ssim":
-                    return x265Tune.Ssim;
+                    return x265Tune.ssim;
                 default:
-                    return x265Tune.Psnr;
+                    return x265Tune.psnr;
             }
         }
 

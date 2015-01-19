@@ -16,6 +16,7 @@
 
 #define FIFO_TIMEOUT 200
 //#define HB_FIFO_DEBUG 1
+//#define HB_BUFFER_DEBUG 1
 
 /* Fifo */
 struct hb_fifo_s
@@ -64,6 +65,9 @@ struct hb_buffer_pools_s
     int64_t allocated;
     hb_lock_t *lock;
     hb_fifo_t *pool[MAX_BUFFER_POOLS];
+#if defined(HB_BUFFER_DEBUG)
+    hb_list_t *alloc_list;
+#endif
 } buffers;
 
 
@@ -71,6 +75,10 @@ void hb_buffer_pool_init( void )
 {
     buffers.lock = hb_lock_init();
     buffers.allocated = 0;
+
+#if defined(HB_BUFFER_DEBUG)
+    buffers.alloc_list = hb_list_init();
+#endif
 
     /* we allocate pools for sizes 2^10 through 2^25. requests larger than
      * 2^25 will get passed through to malloc. */
@@ -243,6 +251,16 @@ void hb_buffer_pool_free( void )
 
     hb_lock(buffers.lock);
 
+#if defined(HB_BUFFER_DEBUG)
+    hb_deep_log(2, "leaked %d buffers", hb_list_count(buffers.alloc_list));
+    for (i = 0; i < hb_list_count(buffers.alloc_list); i++)
+    {
+        hb_buffer_t *b = hb_list_item(buffers.alloc_list, i);
+        hb_deep_log(2, "leaked buffer %p type %d size %d alloc %d",
+               b, b->s.type, b->size, b->alloc);
+    }
+#endif
+
     for( i = BUFFER_POOL_FIRST; i <= BUFFER_POOL_LAST; ++i)
     {
         count = 0;
@@ -350,6 +368,11 @@ hb_buffer_t * hb_buffer_init_internal( int size , int needsMapped )
             b->cl.last_event      = last_event;
             b->cl.buffer_location = loc;
 
+#if defined(HB_BUFFER_DEBUG)
+            hb_lock(buffers.lock);
+            hb_list_add(buffers.alloc_list, b);
+            hb_unlock(buffers.lock);
+#endif
             return( b );
         }
     }
@@ -410,6 +433,11 @@ hb_buffer_t * hb_buffer_init_internal( int size , int needsMapped )
     b->s.start = AV_NOPTS_VALUE;
     b->s.stop = AV_NOPTS_VALUE;
     b->s.renderOffset = AV_NOPTS_VALUE;
+#if defined(HB_BUFFER_DEBUG)
+    hb_lock(buffers.lock);
+    hb_list_add(buffers.alloc_list, b);
+    hb_unlock(buffers.lock);
+#endif
     return b;
 }
 
@@ -514,6 +542,11 @@ void hb_buffer_init_planes( hb_buffer_t * b )
     const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(b->f.fmt);
     int p;
 
+    if (desc == NULL)
+    {
+        return;
+    }
+
     uint8_t has_plane[4] = {0,};
 
     for( p = 0; p < 4; p++ )
@@ -532,6 +565,10 @@ hb_buffer_t * hb_frame_buffer_init( int pix_fmt, int width, int height )
     int p;
     uint8_t has_plane[4] = {0,};
 
+    if (desc == NULL)
+    {
+        return NULL;
+    }
     for( p = 0; p < 4; p++ )
     {
         has_plane[desc->comp[p].plane] = 1;
@@ -570,6 +607,10 @@ void hb_video_buffer_realloc( hb_buffer_t * buf, int width, int height )
     int p;
     uint8_t has_plane[4] = {0,};
 
+    if (desc == NULL)
+    {
+        return;
+    }
     for( p = 0; p < 4; p++ )
     {
         has_plane[desc->comp[p].plane] = 1;
@@ -632,6 +673,11 @@ void hb_buffer_close( hb_buffer_t ** _b )
 
         b->next = NULL;
 
+#if defined(HB_BUFFER_DEBUG)
+        hb_lock(buffers.lock);
+        hb_list_rem(buffers.alloc_list, b);
+        hb_unlock(buffers.lock);
+#endif
         // Close any attached subtitle buffers
         hb_buffer_close( &b->sub );
 
@@ -679,6 +725,125 @@ void hb_buffer_move_subs( hb_buffer_t * dst, hb_buffer_t * src )
 	memcpy(&dst->qsv_details, &src->qsv_details, sizeof(src->qsv_details));
 #endif
 
+}
+
+hb_image_t * hb_image_init(int pix_fmt, int width, int height)
+{
+    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(pix_fmt);
+    int p;
+    uint8_t has_plane[4] = {0,};
+
+    if (desc == NULL)
+    {
+        return NULL;
+    }
+    for (p = 0; p < 4; p++)
+    {
+        has_plane[desc->comp[p].plane] = 1;
+    }
+
+    int size = 0;
+    for (p = 0; p < 4; p++)
+    {
+        if (has_plane[p])
+        {
+            size += hb_image_stride( pix_fmt, width, p ) * 
+                    hb_image_height_stride( pix_fmt, height, p );
+        }
+    }
+
+    hb_image_t *image = calloc(1, sizeof(hb_image_t));
+    if (image == NULL)
+    {
+        return NULL;
+    }
+#if defined( SYS_DARWIN ) || defined( SYS_FREEBSD ) || defined( SYS_MINGW )
+    image->data  = malloc(size);
+#elif defined( SYS_CYGWIN )
+    /* FIXME */
+    image->data  = malloc(size + 17);
+#else
+    image->data  = memalign(16, size);
+#endif
+    if (image->data == NULL)
+    {
+        free(image);
+        return NULL;
+    }
+    image->format = pix_fmt;
+    image->width = width;
+    image->height = height;
+    memset(image->data, 0, size);
+
+    uint8_t * plane = image->data;
+    for (p = 0; p < 4; p++)
+    {
+        if (has_plane[p])
+        {
+            image->plane[p].data = plane;
+            image->plane[p].stride = hb_image_stride(pix_fmt, width, p );
+            image->plane[p].height_stride =
+                                    hb_image_height_stride(pix_fmt, height, p );
+            image->plane[p].width  = hb_image_width(pix_fmt, width, p );
+            image->plane[p].height = hb_image_height(pix_fmt, height, p );
+            image->plane[p].size   =
+                        image->plane[p].stride * image->plane[p].height_stride;
+            plane += image->plane[p].size;
+        }
+    }
+    return image;
+}
+
+hb_image_t * hb_buffer_to_image(hb_buffer_t *buf)
+{
+    hb_image_t *image = calloc(1, sizeof(hb_image_t));
+
+#if defined( SYS_DARWIN ) || defined( SYS_FREEBSD ) || defined( SYS_MINGW )
+    image->data  = malloc( buf->size );
+#elif defined( SYS_CYGWIN )
+    /* FIXME */
+    image->data  = malloc( buf->size + 17 );
+#else
+    image->data  = memalign( 16, buf->size );
+#endif
+    if (image->data == NULL)
+    {
+        free(image);
+        return NULL;
+    }
+
+    image->format = buf->f.fmt;
+    image->width = buf->f.width;
+    image->height = buf->f.height;
+    memcpy(image->data, buf->data, buf->size);
+
+    int p;
+    uint8_t *data = image->data;
+    for (p = 0; p < 4; p++)
+    {
+        image->plane[p].data = data;
+        image->plane[p].width = buf->plane[p].width;
+        image->plane[p].height = buf->plane[p].height;
+        image->plane[p].stride = buf->plane[p].stride;
+        image->plane[p].height_stride = buf->plane[p].height_stride;
+        image->plane[p].size = buf->plane[p].size;
+        data += image->plane[p].size;
+    }
+    return image;
+}
+
+void hb_image_close(hb_image_t **_image)
+{
+    if (_image == NULL)
+        return;
+
+    hb_image_t * image = *_image;
+    if (image != NULL)
+    {
+        free(image->data);
+        free(image);
+        *_image = NULL;
+    }
 }
 
 hb_fifo_t * hb_fifo_init( int capacity, int thresh )

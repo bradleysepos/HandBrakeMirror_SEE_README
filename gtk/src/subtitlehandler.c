@@ -276,7 +276,7 @@ subtitle_add_to_settings(GValue *settings, GValue *subsettings)
 static void
 subtitle_set_track_description(GValue *settings, GValue *subsettings)
 {
-    char *desc;
+    char *desc = NULL;
 
     if (ghb_settings_get_int(subsettings, "SubtitleSource") == SRTSUB)
     {
@@ -318,13 +318,25 @@ subtitle_set_track_description(GValue *settings, GValue *subsettings)
         else
         {
             subtitle = ghb_get_subtitle_info(title, track);
-            desc = g_strdup_printf("%d - %s (%s)", track + 1, subtitle->lang,
-                                   hb_subsource_name(subtitle->source));
+            if (subtitle != NULL)
+            {
+                desc = g_strdup_printf("%d - %s (%s)", track + 1,
+                                       subtitle->lang,
+                                       hb_subsource_name(subtitle->source));
+            }
         }
     }
 
-    ghb_settings_set_string(
-        subsettings, "SubtitleTrackDescription", desc);
+    if (desc != NULL)
+    {
+        ghb_settings_set_string(
+            subsettings, "SubtitleTrackDescription", desc);
+    }
+    else
+    {
+        ghb_settings_set_string(
+            subsettings, "SubtitleTrackDescription", "Error!");
+    }
 
     g_free(desc);
 }
@@ -420,6 +432,15 @@ ghb_subtitle_title_change(signal_user_data_t *ud, gboolean show)
     gtk_widget_set_sensitive(w, show);
     w = GHB_WIDGET(ud->builder, "subtitle_reset");
     gtk_widget_set_sensitive(w, show);
+
+    int title_id, titleindex;
+    title_id = ghb_settings_get_int(ud->settings, "title");
+    const hb_title_t *title = ghb_lookup_title(title_id, &titleindex);
+    if (title != NULL)
+    {
+        w = GHB_WIDGET(ud->builder, "SubtitleSrtDisable");
+        gtk_widget_set_sensitive(w, !!hb_list_count(title->list_subtitle));
+    }
 }
 
 void
@@ -1313,6 +1334,28 @@ subtitle_update_pref_lang(signal_user_data_t *ud, const iso639_lang_t *lang)
     button = GTK_BUTTON(GHB_WIDGET(ud->builder,
                                   "SubtitleAddForeignAudioSearch"));
     gtk_widget_set_visible(GTK_WIDGET(button), visible);
+}
+
+void
+ghb_subtitle_set_pref_lang(GValue *settings)
+{
+    GValue *lang_list;
+    gboolean set = FALSE;
+    lang_list = ghb_settings_get_value(settings, "SubtitleLanguageList");
+    if (ghb_array_len(lang_list) > 0)
+    {
+        GValue *glang = ghb_array_get_nth(lang_list, 0);
+        if (glang != NULL)
+        {
+            ghb_settings_set_string(settings, "PreferredLanguage",
+                                    g_value_get_string(glang));
+            set = TRUE;
+        }
+    }
+    if (!set)
+    {
+        ghb_settings_set_string(settings, "PreferredLanguage", "und");
+    }
 }
 
 G_MODULE_EXPORT void

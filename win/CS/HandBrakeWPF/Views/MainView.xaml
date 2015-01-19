@@ -3,9 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:Controls="clr-namespace:HandBrakeWPF.Controls"
         xmlns:Converters="clr-namespace:HandBrakeWPF.Converters"
-        xmlns:i="http://schemas.microsoft.com/expression/2010/interactivity"
-        xmlns:Micro="clr-namespace:Caliburn.Micro;assembly=Caliburn.Micro"
-             xmlns:attachedProperties="clr-namespace:HandBrakeWPF.AttachedProperties"
+             xmlns:Micro="clr-namespace:Caliburn.Micro;assembly=Caliburn.Micro"
              AllowDrop="True"
         FontSize="11"
         Micro:Message.Attach="[Event Loaded] = [Action Load]"
@@ -13,17 +11,10 @@
         UseLayoutRounding="True"
        >
 
-    <i:Interaction.Triggers>
-        <i:EventTrigger EventName="Drop">
-            <Micro:ActionMessage MethodName="FilesDroppedOnWindow">
-                <Micro:Parameter Value="$eventArgs" />
-            </Micro:ActionMessage>
-        </i:EventTrigger>
-    </i:Interaction.Triggers>
-
     <UserControl.Resources>
         <Converters:BooleanConverter x:Key="booleanConverter" />
-        
+        <Converters:EnumComboConverter x:Key="enumComboConverter" />
+
         <Style TargetType="Button">
             <Setter Property="FontWeight" Value="Bold" />
             <Setter Property="Padding" Value="5,1" />
@@ -179,7 +170,7 @@
                      KeyboardNavigation.TabNavigation="Continue"
                      >
 
-                <Button Name="SelectSource"
+                <Button Name="SelectSource" x:Uid="Choose Source" AutomationProperties.Name="Choose Source"
                         Micro:Message.Attach="[Event Click] = [Action SelectSourceWindow]">
                     <StackPanel Orientation="Horizontal">
                         <Image Width="32"
@@ -195,7 +186,7 @@
 
                 <Separator />
 
-                <Button Name="Start"
+                <Button Name="Start" AutomationProperties.Name="Start Encode"
                         Micro:Message.Attach="[Event Click] = [Action StartEncode]"
                         Visibility="{Binding IsEncoding,
                                              Converter={StaticResource boolToVisConverter},
@@ -213,7 +204,7 @@
                     </StackPanel>
                 </Button>
 
-                <Button Name="Stop"
+                <Button Name="Stop" AutomationProperties.Name="Stop Encode"
                         Micro:Message.Attach="[Event Click] = [Action StopEncode]"
                         Visibility="{Binding IsEncoding,
                                              Converter={StaticResource boolToVisConverter},
@@ -232,7 +223,7 @@
                     </StackPanel>
                 </Button>
 
-                <Button Name="Pause"
+                <Button Name="Pause" AutomationProperties.Name="Pause"
                         Micro:Message.Attach="[Event Click] = [Action PauseEncode]"
                         Visibility="{Binding CanPause,
                                              Converter={StaticResource boolToVisConverter},
@@ -255,7 +246,7 @@
                     <MenuItem>
                         <MenuItem.Header>
                             <StackPanel Orientation="Horizontal">
-                                <Button Name="QueueDrop"
+                                <Button Name="QueueDrop" AutomationProperties.Name="Add to Queue"
                                         HorizontalAlignment="Stretch"
                                         VerticalAlignment="Stretch"
                                         HorizontalContentAlignment="Stretch"
@@ -304,12 +295,12 @@
                                       />
                             </StackPanel>
                         </MenuItem.Header>
-                        <MenuItem Header="Add All" Micro:Message.Attach="[Event Click] = [Action AddAllToQueue]" />
-                        <MenuItem Header="Add Selection" Micro:Message.Attach="[Event Click] = [Action AddSelectionToQueue]" />
+                        <MenuItem Header="Add All" Micro:Message.Attach="[Event Click] = [Action AddAllToQueue]" AutomationProperties.Name="Add all to Queue" />
+                        <MenuItem Header="Add Selection" Micro:Message.Attach="[Event Click] = [Action AddSelectionToQueue]" AutomationProperties.Name="Add Selection to Queue" />
                     </MenuItem>
                 </Menu>
 
-                <Button Name="ShowQueue" Micro:Message.Attach="[Event Click] = [Action OpenQueueWindow]">
+                <Button Name="ShowQueue" AutomationProperties.Name="Show Queue" Micro:Message.Attach="[Event Click] = [Action OpenQueueWindow]">
                     <StackPanel Orientation="Horizontal">
                         <Image Width="32"
                                Height="32"
@@ -325,7 +316,7 @@
 
                 <Separator />
 
-                <Button Name="Preview" Micro:Message.Attach="[Event Click] = [Action OpenPreviewWindow]">
+                <Button Name="Preview" AutomationProperties.Name="Preview Encode" Micro:Message.Attach="[Event Click] = [Action OpenPreviewWindow]" >
                     <StackPanel Orientation="Horizontal">
                         <Image Width="32"
                                Height="32"
@@ -339,7 +330,7 @@
                     </StackPanel>
                 </Button>
 
-                <Button Name="ActivityWindow" Micro:Message.Attach="[Event Click] = [Action OpenLogWindow]">
+                <Button Name="ActivityWindow" AutomationProperties.Name="Activity Window" Micro:Message.Attach="[Event Click] = [Action OpenLogWindow]">
                     <StackPanel Orientation="Horizontal">
                         <Image Width="32"
                                Height="32"
@@ -415,10 +406,10 @@
                                                        ConverterParameter=false}"
                                                 />
 
-                        <Label Margin="8,0,0,0" Content="through" />
+                        <Label Margin="4,0,0,0" Content="through" />
                         <ComboBox Name="EndPoint"
                                   MinWidth="60"
-                                  Margin="8,0,0,0"
+                                  Margin="4,0,0,0"
                                   ItemsSource="{Binding StartEndRangeItems}"
                                   SelectedItem="{Binding SelectedEndPoint}"
                                   Visibility="{Binding ShowTextEntryForPointToPointMode,
@@ -432,8 +423,9 @@
                                                        ConverterParameter=false}"
                                                 />
 
-                        <Label Margin="8,0,0,0" Content="Duration" />
-                        <Label Margin="8,0,0,0" Content="{Binding Duration}" />
+                        <Label Margin="4,0,0,0" Content="Duration" />
+                        <Label Margin="4,0,0,0" Content="{Binding Duration}" />
+
                     </StackPanel>
                 </StackPanel>
             </StackPanel>
@@ -485,8 +477,8 @@
                     <ComboBox Name="Container"
                               MinWidth="100"
                               Margin="8,0,0,0"
-                              ItemsSource="{Binding OutputFormats}"
-                              SelectedItem="{Binding SelectedOutputFormat}"
+                              ItemsSource="{Binding OutputFormats, Converter={StaticResource enumComboConverter}}"
+                              SelectedItem="{Binding SelectedOutputFormat, Converter={StaticResource enumComboConverter}}"
                               />
                     <CheckBox Name="WebOptimized"
                               Margin="8,0,0,0"
@@ -555,7 +547,7 @@
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
-                    <ListBox HorizontalAlignment="Stretch"
+                    <ListBox HorizontalAlignment="Stretch" AutomationProperties.Name="Presets List"
                              VerticalAlignment="Stretch" ItemsSource="{Binding Source={StaticResource presetsCvs}}"
                              SelectedItem="{Binding SelectedPreset, Mode=TwoWay}" BorderThickness="0,0,0,1"
                              BorderBrush="LightGray"
@@ -577,15 +569,15 @@
                              Grid.Row="1"
                              HorizontalAlignment="Center"
                              VerticalAlignment="Stretch"
-                             Background="Transparent"
                              SnapsToDevicePixels="False"
                              UseLayoutRounding="False"
                              ToolBar.OverflowMode="Never" 
+                             Background="Transparent"
                              ToolBarTray.IsLocked="True"
                              Loaded="ToolBarLoaded"
                              KeyboardNavigation.TabNavigation="Continue"
                              >
-                        <Button Micro:Message.Attach="[Event Click] = [Action PresetAdd]" >
+                        <Button Micro:Message.Attach="[Event Click] = [Action PresetAdd]" AutomationProperties.Name="Add Preset">
                             <Button.Content>
                                 <StackPanel Orientation="Horizontal">
                                     <Image Width="20"
@@ -600,7 +592,7 @@
                                 </StackPanel>
                             </Button.Content>
                         </Button>
-                        <Button Micro:Message.Attach="[Event Click] = [Action PresetRemove]">
+                        <Button Micro:Message.Attach="[Event Click] = [Action PresetRemove]" AutomationProperties.Name="Remove Preset">
                             <Button.Content>
                                 <StackPanel Orientation="Horizontal">
                                     <Image Width="20"
@@ -616,7 +608,7 @@
                                 </StackPanel>
                             </Button.Content>
                         </Button>
-                        <Menu Background="Transparent">
+                        <Menu Background="Transparent" AutomationProperties.Name="Preset Options Dropdown">
                             <MenuItem ToolBar.OverflowMode="Never">
                                 <MenuItem.Header>
                                     <StackPanel Orientation="Horizontal">

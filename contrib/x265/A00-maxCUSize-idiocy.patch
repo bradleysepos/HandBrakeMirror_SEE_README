@@ -1,0 +1,19 @@
+diff -r d2db9c1ab44b source/common/param.cpp
+--- a/source/common/param.cpp	Fri Oct 31 13:52:08 2014 -0500
++++ b/source/common/param.cpp	Mon Nov 03 10:28:18 2014 -0800
+@@ -1059,6 +1059,7 @@
+ 
+ int x265_set_globals(x265_param *param)
+ {
++#if 0
+     static int once /* = 0 */;
+ 
+     if (ATOMIC_CAS32(&once, 0, 1) == 1)
+@@ -1070,6 +1071,7 @@
+         }
+     }
+     else
++#endif
+     {
+         uint32_t maxLog2CUSize = (uint32_t)g_log2Size[param->maxCUSize];
+ 

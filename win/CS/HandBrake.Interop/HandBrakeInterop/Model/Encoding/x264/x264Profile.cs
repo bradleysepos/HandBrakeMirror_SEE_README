@@ -17,7 +17,7 @@ namespace HandBrake.Interop.Model.Encoding.x264
     public enum x264Profile
     {
         [Display(Name = "Auto")]
-        None = 0,
+        Auto = 0,
 
         [Display(Name = "Baseline")]
         Baseline,
@@ -26,15 +26,6 @@ namespace HandBrake.Interop.Model.Encoding.x264
         Main,
 
         [Display(Name = "High")]
-        High,
-
-        //[Display(Name = "High 10")]
-        //High10,  HandBrake does not yet support 10bit.
-
-        //[Display(Name = "High 422")]
-        //High422,  Not supported
-
-        //[Display(Name = "High 444")]
-       // High444, Use Auto Instead.
+        High
     }
 }

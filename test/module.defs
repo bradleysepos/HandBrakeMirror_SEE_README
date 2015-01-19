@@ -17,7 +17,7 @@ TEST.GCC.l = \
         ass avcodec avformat avutil avresample dvdnav dvdread \
         fontconfig fribidi mp3lame ogg \
         samplerate swscale vpx theoraenc theoradec vorbis vorbisenc x264 \
-        bluray freetype xml2 bz2 z
+        bluray freetype xml2 bz2 z jansson
 
 ifeq (1,$(FEATURE.qsv))
     TEST.GCC.D += USE_QSV HAVE_THREADS=1
@@ -48,6 +48,8 @@ ifeq ($(BUILD.system),darwin)
     TEST.GCC.l += iconv
 else ifeq ($(BUILD.system),linux)
     TEST.GCC.l += pthread dl m
+else ifeq ($(BUILD.system),kfreebsd)
+    TEST.GCC.l += pthread dl m
 else ifeq ($(BUILD.system),solaris)
     TEST.GCC.l += pthread nsl socket iconv
     TEST.GCC.D += _POSIX_C_SOURCE=200112L __EXTENSIONS__
@@ -58,7 +60,12 @@ endif
 ifeq (1,$(FEATURE.hwd))
     TEST.GCC.D += USE_HWD
 endif
-    TEST.GCC.l += pthreadGC2 iconv ws2_32
+ifeq (1,$(HAS.pthread))
+    TEST.GCC.l += pthread
+else
+    TEST.GCC.l += pthreadGC2
+endif
+    TEST.GCC.l += iconv ws2_32 regex
     TEST.GCC.D += PTW32_STATIC_LIB
     TEST.GCC.args.extra.exe++ += -static
 endif #   (1-mingw,$(BUILD.cross)-$(BUILD.system))

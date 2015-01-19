@@ -1098,7 +1098,6 @@ hb_title_t * hb_stream_title_scan(hb_stream_t *stream, hb_title_t * title)
     chapter->seconds = title->seconds;
     hb_list_add( title->list_chapter, chapter );
 
-
     if ( stream->has_IDRs < 1 )
     {
         hb_log( "stream doesn't seem to have video IDR frames" );
@@ -1352,6 +1351,21 @@ static int isIframe( hb_stream_t *stream, const uint8_t *buf, int len )
                 // the ffmpeg vc1 decoder requires a seq hdr code in the first
                 // frame.
                 return 1;
+            }
+        }
+        // didn't find an I-frame
+        return 0;
+    }
+    if ( pes->stream_type == 0x10 || pes->codec_param == AV_CODEC_ID_MPEG4 )
+    {
+        // we have an mpeg4 stream
+        for (ii = 0; ii < len-1; ii++)
+        {
+            strid = (strid << 8) | buf[ii];
+            if ( strid == 0x1b6 )
+            {
+                if ((buf[ii+1] & 0xC0) == 0)
+                    return 1;
             }
         }
         // didn't find an I-frame
@@ -3445,8 +3459,8 @@ static hb_buffer_t * hb_ps_stream_decode( hb_stream_t *stream )
                  !isIframe( stream, buf->data, buf->size ) )
             {
                 // not the video stream or didn't find an I frame
-                // but we'll only wait 255 video frames for an I frame.
-                if ( buf->s.type != VIDEO_BUF || ++stream->need_keyframe < 512 )
+                // but we'll only wait 600 video frames for an I frame.
+                if ( buf->s.type != VIDEO_BUF || ++stream->need_keyframe < 600 )
                 {
                     continue;
                 }
@@ -4872,6 +4886,20 @@ static hb_buffer_t * hb_ts_stream_decode( hb_stream_t *stream )
     return NULL;
 }
 
+void hb_stream_set_need_keyframe(hb_stream_t *stream, int need_keyframe)
+{
+    if ( stream->hb_stream_type == transport ||
+         stream->hb_stream_type == program )
+    {
+        // Only wait for a keyframe if the stream is known to have IDRs
+        stream->need_keyframe = !!need_keyframe & !!stream->has_IDRs;
+    }
+    else
+    {
+        stream->need_keyframe = need_keyframe;
+    }
+}
+
 void hb_ts_stream_reset(hb_stream_t *stream)
 {
     int i;
@@ -4921,16 +4949,30 @@ static int ffmpeg_open( hb_stream_t *stream, hb_title_t *title, int scan )
 
     av_log_set_level( AV_LOG_ERROR );
 
+    // Increase probe buffer size
+    // The default (5MB) is not big enough to successfully scan
+    // some files with large PNGs
+    AVDictionary * av_opts = NULL;
+    av_dict_set( &av_opts, "probesize", "15000000", 0 );
+
     // FFMpeg has issues with seeking.  After av_find_stream_info, the
     // streams are left in an indeterminate position.  So a seek is
     // necessary to force things back to the beginning of the stream.
     // But then the seek fails for some stream types.  So the safest thing
     // to do seems to be to open 2 AVFormatContext.  One for probing info
     // and the other for reading.
-    if ( avformat_open_input( &info_ic, stream->path, NULL, NULL ) < 0 )
+    if ( avformat_open_input( &info_ic, stream->path, NULL, &av_opts ) < 0 )
     {
         return 0;
     }
+    // libav populates av_opts with the things it didn't recognize.
+    AVDictionaryEntry *t = NULL;
+    while ((t = av_dict_get(av_opts, "", t, AV_DICT_IGNORE_SUFFIX)) != NULL)
+    {
+            hb_log("ffmpeg_open: unknown option '%s'", t->key);
+    }
+    av_dict_free( &av_opts );
+
     if ( avformat_find_stream_info( info_ic, NULL ) < 0 )
         goto fail;
 
@@ -5407,12 +5449,9 @@ static hb_title_t *ffmpeg_title_scan( hb_stream_t *stream, hb_title_t *title )
             if ( ic->streams[i]->sample_aspect_ratio.num &&
                  ic->streams[i]->sample_aspect_ratio.den )
             {
-                title->pixel_aspect_width = ic->streams[i]->sample_aspect_ratio.num;
-                title->pixel_aspect_height = ic->streams[i]->sample_aspect_ratio.den;
+                title->geometry.par.num = ic->streams[i]->sample_aspect_ratio.num;
+                title->geometry.par.den = ic->streams[i]->sample_aspect_ratio.den;
             }
-
-            if ( context->codec_id == AV_CODEC_ID_H264 )
-                title->flags |= HBTF_NO_IDR;
 
             title->video_codec = WORK_DECAVCODECV;
             title->video_codec_param = context->codec_id;
@@ -5484,11 +5523,7 @@ static hb_title_t *ffmpeg_title_scan( hb_stream_t *stream, hb_title_t *title )
     /*
      * Fill the metadata.
      */
-    // JJJ: is this necessary? can we just get this metadata from libav api's?
-    if (!decmetadata( title ))
-    {
-        ffmpeg_decmetadata( ic->metadata, title );
-    }
+    ffmpeg_decmetadata( ic->metadata, title );
 
     if( hb_list_count( title->list_chapter ) == 0 )
     {

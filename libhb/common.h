@@ -63,11 +63,10 @@
 #define HB_DEBUG_ASSERT(x, y) { if ((x)) { hb_error("ASSERT: %s", y); exit(1); } }
 #endif
 
-#define EVEN( a )        ( (a) + ( (a) & 1 ) )
-#define MULTIPLE_16( a ) ( 16 * ( ( (a) + 8 ) / 16 ) )
-#define MULTIPLE_MOD( a, b ) ((b==1)?a:( b * ( ( (a) + (b / 2) - 1) / b ) ))
-#define MULTIPLE_MOD_UP( a, b ) ((b==1)?a:( b * ( ( (a) + (b) - 1) / b ) ))
-#define MULTIPLE_MOD_DOWN( a, b ) ((b==1)?a:( b * ( (a) / b ) ))
+#define EVEN( a )               ((a) + ((a) & 1))
+#define MULTIPLE_MOD(a, b)      (((b) * (int)(((a) + ((b) / 2)) / (b))))
+#define MULTIPLE_MOD_UP(a, b)   (((b) * (int)(((a) + ((b) - 1)) / (b))))
+#define MULTIPLE_MOD_DOWN(a, b) (((b) * (int)((a) / (b))))
 
 #define HB_DVD_READ_BUFFER_SIZE 2048
 
@@ -80,7 +79,8 @@ typedef struct hb_encoder_s hb_encoder_t;
 typedef struct hb_container_s hb_container_t;
 typedef struct hb_rational_s hb_rational_t;
 typedef struct hb_geometry_s hb_geometry_t;
-typedef struct hb_ui_geometry_s hb_ui_geometry_t;
+typedef struct hb_geometry_settings_s hb_geometry_settings_t;
+typedef struct hb_image_s hb_image_t;
 typedef struct hb_job_s  hb_job_t;
 typedef struct hb_title_set_s hb_title_set_t;
 typedef struct hb_title_s hb_title_t;
@@ -99,6 +99,8 @@ typedef struct hb_work_object_s  hb_work_object_t;
 typedef struct hb_filter_private_s hb_filter_private_t;
 typedef struct hb_filter_object_s  hb_filter_object_t;
 typedef struct hb_buffer_s hb_buffer_t;
+typedef struct hb_buffer_settings_s hb_buffer_settings_t;
+typedef struct hb_image_format_s hb_image_format_t;
 typedef struct hb_fifo_s hb_fifo_t;
 typedef struct hb_lock_s hb_lock_t;
 typedef enum
@@ -133,6 +135,7 @@ void      * hb_list_item( const hb_list_t *, int );
 void        hb_list_close( hb_list_t ** );
 
 void hb_reduce( int *x, int *y, int num, int den );
+void hb_limit_rational( int *x, int *y, int num, int den, int limit );
 void hb_reduce64( int64_t *x, int64_t *y, int64_t num, int64_t den );
 void hb_limit_rational64( int64_t *x, int64_t *y, int64_t num, int64_t den, int64_t limit );
 
@@ -166,6 +169,8 @@ int hb_subtitle_can_burn( int source );
 int hb_subtitle_can_pass( int source, int mux );
 
 int hb_audio_can_apply_drc(uint32_t codec, uint32_t codec_param, int encoder);
+int hb_audio_can_apply_drc2(hb_handle_t *h, int title_idx,
+                            int audio_idx, int encoder);
 
 hb_attachment_t *hb_attachment_copy(const hb_attachment_t *src);
 
@@ -248,20 +253,37 @@ struct hb_geometry_s
     hb_rational_t par;
 };
 
-struct hb_ui_geometry_s
+struct hb_geometry_settings_s
 {
     int mode;                   // Anamorphic mode, see job struct anamorphic
     int keep;                   // Specifies settings that shouldn't be changed
     int itu_par;                // use dvd dimensions to determine PAR
     int modulus;                // pixel alignment for loose anamorphic
     int crop[4];                // Pixels cropped from source before scaling
-    int width;                  // destination storage width
-    int height;                 // destination storage height
     int maxWidth;               // max destination storage width
     int maxHeight;              // max destination storage height
-    hb_rational_t par;          // Pixel aspect used in custom anamorphic
-    hb_rational_t dar;          // Display aspect used in custom anamorphic
+    hb_geometry_t geometry;
 };
+
+struct hb_image_s
+{
+    int format;
+    int width;
+    int height;
+    uint8_t *data;
+
+    struct image_plane
+    {
+        uint8_t *data;
+        int width;
+        int height;
+        int stride;
+        int height_stride;
+        int size;
+    } plane[4];
+};
+
+void hb_image_close(hb_image_t **_image);
 
 // Update win/CS/HandBrake.Interop/HandBrakeInterop/HbLib/hb_subtitle_config_s.cs when changing this struct
 struct hb_subtitle_config_s
@@ -438,45 +460,20 @@ struct hb_job_s
     /* Include chapter marker track in mp4? */
     int             chapter_markers;
 
-    /* Picture settings:
-         crop:                must be multiples of 2 (top/bottom/left/right)
-         deinterlace:         0 or 1
-         width:               must be a multiple of 2
-         height:              must be a multiple of 2
-         grayscale:           black and white encoding
-         pixel_ratio:         store pixel aspect ratio in the video
-         pixel_aspect_width:  numerator for pixel aspect ratio
-         pixel_aspect_height: denominator for pixel aspect ratio
-         modulus:             set a number for dimensions to be multiples of
-         maxWidth:            keep width below this
-         maxHeight:           keep height below this */
-    int             crop[4];
-    int             deinterlace;
+    // Video filters
+    int             grayscale;      // Black and white encoding
     hb_list_t     * list_filter;
-    int             width;
-    int             height;
-    int             grayscale;
 
-    struct
-    {
-        hb_anamorphic_mode_t  mode;
-        int                   itu_par;
-        int                   par_width;
-        int                   par_height;
-        int                   dar_width;  // 0 if normal
-        int                   dar_height; // 0 if normal
-        int                   keep_display_aspect;
-    } anamorphic;
-
-    int             modulus;
-    int             maxWidth;
-    int             maxHeight;
+    PRIVATE int             crop[4];
+    PRIVATE int             width;
+    PRIVATE int             height;
+    hb_rational_t           par;
 
     /* Video settings:
          vcodec:            output codec
          vquality:          output quality (if < 0.0, bitrate is used instead)
          vbitrate:          output bitrate (Kbps)
-         vrate, vrate_base: output framerate is vrate / vrate_base
+         vrate:             output framerate
          cfr:               0 (vfr), 1 (cfr), 2 (pfr) [see render.c]
          pass:              0, 1 or 2 (or -1 for scan)
          areBframes:        boolean to note if b-frames are used */
@@ -493,12 +490,12 @@ struct hb_job_s
 #define HB_VCODEC_H264_MASK    (HB_VCODEC_X264|HB_VCODEC_QSV_H264)
 
     int             vcodec;
-    float           vquality;
+    double          vquality;
     int             vbitrate;
-    int             vrate;
-    int             vrate_base;
+    hb_rational_t   vrate;
     int             cfr;
-    int             pass;
+    PRIVATE int     pass;
+    int             twopass;        // Enable 2-pass encode. Boolean
     int             fastfirstpass;
     char           *encoder_preset;
     char           *encoder_tune;
@@ -561,8 +558,6 @@ struct hb_job_s
     int             mux;
     char          * file;
 
-    /* Allow MP4 files > 4 gigs */
-    int             largeFileSize;
     int             mp4_optimize;
     int             ipod_atom;
 
@@ -696,8 +691,8 @@ struct hb_audio_config_s
         int      samplerate; /* Output sample rate (Hz) */
         int      samples_per_frame; /* Number of samples per frame */
         int      bitrate; /* Output bitrate (Kbps) */
-        float    quality; /* Output quality (encoder-specific) */
-        float    compression_level;  /* Output compression level (encoder-specific) */
+        double   quality; /* Output quality (encoder-specific) */
+        double   compression_level;  /* Output compression level (encoder-specific) */
         double   dynamic_range_compression; /* Amount of DRC applied to this track */
         double   gain; /* Gain (in dB), negative is quieter */
         int      normalize_mix_level; /* mix level normalization (boolean) */
@@ -898,79 +893,70 @@ struct hb_metadata_s
 struct hb_title_s
 {
     enum { HB_DVD_TYPE, HB_BD_TYPE, HB_STREAM_TYPE, HB_FF_STREAM_TYPE } type;
-    uint32_t    reg_desc;
-    char        path[1024];
-    char        name[1024];
-    int         index;
-    int         playlist;
-    int         vts;
-    int         ttn;
-    int         cell_start;
-    int         cell_end;
-    uint64_t    block_start;
-    uint64_t    block_end;
-    uint64_t    block_count;
-    int         angle_count;
-    void        *opaque_priv;
+    uint32_t      reg_desc;
+    char          path[1024];
+    char          name[1024];
+    int           index;
+    int           playlist;
+    int           vts;
+    int           ttn;
+    int           cell_start;
+    int           cell_end;
+    uint64_t      block_start;
+    uint64_t      block_end;
+    uint64_t      block_count;
+    int           angle_count;
+    void        * opaque_priv;
 
     /* Visual-friendly duration */
-    int         hours;
-    int         minutes;
-    int         seconds;
+    int           hours;
+    int           minutes;
+    int           seconds;
 
     /* Exact duration (in 1/90000s) */
-    uint64_t    duration;
+    uint64_t      duration;
 
-    double      aspect;             // aspect ratio for the title's video
-    double      container_aspect;   // aspect ratio from container (0 if none)
-    int         has_resolution_change;
-    int         width;
-    int         height;
-    int         pixel_aspect_width;
-    int         pixel_aspect_height;
-    int         color_prim;
-    int         color_transfer;
-    int         color_matrix;
-    int         rate;
-    int         rate_base;
-    int         crop[4];
+    int           has_resolution_change;
+    hb_geometry_t geometry;
+    hb_rational_t dar;             // aspect ratio for the title's video
+    hb_rational_t container_dar;   // aspect ratio from container (0 if none)
+    int           color_prim;
+    int           color_transfer;
+    int           color_matrix;
+    hb_rational_t vrate;
+    int           crop[4];
     enum {HB_DVD_DEMUXER, HB_TS_DEMUXER, HB_PS_DEMUXER, HB_NULL_DEMUXER} demuxer;
-    int         detected_interlacing;
-    int         pcr_pid;                /* PCR PID for TS streams */
-    int         video_id;               /* demuxer stream id for video */
-    int         video_codec;            /* worker object id of video codec */
-    uint32_t    video_stream_type;      /* stream type from source stream */
-    int         video_codec_param;      /* codec specific config */
-    char        *video_codec_name;
-    int         video_bitrate;
-    char        *container_name;
-    int         data_rate;
+    int           detected_interlacing;
+    int           pcr_pid;                /* PCR PID for TS streams */
+    int           video_id;               /* demuxer stream id for video */
+    int           video_codec;            /* worker object id of video codec */
+    uint32_t      video_stream_type;      /* stream type from source stream */
+    int           video_codec_param;      /* codec specific config */
+    char        * video_codec_name;
+    int           video_bitrate;
+    char        * container_name;
+    int           data_rate;
 
     // additional supported video decoders (e.g. HW-accelerated implementations)
-    int video_decode_support;
+    int           video_decode_support;
 #define HB_DECODE_SUPPORT_SW  0x01 // software (libavcodec or mpeg2dec)
 #define HB_DECODE_SUPPORT_QSV 0x02 // Intel Quick Sync Video
 
-    hb_metadata_t *metadata;
+    hb_metadata_t * metadata;
 
-    hb_list_t * list_chapter;
-    hb_list_t * list_audio;
-    hb_list_t * list_subtitle;
-    hb_list_t * list_attachment;
+    hb_list_t     * list_chapter;
+    hb_list_t     * list_audio;
+    hb_list_t     * list_subtitle;
+    hb_list_t     * list_attachment;
 
-#define HB_TITLE_JOBS
-#if defined(HB_TITLE_JOBS)
-    hb_job_t  * job;
-#endif
-
-    uint32_t    flags;
+    uint32_t        flags;
                 // set if video stream doesn't have IDR frames
 #define         HBTF_NO_IDR (1 << 0)
-#define         HBTF_SCAN_COMPLETE (1 << 0)
+#define         HBTF_SCAN_COMPLETE (1 << 1)
 
     // whether OpenCL scaling is supported for this source
-    int opencl_support;
-    int hwd_support; // TODO: merge to video_decode_support
+    int             opencl_support;
+    int             hwd_support; // TODO: merge to video_decode_support
 };
 
 // Update win/CS/HandBrake.Interop/HandBrakeInterop/HbLib/hb_state_s.cs when changing this struct
@@ -1028,27 +1014,23 @@ struct hb_state_s
 
 typedef struct hb_work_info_s
 {
-    const char * name;
-    int          profile;
-    int          level;
-    int          bitrate;
-    int          rate;
-    int          rate_base;
-    uint32_t     version;
-    uint32_t     flags;
-    uint32_t     mode;
+    const char  * name;
+    int           profile;
+    int           level;
+    int           bitrate;
+    hb_rational_t rate;
+    uint32_t      version;
+    uint32_t      flags;
+    uint32_t      mode;
     union
     {
         struct
         {    // info only valid for video decoders
-            int width;
-            int height;
-            int pixel_aspect_width;
-            int pixel_aspect_height;
-            int color_prim;
-            int color_transfer;
-            int color_matrix;
-            int video_decode_support;
+            hb_geometry_t geometry;
+            int           color_prim;
+            int           color_transfer;
+            int           color_matrix;
+            int           video_decode_support;
         };
         struct
         {    // info only valid for audio decoders
@@ -1145,13 +1127,9 @@ typedef struct hb_filter_init_s
 {
     hb_job_t    * job;
     int           pix_fmt;
-    int           width;
-    int           height;
-    int           par_width;
-    int           par_height;
+    hb_geometry_t geometry;
     int           crop[4];
-    int           vrate_base;
-    int           vrate;
+    hb_rational_t vrate;
     int           cfr;
     int           use_dxva;
 } hb_filter_init_t;
@@ -1200,6 +1178,7 @@ struct hb_filter_object_s
 enum
 {
     // for QSV - important to have before other filters
+    HB_FILTER_FIRST = 1,
     HB_FILTER_QSV_PRE = 1,
 
     // First, filters that may change the framerate (drop or dup frames)
@@ -1210,6 +1189,7 @@ enum
     // Filters that must operate on the original source image are next
     HB_FILTER_DEBLOCK,
     HB_FILTER_DENOISE,
+    HB_FILTER_HQDN3D = HB_FILTER_DENOISE,
     HB_FILTER_NLMEANS,
     HB_FILTER_RENDER_SUB,
     HB_FILTER_CROP_SCALE,
@@ -1222,12 +1202,17 @@ enum
     HB_FILTER_QSV_POST,
     // default MSDK VPP filter
     HB_FILTER_QSV,
+    HB_FILTER_LAST = HB_FILTER_QSV
 };
 
 hb_filter_object_t * hb_filter_init( int filter_id );
 hb_filter_object_t * hb_filter_copy( hb_filter_object_t * filter );
 hb_list_t *hb_filter_list_copy(const hb_list_t *src);
 void hb_filter_close( hb_filter_object_t ** );
+char * hb_generate_filter_settings(int filter_id, const char *preset,
+                                                  const char *tune);
+int    hb_validate_filter_settings(int filter_id, const char *filter_param);
+int    hb_validate_param_string(const char *regex_pattern, const char *param_string);
 
 typedef void hb_error_handler_t( const char *errmsg );
 

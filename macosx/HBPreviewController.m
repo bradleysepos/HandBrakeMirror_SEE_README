@@ -6,8 +6,11 @@
 
 #import "HBPreviewController.h"
 #import "HBPreviewGenerator.h"
-#import "Controller.h"
+#import "HBUtilities.h"
 #import <QTKit/QTKit.h>
+
+#import "HBJob.h"
+#import "HBPicture+UIAdditions.h"
 
 @implementation QTMovieView (HBQTMovieViewExtensions)
 
@@ -32,17 +35,17 @@
 {
     QTTime time = [self currentTime];
     double timeInSeconds = (double)time.timeValue / time.timeScale;
-	UInt16 seconds = fmod(timeInSeconds, 60.0);
-	UInt16 minutes = fmod(timeInSeconds / 60.0, 60.0);
-	UInt16 hours = timeInSeconds / (60.0 * 60.0);
-	UInt16 milliseconds = (timeInSeconds - (int) timeInSeconds) * 1000;
+	UInt16 seconds = (UInt16)fmod(timeInSeconds, 60.0);
+	UInt16 minutes = (UInt16)fmod(timeInSeconds / 60.0, 60.0);
+	UInt16 hours = (UInt16)(timeInSeconds / (60.0 * 60.0));
+	UInt16 milliseconds = (UInt16)(timeInSeconds - (int) timeInSeconds) * 1000;
 	return [NSString stringWithFormat:@"%02d:%02d:%02d.%03d", hours, minutes, seconds, milliseconds];
 }
 
 - (void) setCurrentTimeDouble: (double) value
 {
 	long timeScale = [[self attributeForKey:QTMovieTimeScaleAttribute] longValue];
-	[self setCurrentTime:QTMakeTime(value * timeScale, timeScale)];
+	[self setCurrentTime:QTMakeTime((long long)value * timeScale, timeScale)];
 }
 
 @end
@@ -55,10 +58,10 @@
 
 #define BORDER_SIZE 2.0
 // make min width and height of preview window large enough for hud
-#define MIN_WIDTH 460.0
-#define MIN_HEIGHT 128.0
+#define MIN_WIDTH 480.0
+#define MIN_HEIGHT 360.0
 
-#define ANIMATION_DUR 0.2
+#define ANIMATION_DUR 0.15
 
 typedef enum ViewMode : NSUInteger {
     ViewModePicturePreview,
@@ -69,9 +72,9 @@ typedef enum ViewMode : NSUInteger {
 @interface HBPreviewController () <HBPreviewGeneratorDelegate>
 {
     /* HUD boxes */
-    IBOutlet NSBox           * fPictureControlBox;
-    IBOutlet NSBox           * fEncodingControlBox;
-    IBOutlet NSBox           * fMoviePlaybackControlBox;
+    IBOutlet NSView           * fPictureControlBox;
+    IBOutlet NSView           * fEncodingControlBox;
+    IBOutlet NSView           * fMoviePlaybackControlBox;
 
     IBOutlet NSSlider        * fPictureSlider;
     IBOutlet NSTextField     * fInfoField;
@@ -93,6 +96,8 @@ typedef enum ViewMode : NSUInteger {
     /* Popup of choices for length of preview in seconds */
     IBOutlet NSPopUpButton          * fPreviewMovieLengthPopUp;
 }
+
+@property (nonatomic, assign) id <HBPreviewControllerDelegate> delegate;
 
 @property (nonatomic) CALayer *backLayer;
 @property (nonatomic) CALayer *pictureLayer;
@@ -130,7 +135,7 @@ typedef enum ViewMode : NSUInteger {
 
 @implementation HBPreviewController
 
-- (id) init
+- (id)initWithDelegate:(id <HBPreviewControllerDelegate>)delegate
 {
 	if (self = [super initWithWindowNibName:@"PicturePreview"])
 	{
@@ -143,6 +148,7 @@ typedef enum ViewMode : NSUInteger {
         // If/when we switch a lot of this stuff to bindings, this can probably
         // go away.
         [self window];
+        _delegate = delegate;
 
     }
 	return self;
@@ -184,9 +190,6 @@ typedef enum ViewMode : NSUInteger {
 
     /* Setup our layers for core animation */
     [[[self window] contentView] setWantsLayer:YES];
-    [fPictureControlBox setWantsLayer:YES];
-    [fEncodingControlBox setWantsLayer:YES];
-    [fMoviePlaybackControlBox setWantsLayer:YES];
 
     self.backLayer = [CALayer layer];
     [self.backLayer setBounds:CGRectMake(0.0, 0.0, MIN_WIDTH, MIN_HEIGHT)];
@@ -230,29 +233,31 @@ typedef enum ViewMode : NSUInteger {
         self.backingScaleFactor = 1.0;
 }
 
-- (void) setTitle: (hb_title_t *) title
+- (void) setJob:(HBJob *)job
 {
-    _title = title;
+    _job = job;
 
+    self.generator.delegate = nil;
     [self.generator cancel];
     self.generator = nil;
 
-    if (_title)
+    if (job)
     {
         /* alloc and init a generator for the current title */
-        self.generator = [[[HBPreviewGenerator alloc] initWithHandle:self.handle andTitle:self.title] autorelease];
+        self.generator = [[[HBPreviewGenerator alloc] initWithCore:self.core job:self.job] autorelease];
 
         /* adjust the preview slider length */
         [fPictureSlider setMaxValue: self.generator.imagesCount - 1.0];
         [fPictureSlider setNumberOfTickMarks: self.generator.imagesCount];
 
+        [self switchViewToMode:ViewModePicturePreview];
         [self displayPreview];
     }
 }
 
-- (void) reload
+- (void) reloadPreviews
 {
-    if (self.title)
+    if (self.job)
     {
         // Purge the existing picture previews so they get recreated the next time
         // they are needed.
@@ -264,12 +269,16 @@ typedef enum ViewMode : NSUInteger {
 
 - (void) showWindow: (id) sender
 {
+    [super showWindow:sender];
+
     if (self.currentViewMode == ViewModeMoviePreview)
     {
         [self startMovieTimer];
     }
-
-    [super showWindow:sender];
+    else
+    {
+        [self reloadPreviews];
+    }
 }
 
 - (void) windowWillClose: (NSNotification *) aNotification
@@ -302,8 +311,8 @@ typedef enum ViewMode : NSUInteger {
         // Scale factor changed, update the preview window
         // to the new situation
         self.backingScaleFactor = newBackingScaleFactor;
-        if (self.title)
-            [self reload];
+        if (self.job)
+            [self reloadPreviews];
     }
 }
 
@@ -361,8 +370,8 @@ typedef enum ViewMode : NSUInteger {
     NSRect frame = [[self window] frame];
 
     // Calculate border around content region of the frame
-    int borderX = frame.size.width - currentSize.width;
-    int borderY = frame.size.height - currentSize.height;
+    int borderX = (int)(frame.size.width - currentSize.width);
+    int borderY = (int)(frame.size.height - currentSize.height);
 
     // Make sure the frame is smaller than the screen
     NSSize maxSize = [[[self window] screen] visibleFrame].size;
@@ -441,7 +450,15 @@ typedef enum ViewMode : NSUInteger {
     [[NSAnimationContext currentContext] setDuration:ANIMATION_DUR];
 
     [boxes enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
-        [[obj animator] setHidden:([indexes containsIndex:idx]) ? NO : YES];
+        BOOL hide = [indexes containsIndex:idx] ? NO : YES;
+        if (hide)
+        {
+            [self hideHudWithAnimation:obj];
+        }
+        else
+        {
+            [self showHudWithAnimation:obj];
+        }
     }];
 
     [NSAnimationContext endGrouping];
@@ -460,7 +477,6 @@ typedef enum ViewMode : NSUInteger {
         {
             if (self.currentViewMode == ViewModeEncoding)
             {
-                [self.generator cancel];
                 [self toggleBoxes:@[fPictureControlBox, fEncodingControlBox]
                      usingIndexes:[NSIndexSet indexSetWithIndex:0]];
                 [fMovieCreationProgressIndicator stopAnimation:self];
@@ -539,36 +555,84 @@ typedef enum ViewMode : NSUInteger {
     NSPoint mouseLoc = [theEvent locationInWindow];
 
     /* Test for mouse location to show/hide hud controls */
-    if (self.currentViewMode != ViewModeEncoding && self.title)
+    if (self.currentViewMode != ViewModeEncoding && self.job)
     {
         /* Since we are not encoding, verify which control hud to show
          * or hide based on aMovie ( aMovie indicates we need movie controls )
          */
-        NSBox *hudBoxToShow;
+        NSView *hud;
         if (self.currentViewMode == !ViewModeMoviePreview) // No movie loaded up
         {
-            hudBoxToShow = fPictureControlBox;
+            hud = fPictureControlBox;
         }
         else // We have a movie
         {
-            hudBoxToShow = fMoviePlaybackControlBox;
+            hud = fMoviePlaybackControlBox;
         }
 
-        if (NSPointInRect(mouseLoc, [hudBoxToShow frame]))
+        if (NSPointInRect(mouseLoc, [hud frame]))
         {
-            [[hudBoxToShow animator] setHidden: NO];
+            [self showHudWithAnimation:hud];
             [self stopHudTimer];
         }
 		else if (NSPointInRect(mouseLoc, [[[self window] contentView] frame]))
         {
-            [[hudBoxToShow animator] setHidden: NO];
+            [self showHudWithAnimation:hud];
             [self startHudTimer];
         }
         else
         {
-            [[hudBoxToShow animator] setHidden: YES];
+            [self hideHudWithAnimation:hud];
+            [self stopHudTimer];
         }
 	}
+}
+
+- (void)showHudWithAnimation:(NSView *)hud
+{
+    // The standard view animator doesn't play
+    // nicely with the Yosemite visual effects yet.
+    // So let's do the fade ourself.
+    if (hud.layer.opacity == 0 || [hud isHidden])
+    {
+        [hud setHidden:NO];
+
+        [CATransaction begin];
+        CABasicAnimation *fadeInAnimation = [CABasicAnimation animationWithKeyPath:@"opacity"];
+        fadeInAnimation.fromValue = @(0.0);
+        fadeInAnimation.toValue = @(1.0);
+        fadeInAnimation.beginTime = 0.0;
+        fadeInAnimation.duration = ANIMATION_DUR;
+
+        [hud.layer addAnimation:fadeInAnimation forKey:nil];
+        [hud.layer setOpacity:1];
+
+        [CATransaction commit];
+    }
+}
+
+- (void)hideHudWithAnimation:(NSView *)hud
+{
+    if (hud.layer.opacity != 0)
+    {
+        [CATransaction begin];
+        [CATransaction setCompletionBlock:^{
+            if (hud.layer.opacity == 0)
+            {
+                [hud setHidden:YES];
+            }
+        }];
+        CABasicAnimation *fadeInAnimation = [CABasicAnimation animationWithKeyPath:@"opacity"];
+        fadeInAnimation.fromValue = @([hud.layer.presentationLayer opacity]);
+        fadeInAnimation.toValue = @(0.0);
+        fadeInAnimation.beginTime = 0.0;
+        fadeInAnimation.duration = ANIMATION_DUR;
+
+        [hud.layer addAnimation:fadeInAnimation forKey:nil];
+        [hud.layer setOpacity:0];
+
+        [CATransaction commit];
+    }
 }
 
 - (void) startHudTimer
@@ -595,8 +659,9 @@ typedef enum ViewMode : NSUInteger {
     /* Regardless which control box is active, after the timer
      * period we want either one to fade to hidden.
      */
-    [[fPictureControlBox animator] setHidden: YES];
-    [[fMoviePlaybackControlBox animator] setHidden: YES];
+    [self hideHudWithAnimation:fPictureControlBox];
+    [self hideHudWithAnimation:fMoviePlaybackControlBox];
+
     [self stopHudTimer];
 }
 
@@ -609,46 +674,18 @@ typedef enum ViewMode : NSUInteger {
  */
 - (void) displayPreview
 {
-    hb_title_t *title = self.title;
+    if (self.window.isVisible)
+    {
+        NSImage *fPreviewImage = [self.generator imageAtIndex:self.pictureIndex shouldCache:YES];
+        [self.pictureLayer setContents:fPreviewImage];
+    }
 
-    NSImage *fPreviewImage = [self.generator imageAtIndex:self.pictureIndex shouldCache:YES];
-    NSSize imageScaledSize = [fPreviewImage size];
-    [self.pictureLayer setContents:fPreviewImage];
-
-    NSSize displaySize = NSMakeSize( ( CGFloat )title->width, ( CGFloat )title->height );
-    NSString *sizeInfoString;
+    HBPicture *pict = self.job.picture;
 
     /* Set the picture size display fields below the Preview Picture*/
-    int display_width;
-    display_width = title->job->width * title->job->anamorphic.par_width / title->job->anamorphic.par_height;
-    if (title->job->anamorphic.mode == HB_ANAMORPHIC_STRICT) // Original PAR Implementation
-    {
-        sizeInfoString = [NSString stringWithFormat:
-                          @"Source: %dx%d, Output: %dx%d, Anamorphic: %dx%d Strict",
-                          title->width, title->height, title->job->width, title->job->height, display_width, title->job->height];
-    }
-    else if (title->job->anamorphic.mode == HB_ANAMORPHIC_LOOSE) // Loose Anamorphic
-    {
-        sizeInfoString = [NSString stringWithFormat:
-                          @"Source: %dx%d, Output: %dx%d, Anamorphic: %dx%d Loose",
-                          title->width, title->height, title->job->width, title->job->height, display_width, title->job->height];
-    }
-    else if (title->job->anamorphic.mode == HB_ANAMORPHIC_CUSTOM) // Custom Anamorphic
-    {
-        sizeInfoString = [NSString stringWithFormat:
-                          @"Source: %dx%d, Output: %dx%d, Anamorphic: %dx%d Custom",
-                          title->width, title->height, title->job->width, title->job->height, display_width, title->job->height];
-    }
-    else // No Anamorphic
-    {
-        sizeInfoString = [NSString stringWithFormat:
-                          @"Source: %dx%d, Output: %dx%d",
-                          title->width, title->height, title->job->width, title->job->height];
-    }
-    displaySize.width = display_width;
-    displaySize.height = title->job->height;
-    imageScaledSize.width = display_width;
-    imageScaledSize.height = title->job->height;
+    int display_width = pict.width * pict.parWidth / pict.parHeight;
+    NSSize imageScaledSize = NSMakeSize(display_width, pict.height);
+    NSSize displaySize = NSMakeSize(display_width, pict.height);
 
     if (self.backingScaleFactor != 1.0)
     {
@@ -737,13 +774,13 @@ typedef enum ViewMode : NSUInteger {
 
     /* Set the info fields in the hud controller */
     [fInfoField setStringValue: [NSString stringWithFormat:
-                                 @"%@", sizeInfoString]];
+                                 @"%@", self.job.picture.info]];
 
     [fscaleInfoField setStringValue: [NSString stringWithFormat:
                                       @"%@", scaleString]];
 
     /* Set the info field in the window title bar */
-    [[self window] setTitle:[NSString stringWithFormat: @"Preview - %@ %@",sizeInfoString, scaleString]];
+    [[self window] setTitle:[NSString stringWithFormat: @"Preview - %@ %@", self.job.picture.info, scaleString]];
 }
 
 - (IBAction) previewDurationPopUpChanged: (id) sender
@@ -751,15 +788,9 @@ typedef enum ViewMode : NSUInteger {
     [[NSUserDefaults standardUserDefaults] setObject:[fPreviewMovieLengthPopUp titleOfSelectedItem] forKey:@"PreviewLength"];
 }
 
-- (void) setDeinterlacePreview: (BOOL) deinterlacePreview
-{
-    _deinterlacePreview = deinterlacePreview;
-    self.generator.deinterlace = deinterlacePreview;
-}
-
 - (IBAction) pictureSliderChanged: (id) sender
 {
-    if ((self.pictureIndex != [fPictureSlider intValue] || !sender) && self.title) {
+    if ((self.pictureIndex != [fPictureSlider intValue] || !sender) && self.job) {
         self.pictureIndex = [fPictureSlider intValue];
         [self displayPreview];
     }
@@ -783,11 +814,6 @@ typedef enum ViewMode : NSUInteger {
     }
 }
 
-- (NSString *) pictureSizeInfoString
-{
-    return [fInfoField stringValue];
-}
-
 - (IBAction) showPictureSettings: (id) sender
 {
     [self.delegate showPicturePanel:self];
@@ -801,6 +827,11 @@ typedef enum ViewMode : NSUInteger {
 
     [fMovieCreationProgressIndicator setIndeterminate: NO];
     [fMovieCreationProgressIndicator setDoubleValue: progress];
+}
+
+- (void)didCancelMovieCreation
+{
+    [self switchViewToMode:ViewModePicturePreview];
 }
 
 - (void) didCreateMovieAtURL: (NSURL *) fileURL
@@ -821,7 +852,7 @@ typedef enum ViewMode : NSUInteger {
 
 		if (!movie)
         {
-            [self.delegate writeToActivityLog: "showMoviePreview: Unable to open movie"];
+            [HBUtilities writeToActivityLog: "showMoviePreview: Unable to open movie"];
             [self switchViewToMode:ViewModePicturePreview];
 		}
         else
@@ -864,7 +895,7 @@ typedef enum ViewMode : NSUInteger {
 
 - (IBAction) cancelCreateMoviePreview: (id) sender
 {
-    [self switchViewToMode:ViewModePicturePreview];
+    [self.generator cancel];
 }
 
 - (IBAction) createMoviePreview: (id) sender
@@ -873,11 +904,11 @@ typedef enum ViewMode : NSUInteger {
         return;
 
     self.generator.delegate = self;
-    [self.delegate prepareJobForPreview];
-    [self.generator createMovieAsyncWithImageIndex:self.pictureIndex
-                                       andDuration:[[fPreviewMovieLengthPopUp titleOfSelectedItem] intValue]];
-
-    [self switchViewToMode:ViewModeEncoding];
+    if ([self.generator createMovieAsyncWithImageAtIndex:self.pictureIndex
+                                       duration:[[fPreviewMovieLengthPopUp titleOfSelectedItem] intValue]])
+    {
+        [self switchViewToMode:ViewModeEncoding];
+    }
 }
 
 - (IBAction) toggleMoviePreviewPlayPause: (id) sender

@@ -6,38 +6,32 @@
 //
 
 #import "HBPreviewGenerator.h"
-#import "Controller.h"
+#import "HBUtilities.h"
 
-typedef enum EncodeState : NSUInteger {
-    EncodeStateIdle,
-    EncodeStateWorking,
-    EncodeStateCancelled,
-} EncodeState;
+#import "HBCore.h"
+#import "HBJob.h"
+#import "HBJob+HBJobConversion.h"
 
 @interface HBPreviewGenerator ()
 
 @property (nonatomic, readonly, retain) NSMutableDictionary *picturePreviews;
 @property (nonatomic, readonly) NSUInteger imagesCount;
-@property (nonatomic, readonly) hb_handle_t *handle;
-@property (nonatomic, readonly) hb_title_t *title;
+@property (nonatomic, readonly) HBCore *scanCore;
+@property (nonatomic, readonly) HBJob *job;
 
-@property (nonatomic) hb_handle_t *privateHandle;
-@property (nonatomic) NSTimer *timer;
-@property (nonatomic) EncodeState encodeState;
-
-@property (nonatomic, retain) NSURL *fileURL;
+@property (nonatomic) HBCore *core;
 
 @end
 
 @implementation HBPreviewGenerator
 
-- (id) initWithHandle: (hb_handle_t *) handle andTitle: (hb_title_t *) title
+- (instancetype)initWithCore:(HBCore *)core job:(HBJob *)job
 {
     self = [super init];
     if (self)
     {
-        _handle = handle;
-        _title = title;
+        _scanCore = core;
+        _job = job;
         _picturePreviews = [[NSMutableDictionary alloc] init];
         _imagesCount = [[[NSUserDefaults standardUserDefaults] objectForKey:@"PreviewsNumber"] intValue];
     }
@@ -63,11 +57,14 @@ typedef enum EncodeState : NSUInteger {
 
     if (!theImage)
     {
+        HBFilters *filters = self.job.filters;
+        BOOL deinterlace = (filters.deinterlace && !filters.useDecomb) || (filters.decomb && filters.useDecomb);
+
         theImage = [HBPreviewGenerator makeImageForPicture:index
-                                                     libhb:self.handle
-                                                     title:self.title
-                                               deinterlace:self.deinterlace];
-        if (cache)
+                                                     libhb:self.scanCore.hb_handle
+                                                   picture:self.job.picture
+                                               deinterlace:deinterlace];
+        if (cache && theImage)
             [self.picturePreviews setObject:theImage forKey:@(index)];
     }
 
@@ -90,75 +87,73 @@ typedef enum EncodeState : NSUInteger {
  * border around the content. This is the low-level method that generates the image.
  * -imageForPicture calls this function whenever it can't find an image in its cache.
  *
- * @param picture Index in title.
- * @param h Handle to hb_handle_t.
+ * @param pictureIndex Index in title.
+ * @param handle Handle to hb_handle_t.
  * @param title Handle to hb_title_t of desired title.
+ * @param deinterlace Whether the preview image must be deinterlaced or not.
  */
 + (NSImage *) makeImageForPicture: (NSUInteger) pictureIndex
                             libhb: (hb_handle_t *) handle
-                            title: (hb_title_t *) title
+                          picture: (HBPicture *) picture
                       deinterlace: (BOOL) deinterlace
 {
-    static uint8_t *buffer;
-    static int bufferSize;
+    NSImage *img = nil;
 
-    // Make sure we have a big enough buffer to receive the image from libhb
-    int dstWidth = title->job->width;
-    int dstHeight = title->job->height;
+    hb_geometry_settings_t geo;
+    memset(&geo, 0, sizeof(geo));
+    geo.geometry.width = picture.width;
+    geo.geometry.height = picture.height;
+    // HBPreviewController will scale the image later,
+    // ignore the par.
+    geo.geometry.par.num = 1;
+    geo.geometry.par.den = 1;
+    int crop[4] = {picture.cropTop, picture.cropBottom, picture.cropLeft, picture.cropRight};
+    memcpy(geo.crop, crop, sizeof(int[4]));
 
-    int newSize = dstWidth * dstHeight * 4;
-    if  (!buffer || bufferSize < newSize)
+    hb_image_t *image;
+    image = hb_get_preview2(handle, picture.title.hb_title->index, (int)pictureIndex, &geo, deinterlace);
+
+    if (image)
     {
-        bufferSize = newSize;
-        buffer     = (uint8_t *) realloc( buffer, bufferSize );
-    }
+        // Create an NSBitmapImageRep and copy the libhb image into it, converting it from
+        // libhb's format to one suitable for NSImage.
 
-    // Enable and the disable deinterlace just for preview if deinterlace
-    // or decomb filters are enabled
-    int deinterlaceStatus = title->job->deinterlace;
-    if (deinterlace) title->job->deinterlace = 1;
+        // The image data returned by hb_get_preview2 is 4 bytes per pixel, BGRA format.
+        // Alpha is ignored.
+        NSBitmapImageRep *imgrep = [[[NSBitmapImageRep alloc]
+                                     initWithBitmapDataPlanes:nil
+                                     pixelsWide:image->width
+                                     pixelsHigh:image->height
+                                     bitsPerSample:8
+                                     samplesPerPixel:3   // ignore alpha
+                                     hasAlpha:NO
+                                     isPlanar:NO
+                                     colorSpaceName:NSCalibratedRGBColorSpace
+                                     bitmapFormat:NSAlphaFirstBitmapFormat
+                                     bytesPerRow:image->width * 4
+                                     bitsPerPixel:32] autorelease];
 
-    hb_get_preview( handle, title->job, (int)pictureIndex, buffer );
-
-    // Reset deinterlace status
-    title->job->deinterlace = deinterlaceStatus;
-
-    // Create an NSBitmapImageRep and copy the libhb image into it, converting it from
-    // libhb's format to one suitable for NSImage. Along the way, we'll strip off the
-    // border around libhb's image.
-
-    // The image data returned by hb_get_preview is 4 bytes per pixel, BGRA format.
-    // Alpha is ignored.
-
-    NSBitmapFormat bitmapFormat = (NSBitmapFormat)NSAlphaFirstBitmapFormat;
-    NSBitmapImageRep * imgrep = [[[NSBitmapImageRep alloc]
-                                  initWithBitmapDataPlanes:nil
-                                  pixelsWide:dstWidth
-                                  pixelsHigh:dstHeight
-                                  bitsPerSample:8
-                                  samplesPerPixel:3   // ignore alpha
-                                  hasAlpha:NO
-                                  isPlanar:NO
-                                  colorSpaceName:NSCalibratedRGBColorSpace
-                                  bitmapFormat:bitmapFormat
-                                  bytesPerRow:dstWidth * 4
-                                  bitsPerPixel:32] autorelease];
-
-    UInt32 * src = (UInt32 *)buffer;
-    UInt32 * dst = (UInt32 *)[imgrep bitmapData];
-    int r, c;
-    for (r = 0; r < dstHeight; r++)
-    {
-        for (c = 0; c < dstWidth; c++)
+        UInt8 *src_line = image->data;
+        UInt32 *dst = (UInt32 *)[imgrep bitmapData];
+        for (int r = 0; r < image->height; r++)
+        {
+            UInt32 *src = (UInt32 *)src_line;
+            for (int c = 0; c < image->width; c++)
+            {
 #if TARGET_RT_LITTLE_ENDIAN
-            *dst++ = Endian32_Swap(*src++);
+                *dst++ = Endian32_Swap(*src++);
 #else
-            *dst++ = *src++;
+                *dst++ = *src++;
 #endif
+            }
+            src_line += image->plane[0].stride;
+        }
+
+        img = [[[NSImage alloc] initWithSize: NSMakeSize(image->width, image->height)] autorelease];
+        [img addRepresentation:imgrep];
     }
 
-    NSImage * img = [[[NSImage alloc] initWithSize: NSMakeSize(dstWidth, dstHeight)] autorelease];
-    [img addRepresentation:imgrep];
+    hb_image_close(&image);
 
     return img;
 }
@@ -166,31 +161,14 @@ typedef enum EncodeState : NSUInteger {
 #pragma mark -
 #pragma mark Preview movie
 
-+ (NSString *) appSupportPath
-{
-    NSFileManager *fileManager = [NSFileManager defaultManager];
-    NSString *appSupportPath = nil;
-
-    NSArray *allPaths = NSSearchPathForDirectoriesInDomains( NSApplicationSupportDirectory,
-                                                            NSUserDomainMask,
-                                                            YES );
-    if ([allPaths count])
-        appSupportPath = [[allPaths objectAtIndex:0] stringByAppendingPathComponent:@"HandBrake"];
-
-    if (![fileManager fileExistsAtPath:appSupportPath])
-        [fileManager createDirectoryAtPath:appSupportPath withIntermediateDirectories:YES attributes:nil error:NULL];
-
-    return appSupportPath;
-}
-
 + (NSURL *) generateFileURLForType:(NSString *) type
 {
-    NSString *previewDirectory = [NSString stringWithFormat:@"%@/Previews/%d", [HBPreviewGenerator appSupportPath], getpid()];
+    NSString *previewDirectory = [NSString stringWithFormat:@"%@/Previews/%d", [HBUtilities appSupportPath], getpid()];
 
     if (![[NSFileManager defaultManager] fileExistsAtPath:previewDirectory])
     {
         if (![[NSFileManager defaultManager] createDirectoryAtPath:previewDirectory
-                                  withIntermediateDirectories:NO
+                                  withIntermediateDirectories:YES
                                                    attributes:nil
                                                         error:nil])
             return nil;
@@ -203,109 +181,100 @@ typedef enum EncodeState : NSUInteger {
 /**
  * This function start the encode of a movie preview, the delegate will be
  * called with the updated the progress info and the fileURL.
- * The called must call HBController prepareJobForPreview before this.
  *
  * @param index picture index in title.
  * @param duration the duration in seconds of the preview movie.
  */
-- (BOOL) createMovieAsyncWithImageIndex: (NSUInteger) index andDuration: (NSUInteger) duration;
+- (BOOL) createMovieAsyncWithImageAtIndex: (NSUInteger) index duration: (NSUInteger) seconds;
 {
-    /* return if an encoding if already started */
-    if (self.encodeState || index >= self.imagesCount)
+    // return if an encoding if already started.
+    if (self.core || index >= self.imagesCount)
+    {
         return NO;
-
-    hb_job_t *job = self.title->job;
-
-    /* Generate the file url and directories. */
-    if (job->mux & HB_MUX_MASK_MP4)
-    {
-        /* we use .m4v for our mp4 files so that ac3 and chapters in mp4 will play properly */
-        self.fileURL = [HBPreviewGenerator generateFileURLForType:@"m4v"];
-    }
-    else if (job->mux & HB_MUX_MASK_MKV)
-    {
-        self.fileURL = [HBPreviewGenerator generateFileURLForType:@"mkv"];
     }
 
-    /* return if we couldn't get the fileURL */
-    if (!self.fileURL)
+    NSURL *destURL = nil;
+    // Generate the file url and directories.
+    if (self.job.container & HB_MUX_MASK_MP4)
+    {
+        // we use .m4v for our mp4 files so that ac3 and chapters in mp4 will play properly.
+        destURL = [HBPreviewGenerator generateFileURLForType:@"m4v"];
+    }
+    else if (self.job.container & HB_MUX_MASK_MKV)
+    {
+        destURL = [HBPreviewGenerator generateFileURLForType:@"mkv"];
+    }
+
+    // return if we couldn't get the fileURL.
+    if (!destURL)
+    {
         return NO;
-
-    /* See if there is an existing preview file, if so, delete it */
-    if (![[NSFileManager defaultManager] fileExistsAtPath:[self.fileURL path]])
-    {
-        [[NSFileManager defaultManager] removeItemAtPath:[self.fileURL path] error:NULL];
     }
 
-    /* We now direct our preview encode to fileURL path */
-    hb_job_set_file(job, [[self.fileURL path] UTF8String]);
+    // See if there is an existing preview file, if so, delete it.
+    if (![[NSFileManager defaultManager] fileExistsAtPath:destURL.path])
+    {
+        [[NSFileManager defaultManager] removeItemAtPath:destURL.path error:NULL];
+    }
 
-    /* We use our advance pref to determine how many previews to scan */
-    job->start_at_preview = (int)index + 1;
-    job->seek_points = (int)self.imagesCount;
-    job->pts_to_stop = duration * 90000LL;
+    HBJob *job = [[self.job copy] autorelease];
+    job.title = self.job.title;
+    job.destURL = destURL;
 
-    /* lets go ahead and send it off to libhb
-     * Note: unlike a full encode, we only send 1 pass regardless if the final encode calls for 2 passes.
-     * this should suffice for a fairly accurate short preview and cuts our preview generation time in half.
-     * However we also need to take into account the indepth scan for subtitles.
-     */
+    job.range.type = HBRangePreviewIndex;
+    job.range.previewIndex = (int)index + 1;;
+    job.range.previewsCount = (int)self.imagesCount;
+    job.range.ptsToStop = seconds * 90000LL;
 
+    // Note: unlike a full encode, we only send 1 pass regardless if the final encode calls for 2 passes.
+    // this should suffice for a fairly accurate short preview and cuts our preview generation time in half.
+    job.video.twoPass = NO;
+
+    // Init the libhb core
     int loggingLevel = [[[NSUserDefaults standardUserDefaults] objectForKey:@"LoggingLevel"] intValue];
-    self.privateHandle = hb_init(loggingLevel, 0);
+    self.core = [[[HBCore alloc] initWithLoggingLevel:loggingLevel] autorelease];
+    self.core.name = @"PreviewCore";
 
-    /*
-     * If scanning we need to do some extra setup of the job.
-     */
-    if (job->indepth_scan == 1)
-    {
-        char *encoder_preset_tmp  = job->encoder_preset  != NULL ? strdup(job->encoder_preset)  : NULL;
-        char *encoder_tune_tmp    = job->encoder_tune    != NULL ? strdup(job->encoder_tune)    : NULL;
-        char *encoder_options_tmp = job->encoder_options != NULL ? strdup(job->encoder_options) : NULL;
-        char *encoder_profile_tmp = job->encoder_profile != NULL ? strdup(job->encoder_profile) : NULL;
-        char *encoder_level_tmp   = job->encoder_level   != NULL ? strdup(job->encoder_level)   : NULL;
-        /*
-         * When subtitle scan is enabled do a fast pre-scan job
-         * which will determine which subtitles to enable, if any.
-         */
-        hb_job_set_encoder_preset (job, NULL);
-        hb_job_set_encoder_tune   (job, NULL);
-        hb_job_set_encoder_options(job, NULL);
-        hb_job_set_encoder_profile(job, NULL);
-        hb_job_set_encoder_level  (job, NULL);
-        job->pass = -1;
-        hb_add(self.privateHandle, job);
-        /*
-         * reset the advanced settings
-         */
-        hb_job_set_encoder_preset (job, encoder_preset_tmp);
-        hb_job_set_encoder_tune   (job, encoder_tune_tmp);
-        hb_job_set_encoder_options(job, encoder_options_tmp);
-        hb_job_set_encoder_profile(job, encoder_profile_tmp);
-        hb_job_set_encoder_level  (job, encoder_level_tmp);
-        free(encoder_preset_tmp);
-        free(encoder_tune_tmp);
-        free(encoder_options_tmp);
-        free(encoder_profile_tmp);
-        free(encoder_level_tmp);
+    // start the actual encode
+    [self.core encodeJob:job
+         progressHandler:^(HBState state, hb_state_t hb_state) {
+        switch (state) {
+            case HBStateWorking:
+            {
+                NSMutableString *info = [NSMutableString stringWithFormat: @"Encoding preview:  %.2f %%", 100.0 * hb_state.param.working.progress];
+
+                if (hb_state.param.working.seconds > -1)
+                {
+                    [info appendFormat:@" (%.2f fps, avg %.2f fps, ETA %02dh%02dm%02ds)",
+                     hb_state.param.working.rate_cur, hb_state.param.working.rate_avg, hb_state.param.working.hours,
+                     hb_state.param.working.minutes, hb_state.param.working.seconds];
+                }
+
+                double progress = 100.0 * hb_state.param.working.progress;
+                
+                [self.delegate updateProgress:progress info:info];
+                break;
+            }
+            case HBStateMuxing:
+                [self.delegate updateProgress:100.0 info:@"Muxing Preview…"];
+                break;
+
+            default:
+                break;
+        }
     }
-
-    /* Go ahead and perform the actual encoding preview scan */
-    job->indepth_scan = 0;
-    job->pass = 0;
-
-    hb_add(self.privateHandle, job);
-
-    /* we need to clean up the various lists after the job(s) have been set  */
-    hb_job_reset(job);
-
-    /* start the actual encode */
-    self.encodeState = EncodeStateWorking;
-    hb_system_sleep_prevent(self.privateHandle);
-
-    [self startHBTimer];
-
-    hb_start(self.privateHandle);
+    completationHandler:^(BOOL success) {
+        // Encode done, call the delegate and close libhb handle
+        if (success)
+        {
+            [self.delegate didCreateMovieAtURL:destURL];
+        }
+        else
+        {
+            [self.delegate didCancelMovieCreation];
+        }
+        self.core = nil;
+    }];
 
     return YES;
 }
@@ -315,106 +284,9 @@ typedef enum EncodeState : NSUInteger {
  */
 - (void) cancel
 {
-    if (self.privateHandle)
+    if (self.core.state == HBStateWorking || self.core.state == HBStatePaused)
     {
-        hb_state_t s;
-        hb_get_state2(self.privateHandle, &s);
-
-        if (self.encodeState && (s.state == HB_STATE_WORKING ||
-                                  s.state == HB_STATE_PAUSED))
-        {
-            self.encodeState = EncodeStateCancelled;
-            hb_stop(self.privateHandle);
-            hb_system_sleep_allow(self.privateHandle);
-        }
-    }
-}
-
-- (void) startHBTimer
-{
-    if (!self.timer)
-    {
-        self.timer = [NSTimer scheduledTimerWithTimeInterval:0.5
-                                                      target:self
-                                                    selector:@selector(updateState)
-                                                    userInfo:nil
-                                                     repeats:YES];
-    }
-}
-
-- (void) stopHBTimer
-{
-    [self.timer invalidate];
-    self.timer = nil;
-}
-
-- (void) updateState
-{
-    hb_state_t s;
-    hb_get_state(self.privateHandle, &s);
-
-    switch( s.state )
-    {
-        case HB_STATE_IDLE:
-        case HB_STATE_SCANNING:
-        case HB_STATE_SCANDONE:
-            break;
-
-        case HB_STATE_WORKING:
-        {
-			NSMutableString *info = [NSMutableString stringWithFormat: @"Encoding preview:  %.2f %%", 100.0 * s.param.working.progress];
-
-			if( s.param.working.seconds > -1 )
-            {
-                [info appendFormat:@" (%.2f fps, avg %.2f fps, ETA %02dh%02dm%02ds)",
-                 s.param.working.rate_cur, s.param.working.rate_avg, s.param.working.hours,
-                 s.param.working.minutes, s.param.working.seconds];
-            }
-
-            double progress = 100.0 * s.param.working.progress;
-
-            [self.delegate updateProgress:progress info:info];
-
-            break;
-        }
-
-        case HB_STATE_MUXING:
-        {
-            NSString *info = @"Muxing Preview…";
-            double progress = 100.0;
-
-            [self.delegate updateProgress:progress info:info];
-
-            break;
-        }
-
-        case HB_STATE_PAUSED:
-            break;
-
-        case HB_STATE_WORKDONE:
-        {
-            [self stopHBTimer];
-
-            // Delete all remaining jobs since libhb doesn't do this on its own.
-            hb_job_t * job;
-            while( ( job = hb_job(self.privateHandle, 0) ) )
-                hb_rem( self.handle, job );
-
-            hb_system_sleep_allow(self.privateHandle);
-            hb_stop(self.privateHandle);
-            hb_close(&_privateHandle);
-            self.privateHandle = NULL;
-
-            /* Encode done, call the delegate and close libhb handle */
-            if (self.encodeState != EncodeStateCancelled)
-            {
-                [self.delegate didCreateMovieAtURL:self.fileURL];
-            }
-
-            self.encodeState = EncodeStateIdle;
-
-            break;
-        }
+        [self.core cancelEncode];
     }
 }
 
@@ -422,18 +294,10 @@ typedef enum EncodeState : NSUInteger {
 
 - (void) dealloc
 {
-    [_timer invalidate];
-    [_timer release];
-    _timer = nil;
+    [self.core cancelEncode];
+    [_core release];
+    _core = nil;
 
-    if (_privateHandle) {
-        hb_system_sleep_allow(self.privateHandle);
-        hb_stop(_privateHandle);
-        hb_close(&_privateHandle);
-    }
-
-    [_fileURL release];
-    _fileURL = nil;
     [_picturePreviews release];
     _picturePreviews = nil;
 

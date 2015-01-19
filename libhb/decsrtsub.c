@@ -178,7 +178,17 @@ void hb_srt_to_ssa(hb_buffer_t *sub_in, int line)
             hb_buffer_realloc(sub_in, pos + 4);
             // After realloc, sub_in->data may change
             ssa = (char*)sub_in->data;
-            if (srt[ii] == '\n')
+            if (srt[ii] == '\r')
+            {
+                ssa[pos++] = '\\';
+                ssa[pos++] = 'N';
+                ii++;
+                if (srt[ii] == '\n')
+                {
+                    ii++;
+                }
+            }
+            else if (srt[ii] == '\n')
             {
                 ssa[pos++] = '\\';
                 ssa[pos++] = 'N';
@@ -438,7 +448,7 @@ static hb_buffer_t *srt_read( hb_work_private_t *pv )
                  * Well.. looks like we are in the wrong mode.. lets add the
                  * newline we misinterpreted...
                  */
-                strncat(pv->current_entry.text, " ", 1024);
+                strncat(pv->current_entry.text, " ", sizeof(pv->current_entry.text) - strlen(pv->current_entry.text) - 1);
                 pv->current_state = k_state_inEntry_or_new;
                 continue;
             }
@@ -687,8 +697,8 @@ static int decsrtInit( hb_work_object_t * w, hb_job_t * job )
     if (!retval)
     {
         // Generate generic SSA Script Info.
-        int height = job->title->height - job->crop[0] - job->crop[1];
-        int width = job->title->width - job->crop[2] - job->crop[3];
+        int height = job->title->geometry.height - job->crop[0] - job->crop[1];
+        int width = job->title->geometry.width - job->crop[2] - job->crop[3];
         hb_subtitle_add_ssa_header(w->subtitle, width, height);
     }
     return retval;

@@ -16,7 +16,8 @@ namespace HandBrake.ApplicationServices.Utilities
     using System.IO;
 
     using HandBrake.ApplicationServices.Model;
-    using HandBrake.ApplicationServices.Model.Encoding;
+    using HandBrake.ApplicationServices.Services.Encode.Model;
+    using HandBrake.ApplicationServices.Services.Encode.Model.Models;
     using HandBrake.Interop.Model.Encoding;
     using HandBrake.Interop.Model.Encoding.x264;
     using HandBrake.Interop.Model.Encoding.x265;
@@ -46,7 +47,7 @@ namespace HandBrake.ApplicationServices.Utilities
             }
 
             string query = string.Empty;
-            query += SourceQuery(task, null, null, configuration.PreviewScanCount);
+            query += SourceQuery(task, null, -1, configuration.PreviewScanCount);
             query += DestinationQuery(task);
             query += GenerateTabbedComponentsQuery(task, true, configuration.Verbosity, configuration.IsDvdNavDisabled, configuration.DisableQuickSyncDecoding, configuration.EnableDxva, configuration.ScalingMode == VideoScaler.BicubicCl);
 
@@ -71,7 +72,7 @@ namespace HandBrake.ApplicationServices.Utilities
         /// <returns>
         /// A Cli query suitable for generating a preview video.
         /// </returns>
-        public static string GeneratePreviewQuery(EncodeTask task, HBConfiguration configuration, int duration, string startAtPreview)
+        public static string GeneratePreviewQuery(EncodeTask task, HBConfiguration configuration, int duration, int startAtPreview)
         {
             string query = string.Empty;
             query += SourceQuery(task, duration, startAtPreview, configuration.PreviewScanCount);
@@ -163,7 +164,7 @@ namespace HandBrake.ApplicationServices.Utilities
         /// <returns>
         /// A Cli Query as a string
         /// </returns>
-        private static string SourceQuery(EncodeTask task, int? duration, string preview, int previewScanCount)
+        private static string SourceQuery(EncodeTask task, int? duration, int preview, int previewScanCount)
         {
             string query = string.Empty;
 
@@ -372,23 +373,65 @@ namespace HandBrake.ApplicationServices.Utilities
                     break;
             }
 
-            switch (task.Denoise) // Denoise
+            if (task.Denoise == Denoise.hqdn3d)
             {
-                case Denoise.Weak:
-                    query += " --denoise=\"weak\"";
-                    break;
-                case Denoise.Medium:
-                    query += " --denoise=\"medium\"";
-                    break;
-                case Denoise.Strong:
-                    query += " --denoise=\"strong\"";
-                    break;
-                case Denoise.Custom:
-                    query += string.Format(" --denoise=\"{0}\"", task.CustomDenoise);
-                    break;
-                default:
-                    query += string.Empty;
-                    break;
+                switch (task.DenoisePreset) // Denoise
+                {
+                    case DenoisePreset.Weak:
+                        query += " --denoise=\"weak\"";
+                        break;
+                    case DenoisePreset.Medium:
+                        query += " --denoise=\"medium\"";
+                        break;
+                    case DenoisePreset.Strong:
+                        query += " --denoise=\"strong\"";
+                        break;
+                    case DenoisePreset.Custom:
+                        query += string.Format(" --denoise=\"{0}\"", task.CustomDenoise);
+                        break;
+                }
+            }
+
+            // NL Means
+            if (task.Denoise == Denoise.NLMeans)
+            {
+                switch (task.DenoisePreset) // Denoise
+                {
+                    case DenoisePreset.Light:
+                        query += " --nlmeans=\"light\"";
+                        break;
+                    case DenoisePreset.Ultralight:
+                        query += " --nlmeans=\"ultralight\"";
+                        break;
+                    case DenoisePreset.Medium:
+                        query += " --nlmeans=\"medium\"";
+                        break;
+                    case DenoisePreset.Strong:
+                        query += " --nlmeans=\"strong\"";
+                        break;
+                    default:
+                        query += string.Empty;
+                        break;
+                }
+
+                switch (task.DenoiseTune)
+                {
+                    case DenoiseTune.Animation:
+                        query += " --nlmeans-tune=\"animation\"";
+                        break;
+                    case DenoiseTune.Film:
+                        query += " --nlmeans-tune=\"film\"";
+                        break;
+                    case DenoiseTune.Grain:
+                        query += " --nlmeans-tune=\"grain\"";
+                        break;
+                    case DenoiseTune.HighMotion:
+                        query += " --nlmeans-tune=\"highmotion\"";
+                        break;
+                    default:
+                        query += string.Empty;
+                        break;
+                }
             }
 
             if (task.Deblock > 4)
@@ -455,7 +498,7 @@ namespace HandBrake.ApplicationServices.Utilities
             if (task.TwoPass)
                 query += " -2 ";
 
-            if (task.TurboFirstPass)
+            if (task.TurboFirstPass && task.VideoEncoder == VideoEncoder.X264)
                 query += " -T ";
 
             if (task.Framerate.HasValue)
@@ -669,16 +712,18 @@ namespace HandBrake.ApplicationServices.Utilities
                     foundTrackName = true;
                 }
 
+                string fixedTrackName = trackName != null ? trackName.Replace(",", "\\,") : string.Empty;
+
                 if (firstLoop)
                 {
-                    audioItems = string.IsNullOrEmpty(trackName) ? "\"\"" : string.Format("\"{0}\"", trackName.Trim());
+                    audioItems = string.IsNullOrEmpty(fixedTrackName) ? string.Empty : string.Format("{0}", fixedTrackName.Trim());
                     firstLoop = false;
                 }
                 else
-                    audioItems += "," + (string.IsNullOrEmpty(trackName) ? "\"\"" : string.Format("\"{0}\"", trackName.Trim()));
+                    audioItems += "," + (string.IsNullOrEmpty(fixedTrackName) ? string.Empty : string.Format("{0}", fixedTrackName.Trim()));
             }
             if (foundTrackName)
-                query += string.Format(" --aname={0}", audioItems);
+                query += string.Format(" --aname=\"{0}\"", audioItems);
 
             // Passthru Settings
             if (task.AllowedPassthruOptions != null)
@@ -755,6 +800,7 @@ namespace HandBrake.ApplicationServices.Utilities
                 string srtOffset = String.Empty;
                 string srtLang = String.Empty;
                 string srtDefault = String.Empty;
+                int? srtBurnTrack = null;
                 int srtCount = 0;
                 int subCount = 0;
 
@@ -775,11 +821,13 @@ namespace HandBrake.ApplicationServices.Utilities
                         if (item.Default)
                             srtDefault = srtCount.ToString();
 
-                        itemToAdd = item.SrtPath;
+                        itemToAdd = item.SrtPath.Replace("\\", "\\\\").Replace(",", "\\,");
                         srtFile += srtFile == string.Empty ? itemToAdd : "," + itemToAdd;
 
                         itemToAdd = item.SrtOffset.ToString();
                         srtOffset += srtOffset == string.Empty ? itemToAdd : "," + itemToAdd;
+                        if (item.Burned)
+                            srtBurnTrack = srtCount;
                     }
                     else // We have Bitmap or CC
                     {
@@ -835,6 +883,8 @@ namespace HandBrake.ApplicationServices.Utilities
                         query += " --srt-lang " + srtLang;
                     if (srtDefault != string.Empty)
                         query += " --srt-default=" + srtDefault;
+                    if (srtBurnTrack.HasValue)
+                        query += " --srt-burn=" + srtBurnTrack.Value;
                 }
             }
 
@@ -980,7 +1030,7 @@ namespace HandBrake.ApplicationServices.Utilities
                     {
                         query += string.Format(" --encoder-level=\"{0}\" ", task.H264Level);
                     }
-                    if (task.H264Profile != x264Profile.None)
+                    if (task.H264Profile != x264Profile.Auto)
                     {
                         query += string.Format(
                             " --encoder-profile={0} ", task.H264Profile.ToString().ToLower().Replace(" ", string.Empty));

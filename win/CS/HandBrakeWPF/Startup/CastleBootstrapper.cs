@@ -22,10 +22,15 @@ namespace HandBrakeWPF.Startup
 
     using HandBrake.ApplicationServices;
     using HandBrake.ApplicationServices.Services;
+    using HandBrake.ApplicationServices.Services.Encode.Interfaces;
     using HandBrake.ApplicationServices.Services.Interfaces;
+    using HandBrake.ApplicationServices.Services.Scan;
+    using HandBrake.ApplicationServices.Services.Scan.Interfaces;
 
     using HandBrakeWPF.Commands;
     using HandBrakeWPF.Commands.Interfaces;
+    using HandBrakeWPF.Services.Presets;
+    using HandBrakeWPF.Services.Presets.Interfaces;
 
     using ViewModels;
     using ViewModels.Interfaces;
@@ -63,6 +68,7 @@ namespace HandBrakeWPF.Startup
             this.windsorContainer.Register(Component.For<INotificationService>().ImplementedBy<NotificationService>().LifeStyle.Is(LifestyleType.Singleton));
             this.windsorContainer.Register(Component.For<IPrePostActionService>().ImplementedBy<PrePostActionService>().LifeStyle.Is(LifestyleType.Singleton));
             this.windsorContainer.Register(Component.For<IUserSettingService>().ImplementedBy<UserSettingService>());
+            this.windsorContainer.Register(Component.For<IPresetService>().ImplementedBy<PresetService>());
 
             // Commands
             this.windsorContainer.Register(Component.For<IAdvancedEncoderOptionsCommand>().ImplementedBy<AdvancedEncoderOptionsCommand>().LifeStyle.Is(LifestyleType.Singleton));
@@ -74,7 +80,6 @@ namespace HandBrakeWPF.Startup
             this.windsorContainer.Register(Component.For<IShellViewModel>().ImplementedBy<ShellViewModel>().LifeStyle.Is(LifestyleType.Singleton));
             this.windsorContainer.Register(Component.For<IQueueViewModel>().ImplementedBy<QueueViewModel>().LifeStyle.Is(LifestyleType.Singleton));
             this.windsorContainer.Register(Component.For<IAddPresetViewModel>().ImplementedBy<AddPresetViewModel>().LifeStyle.Is(LifestyleType.Transient));
-            this.windsorContainer.Register(Component.For<IPreviewViewModel>().ImplementedBy<PreviewViewModel>().LifeStyle.Is(LifestyleType.Singleton));
             this.windsorContainer.Register(Component.For<ILogViewModel>().ImplementedBy<LogViewModel>().LifeStyle.Is(LifestyleType.Singleton));
             this.windsorContainer.Register(Component.For<IAboutViewModel>().ImplementedBy<AboutViewModel>().LifeStyle.Is(LifestyleType.Singleton));
             this.windsorContainer.Register(Component.For<IOptionsViewModel>().ImplementedBy<OptionsViewModel>().LifeStyle.Is(LifestyleType.Singleton));

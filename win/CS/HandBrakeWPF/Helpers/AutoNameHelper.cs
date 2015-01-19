@@ -15,11 +15,12 @@ namespace HandBrakeWPF.Helpers
 
     using Caliburn.Micro;
 
-    using HandBrake.ApplicationServices.Extensions;
     using HandBrake.ApplicationServices.Model;
-    using HandBrake.ApplicationServices.Model.Encoding;
+    using HandBrake.ApplicationServices.Services.Encode.Model;
+    using HandBrake.ApplicationServices.Services.Encode.Model.Models;
     using HandBrake.Interop.Model.Encoding;
 
+    using HandBrakeWPF.Extensions;
     using HandBrakeWPF.Services.Interfaces;
 
     /// <summary>
@@ -110,7 +111,7 @@ namespace HandBrakeWPF.Helpers
                 /*
                  * File Extension
                  */
-                if (task.OutputFormat == OutputFormat.Mp4 || task.OutputFormat == OutputFormat.M4V)
+                if (task.OutputFormat == OutputFormat.Mp4)
                 {
                     switch (userSettingService.GetUserSetting<int>(UserSettingConstants.UseM4v))
                     {

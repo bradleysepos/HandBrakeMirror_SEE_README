@@ -21,6 +21,8 @@ namespace HandBrake.ApplicationServices.Services
     using HandBrake.ApplicationServices.EventArgs;
     using HandBrake.ApplicationServices.Exceptions;
     using HandBrake.ApplicationServices.Model;
+    using HandBrake.ApplicationServices.Services.Encode.EventArgs;
+    using HandBrake.ApplicationServices.Services.Encode.Interfaces;
     using HandBrake.ApplicationServices.Services.Interfaces;
     using HandBrake.ApplicationServices.Utilities;
 
@@ -220,7 +222,7 @@ namespace HandBrake.ApplicationServices.Services
         /// </returns>
         public bool CheckForDestinationPathDuplicates(string destination)
         {
-            return this.queue.Any(job => job.Task != null && job.Task.Destination != null && job.Task.Destination.Contains(destination.Replace("\\\\", "\\")));
+            return this.queue.Any(job => job.Task != null && job.Status == QueueItemStatus.Waiting && job.Task.Destination != null && job.Task.Destination.Contains(destination.Replace("\\\\", "\\")));
         }
 
         /// <summary>

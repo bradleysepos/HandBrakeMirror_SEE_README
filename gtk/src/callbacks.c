@@ -60,10 +60,6 @@
 #include <dbt.h>
 #endif
 
-#if defined(_USE_APP_IND)
-#include <libappindicator/app-indicator.h>
-#endif
-
 #include "hb.h"
 #include "callbacks.h"
 #include "queuehandler.h"
@@ -567,9 +563,9 @@ check_name_template(signal_user_data_t *ud, const char *str)
 {
     if (ghb_settings_get_boolean(ud->prefs, "auto_name"))
     {
-        gchar *template;
+        const gchar *template;
 
-        template = ghb_settings_get_string(ud->prefs, "auto_name_template");
+        template = ghb_settings_get_const_string(ud->prefs, "auto_name_template");
         if (strstr(template, str) != NULL)
             return TRUE;
     }
@@ -604,9 +600,9 @@ set_destination_settings(signal_user_data_t *ud, GValue *settings)
             }
             else if (!strncmp(p, "{title}", strlen("{title}")))
             {
-                gint title = ghb_settings_get_int(settings, "title_no");
+                gint title = ghb_settings_get_int(settings, "title");
                 if (title >= 0)
-                    g_string_append_printf(str, "%d", title+1);
+                    g_string_append_printf(str, "%d", title);
                 p += strlen("{title}");
             }
             else if (!strncmp(p, "{chapters}", strlen("{chapters}")))
@@ -968,7 +964,7 @@ update_title_duration(signal_user_data_t *ud)
             start = ghb_settings_get_int(ud->settings, "start_point");
             end = ghb_settings_get_int(ud->settings, "end_point");
             frames = end - start + 1;
-            duration = frames * title->rate_base / title->rate;
+            duration = frames * title->vrate.den / title->vrate.num;
             break_duration(duration, &hh, &mm, &ss);
         }
         else
@@ -981,10 +977,9 @@ update_title_duration(signal_user_data_t *ud)
     g_free(text);
 }
 
-static void show_container_options(signal_user_data_t *ud)
+void ghb_show_container_options(signal_user_data_t *ud)
 {
-    GtkWidget *w1, *w2, *w3;
-    w1 = GHB_WIDGET(ud->builder, "Mp4LargeFile");
+    GtkWidget *w2, *w3;
     w2 = GHB_WIDGET(ud->builder, "Mp4HttpOptimize");
     w3 = GHB_WIDGET(ud->builder, "Mp4iPodCompatible");
 
@@ -996,7 +991,6 @@ static void show_container_options(signal_user_data_t *ud)
 
     gint enc = ghb_settings_video_encoder_codec(ud->settings, "VideoEncoder");
 
-    gtk_widget_set_visible(w1, (mux->format == HB_MUX_MP4V2));
     gtk_widget_set_visible(w2, (mux->format & HB_MUX_MASK_MP4));
     gtk_widget_set_visible(w3, (mux->format & HB_MUX_MASK_MP4) &&
                                (enc == HB_VCODEC_X264));
@@ -1029,8 +1023,8 @@ spin_configure(signal_user_data_t *ud, char *name, double val, double min, doubl
     adjustment_configure(adj, val, min, max, step, page, page_sz);
 }
 
-static void
-scale_configure(
+void
+ghb_scale_configure(
     signal_user_data_t *ud,
     char *name,
     double val, double min, double max,
@@ -1072,8 +1066,8 @@ ghb_set_widget_ranges(signal_user_data_t *ud, GValue *settings)
         // Set the limits of cropping.  hb_set_anamorphic_size crashes if
         // you pass it a cropped width or height == 0.
         gint vbound, hbound;
-        vbound = title->height;
-        hbound = title->width;
+        vbound = title->geometry.height;
+        hbound = title->geometry.width;
 
         val = ghb_settings_get_int(ud->settings, "PictureTopCrop");
         spin_configure(ud, "PictureTopCrop", val, 0, vbound);
@@ -1105,7 +1099,8 @@ ghb_set_widget_ranges(signal_user_data_t *ud, GValue *settings)
         else if (ghb_settings_combo_int(ud->settings, "PtoPType") == 2)
         {
             gdouble max_frames;
-            max_frames = (gdouble)duration * title->rate / title->rate_base;
+            max_frames = (gdouble)duration *
+                         title->vrate.num / title->vrate.den;
 
             val = ghb_settings_get_int(ud->settings, "start_point");
             spin_configure(ud, "start_point", val, 1, max_frames);
@@ -1122,8 +1117,8 @@ ghb_set_widget_ranges(signal_user_data_t *ud, GValue *settings)
 
     ghb_vquality_range(ud, &vqmin, &vqmax, &step, &page, &digits, &inverted);
     val = ghb_settings_get_double(ud->settings, "VideoQualitySlider");
-    scale_configure(ud, "VideoQualitySlider", val, vqmin, vqmax,
-                    step, page, digits, inverted);
+    ghb_scale_configure(ud, "VideoQualitySlider", val, vqmin, vqmax,
+                        step, page, digits, inverted);
 }
 
 static void
@@ -1191,7 +1186,7 @@ ghb_load_settings(signal_user_data_t * ud)
 
     ghb_set_widget_ranges(ud, ud->settings);
     ghb_check_all_depencencies(ud);
-    show_container_options(ud);
+    ghb_show_container_options(ud);
     check_chapter_markers(ud);
 
     ghb_settings_to_ui(ud, ud->settings);
@@ -1556,11 +1551,13 @@ destination_browse_clicked_cb(GtkButton *button, signal_user_data_t *ud)
     GtkEntry *entry;
     gchar *destname;
     gchar *basename;
+    GtkWindow *hb_window;
 
     g_debug("destination_browse_clicked_cb ()");
+    hb_window = GTK_WINDOW(GHB_WIDGET(ud->builder, "hb_window"));
     destname = ghb_settings_get_string(ud->settings, "destination");
-    dialog = gtk_file_chooser_dialog_new ("Choose Destination",
-                      NULL,
+    dialog = gtk_file_chooser_dialog_new("Choose Destination",
+                      hb_window,
                       GTK_FILE_CHOOSER_ACTION_SAVE,
                       GHB_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
                       GHB_STOCK_SAVE, GTK_RESPONSE_ACCEPT,
@@ -1634,7 +1631,7 @@ container_changed_cb(GtkWidget *widget, signal_user_data_t *ud)
     g_debug("container_changed_cb ()");
     ghb_widget_to_setting(ud->settings, widget);
     ghb_check_dependency(ud, widget, NULL);
-    show_container_options(ud);
+    ghb_show_container_options(ud);
     update_acodec(ud);
     ghb_update_destination_extension(ud);
     ghb_clear_presets_selection(ud);
@@ -1662,9 +1659,9 @@ get_aspect_string(gint aspect_n, gint aspect_d)
 }
 
 static gchar*
-get_rate_string(gint rate_base, gint rate)
+get_rate_string(gint rate_num, gint rate_den)
 {
-    gdouble rate_f = (gdouble)rate / rate_base;
+    gdouble rate_f = (gdouble)rate_num / rate_den;
     gchar *rate_s;
 
     rate_s = g_strdup_printf("%.6g", rate_f);
@@ -1722,8 +1719,8 @@ update_crop_info(signal_user_data_t *ud)
         crop[1] = ghb_settings_get_int(ud->settings, "PictureBottomCrop");
         crop[2] = ghb_settings_get_int(ud->settings, "PictureLeftCrop");
         crop[3] = ghb_settings_get_int(ud->settings, "PictureRightCrop");
-        width = title->width - crop[2] - crop[3];
-        height = title->height - crop[0] - crop[1];
+        width = title->geometry.width - crop[2] - crop[3];
+        height = title->geometry.height - crop[0] - crop[1];
         widget = GHB_WIDGET(ud->builder, "crop_dimensions");
         text = g_strdup_printf ("%d x %d", width, height);
         gtk_label_set_text(GTK_LABEL(widget), text);
@@ -1771,24 +1768,24 @@ ghb_update_title_info(signal_user_data_t *ud)
     if ( title->video_codec_name )
         gtk_label_set_text (GTK_LABEL(widget), title->video_codec_name);
     else
-        gtk_label_set_text (GTK_LABEL(widget), "Unknown");
+        gtk_label_set_text (GTK_LABEL(widget), _("Unknown"));
 
     widget = GHB_WIDGET (ud->builder, "source_dimensions");
-    text = g_strdup_printf ("%d x %d", title->width, title->height);
+    text = g_strdup_printf ("%d x %d", title->geometry.width, title->geometry.height);
     gtk_label_set_text (GTK_LABEL(widget), text);
     g_free(text);
 
     widget = GHB_WIDGET (ud->builder, "source_aspect");
     gint aspect_n, aspect_d;
     hb_reduce(&aspect_n, &aspect_d,
-                title->width * title->pixel_aspect_width,
-                title->height * title->pixel_aspect_height);
+                title->geometry.width * title->geometry.par.num,
+                title->geometry.height * title->geometry.par.den);
     text = get_aspect_string(aspect_n, aspect_d);
     gtk_label_set_text (GTK_LABEL(widget), text);
     g_free(text);
 
     widget = GHB_WIDGET (ud->builder, "source_frame_rate");
-    text = (gchar*)get_rate_string(title->rate_base, title->rate);
+    text = (gchar*)get_rate_string(title->vrate.num, title->vrate.den);
     gtk_label_set_text (GTK_LABEL(widget), text);
     g_free(text);
 
@@ -1811,6 +1808,7 @@ set_title_settings(signal_user_data_t *ud, GValue *settings)
     title_id = ghb_settings_get_int(settings, "title");
     title = ghb_lookup_title(title_id, &titleindex);
 
+    ghb_subtitle_set_pref_lang(settings);
     if (title != NULL)
     {
         gint num_chapters = hb_list_count(title->list_chapter);
@@ -1819,8 +1817,8 @@ set_title_settings(signal_user_data_t *ud, GValue *settings)
         ghb_settings_set_int(settings, "PtoPType", 0);
         ghb_settings_set_int(settings, "start_point", 1);
         ghb_settings_set_int(settings, "end_point", num_chapters);
-        ghb_settings_set_int(settings, "source_width", title->width);
-        ghb_settings_set_int(settings, "source_height", title->height);
+        ghb_settings_set_int(settings, "source_width", title->geometry.width);
+        ghb_settings_set_int(settings, "source_height", title->geometry.height);
         ghb_settings_set_string(settings, "source", title->path);
         if (title->type == HB_STREAM_TYPE || title->type == HB_FF_STREAM_TYPE)
         {
@@ -1840,7 +1838,7 @@ set_title_settings(signal_user_data_t *ud, GValue *settings)
                 ghb_settings_get_value(ud->settings, "volume_label"));
         }
         ghb_settings_set_int(settings, "scale_width",
-                             title->width - title->crop[2] - title->crop[3]);
+                             title->geometry.width - title->crop[2] - title->crop[3]);
 
         // If anamorphic or keep_aspect, the hight will
         // be automatically calculated
@@ -1851,7 +1849,7 @@ set_title_settings(signal_user_data_t *ud, GValue *settings)
         if (!(keep_aspect || pic_par) || pic_par == 3)
         {
             ghb_settings_set_int(settings, "scale_height",
-                             title->width - title->crop[0] - title->crop[1]);
+                             title->geometry.width - title->crop[0] - title->crop[1]);
         }
 
         ghb_set_scale_settings(settings, GHB_PIC_KEEP_PAR|GHB_PIC_USE_MAX);
@@ -2042,7 +2040,8 @@ ptop_widget_changed_cb(GtkWidget *widget, signal_user_data_t *ud)
     }
     else if (ghb_settings_combo_int(ud->settings, "PtoPType") == 2)
     {
-        gdouble max_frames = (gdouble)duration * title->rate / title->rate_base;
+        gdouble max_frames = (gdouble)duration *
+                             title->vrate.num / title->vrate.den;
         spin_configure(ud, "start_point", 1, 1, max_frames);
         spin_configure(ud, "end_point", max_frames, 1, max_frames);
     }
@@ -2094,6 +2093,14 @@ meta_setting_widget_changed_cb(GtkWidget *widget, signal_user_data_t *ud)
 }
 
 G_MODULE_EXPORT void
+plot_changed_cb(GtkWidget *widget, signal_user_data_t *ud)
+{
+    GtkWidget *textview;
+    textview = GTK_WIDGET(GHB_WIDGET(ud->builder, "MetaLongDescription"));
+    ghb_widget_to_setting(ud->settings, textview);
+}
+
+G_MODULE_EXPORT void
 chapter_markers_changed_cb(GtkWidget *widget, signal_user_data_t *ud)
 {
     ghb_widget_to_setting(ud->settings, widget);
@@ -2136,7 +2143,7 @@ vquality_changed_cb(GtkWidget *widget, signal_user_data_t *ud)
     double vquality = ghb_settings_get_double(ud->settings, "VideoQualitySlider");
     if (vquality < 1.0)
     {
-        ghb_ui_update(ud, "h264Profile", ghb_string_value("auto"));
+        ghb_ui_update(ud, "VideoProfile", ghb_string_value("auto"));
     }
 
     gint vcodec;
@@ -2166,24 +2173,6 @@ http_opt_changed_cb(GtkWidget *widget, signal_user_data_t *ud)
     ghb_live_reset(ud);
     // AC3 is not allowed when Web optimized
     ghb_grey_combo_options (ud);
-}
-
-G_MODULE_EXPORT void
-vcodec_changed_cb(GtkWidget *widget, signal_user_data_t *ud)
-{
-    float val, vqmin, vqmax, step, page;
-    int inverted, digits;
-
-    ghb_widget_to_setting(ud->settings, widget);
-    ghb_check_dependency(ud, widget, NULL);
-    show_container_options(ud);
-    ghb_clear_presets_selection(ud);
-    ghb_live_reset(ud);
-
-    val = ghb_vquality_default(ud);
-    ghb_vquality_range(ud, &vqmin, &vqmax, &step, &page, &digits, &inverted);
-    scale_configure(ud, "VideoQualitySlider", val, vqmin, vqmax,
-                    step, page, digits, inverted);
 }
 
 G_MODULE_EXPORT gboolean
@@ -2544,6 +2533,7 @@ ghb_countdown_dialog(
     signal_user_data_t *ud,
     gint timeout)
 {
+    GtkWindow *hb_window;
     GtkWidget *dialog;
     GtkResponseType response;
     guint timeout_id;
@@ -2555,7 +2545,8 @@ ghb_countdown_dialog(
     cd.ud = ud;
 
     // Toss up a warning dialog
-    dialog = gtk_message_dialog_new(NULL, GTK_DIALOG_MODAL,
+    hb_window = GTK_WINDOW(GHB_WIDGET(ud->builder, "hb_window"));
+    dialog = gtk_message_dialog_new(hb_window, GTK_DIALOG_MODAL,
                             type, GTK_BUTTONS_NONE,
                             _("%s\n\n%s in %d seconds ..."),
                             message, action, timeout);
@@ -2580,13 +2571,13 @@ ghb_countdown_dialog(
 }
 
 gboolean
-ghb_message_dialog(GtkMessageType type, const gchar *message, const gchar *no, const gchar *yes)
+ghb_message_dialog(GtkWindow *parent, GtkMessageType type, const gchar *message, const gchar *no, const gchar *yes)
 {
     GtkWidget *dialog;
     GtkResponseType response;
 
     // Toss up a warning dialog
-    dialog = gtk_message_dialog_new(NULL, GTK_DIALOG_MODAL,
+    dialog = gtk_message_dialog_new(parent, GTK_DIALOG_MODAL,
                             type, GTK_BUTTONS_NONE,
                             "%s", message);
     gtk_dialog_add_buttons( GTK_DIALOG(dialog),
@@ -2602,12 +2593,12 @@ ghb_message_dialog(GtkMessageType type, const gchar *message, const gchar *no, c
 }
 
 void
-ghb_error_dialog(GtkMessageType type, const gchar *message, const gchar *cancel)
+ghb_error_dialog(GtkWindow *parent, GtkMessageType type, const gchar *message, const gchar *cancel)
 {
     GtkWidget *dialog;
 
     // Toss up a warning dialog
-    dialog = gtk_message_dialog_new(NULL, GTK_DIALOG_MODAL,
+    dialog = gtk_message_dialog_new(parent, GTK_DIALOG_MODAL,
                             type, GTK_BUTTONS_NONE,
                             "%s", message);
     gtk_dialog_add_buttons( GTK_DIALOG(dialog),
@@ -2619,12 +2610,14 @@ ghb_error_dialog(GtkMessageType type, const gchar *message, const gchar *cancel)
 void
 ghb_cancel_encode(signal_user_data_t *ud, const gchar *extra_msg)
 {
+    GtkWindow *hb_window;
     GtkWidget *dialog;
     GtkResponseType response;
 
     if (extra_msg == NULL) extra_msg = "";
     // Toss up a warning dialog
-    dialog = gtk_message_dialog_new(NULL, GTK_DIALOG_MODAL,
+    hb_window = GTK_WINDOW(GHB_WIDGET(ud->builder, "hb_window"));
+    dialog = gtk_message_dialog_new(hb_window, GTK_DIALOG_MODAL,
                 GTK_MESSAGE_WARNING, GTK_BUTTONS_NONE,
                 _("%sYour movie will be lost if you don't continue encoding."),
                 extra_msg);
@@ -2659,12 +2652,14 @@ ghb_cancel_encode(signal_user_data_t *ud, const gchar *extra_msg)
 gboolean
 ghb_cancel_encode2(signal_user_data_t *ud, const gchar *extra_msg)
 {
+    GtkWindow *hb_window;
     GtkWidget *dialog;
     GtkResponseType response;
 
     if (extra_msg == NULL) extra_msg = "";
     // Toss up a warning dialog
-    dialog = gtk_message_dialog_new(NULL, GTK_DIALOG_MODAL,
+    hb_window = GTK_WINDOW(GHB_WIDGET(ud->builder, "hb_window"));
+    dialog = gtk_message_dialog_new(hb_window, GTK_DIALOG_MODAL,
                 GTK_MESSAGE_WARNING, GTK_BUTTONS_NONE,
                 _("%sYour movie will be lost if you don't continue encoding."),
                 extra_msg);
@@ -2886,7 +2881,7 @@ ghb_update_pending(signal_user_data_t *ud)
 
     label = GTK_LABEL(GHB_WIDGET(ud->builder, "pending_status"));
     pending = queue_pending_count(ud->queue);
-    str = g_strdup_printf("%d encode(s) pending", pending);
+    str = g_strdup_printf(_("%d encode(s) pending"), pending);
     gtk_label_set_text(label, str);
     g_free(str);
 }
@@ -3238,16 +3233,6 @@ ghb_backend_events(signal_user_data_t *ud)
     {
         gchar *status_str;
 
-        if (ghb_settings_get_boolean(ud->prefs, "show_status"))
-        {
-#if defined(_USE_APP_IND)
-            char * ai_status_str= g_strdup_printf(
-                "%.2f%%",
-                100.0 * status.queue.progress);
-            app_indicator_set_label( ud->ai, ai_status_str, "99.99%");
-            g_free(ai_status_str);
-#endif
-        }
         status_str = searching_status_string(ud, &status.queue);
         gtk_label_set_text (work_status, status_str);
         gtk_progress_bar_set_fraction (progress, status.queue.progress);
@@ -3257,16 +3242,6 @@ ghb_backend_events(signal_user_data_t *ud)
     {
         gchar *status_str;
 
-        if (ghb_settings_get_boolean(ud->prefs, "show_status"))
-        {
-#if defined(_USE_APP_IND)
-            char * ai_status_str= g_strdup_printf(
-                "%.2f%%",
-                100.0 * status.queue.progress);
-            app_indicator_set_label( ud->ai, ai_status_str, "99.99%");
-            g_free(ai_status_str);
-#endif
-        }
         status_str = working_status_string(ud, &status.queue);
         gtk_label_set_text (work_status, status_str);
         gtk_progress_bar_set_fraction (progress, status.queue.progress);
@@ -3336,9 +3311,6 @@ ghb_backend_events(signal_user_data_t *ud)
         }
         ghb_save_queue(ud->queue);
         ud->cancel_encode = GHB_CANCEL_NONE;
-#if defined(_USE_APP_IND)
-        app_indicator_set_label( ud->ai, "", "99.99%");
-#endif
     }
     else if (status.queue.state & GHB_STATE_MUXING)
     {
@@ -3370,34 +3342,6 @@ ghb_backend_events(signal_user_data_t *ud)
         }
         ghb_clear_scan_state(GHB_STATE_WORKDONE);
     }
-}
-
-G_MODULE_EXPORT gboolean
-status_icon_query_tooltip_cb(
-    GtkStatusIcon *si,
-    gint           x,
-    gint           y,
-    gboolean       kbd_mode,
-    GtkTooltip    *tt,
-    signal_user_data_t *ud)
-{
-    ghb_status_t status;
-    gchar *status_str;
-
-    ghb_get_status(&status);
-    if (status.queue.state & GHB_STATE_WORKING)
-        status_str = working_status_string(ud, &status.queue);
-    else if (status.queue.state & GHB_STATE_SEARCHING)
-        status_str = searching_status_string(ud, &status.queue);
-    else if (status.queue.state & GHB_STATE_WORKDONE)
-        status_str = g_strdup(_("Encode Complete"));
-    else
-        status_str = g_strdup("HandBrake");
-
-    gtk_tooltip_set_text(tt, status_str);
-    gtk_tooltip_set_icon_from_icon_name(tt, "hb-icon", GTK_ICON_SIZE_BUTTON);
-    g_free(status_str);
-    return TRUE;
 }
 
 G_MODULE_EXPORT gboolean
@@ -3961,7 +3905,7 @@ ghb_hbfd(signal_user_data_t *ud, gboolean hbfd)
     gtk_widget_set_visible(widget, !hbfd);
     widget = GHB_WIDGET(ud->builder, "SettingsStackSwitcher");
     gtk_widget_set_visible(widget, !hbfd);
-    widget = GHB_WIDGET(ud->builder, "SettingsStackAlign");
+    widget = GHB_WIDGET(ud->builder, "SettingsStack");
     gtk_widget_set_visible(widget, !hbfd);
     widget = GHB_WIDGET(ud->builder, "presets_save");
     gtk_widget_set_visible(widget, !hbfd);
@@ -4019,36 +3963,6 @@ use_m4v_changed_cb(GtkWidget *widget, signal_user_data_t *ud)
 }
 
 G_MODULE_EXPORT void
-show_status_cb(GtkWidget *widget, signal_user_data_t *ud)
-{
-    g_debug("show_status_cb");
-    ghb_widget_to_setting (ud->prefs, widget);
-    ghb_check_dependency(ud, widget, NULL);
-    const gchar *name = ghb_get_setting_key(widget);
-    ghb_pref_set(ud->prefs, name);
-
-#if defined(_USE_APP_IND)
-    if (ud->ai)
-    {
-        if (ghb_settings_get_boolean(ud->prefs, "show_status"))
-        {
-            app_indicator_set_status(ud->ai, APP_INDICATOR_STATUS_ACTIVE);
-        }
-        else
-        {
-            app_indicator_set_status(ud->ai, APP_INDICATOR_STATUS_PASSIVE);
-        }
-    }
-#else
-    GtkStatusIcon *si;
-
-    si = GTK_STATUS_ICON(GHB_OBJECT (ud->builder, "hb_status"));
-    gtk_status_icon_set_visible(si,
-            ghb_settings_get_boolean(ud->prefs, "show_status"));
-#endif
-}
-
-G_MODULE_EXPORT void
 vqual_granularity_changed_cb(GtkWidget *widget, signal_user_data_t *ud)
 {
     g_debug("vqual_granularity_changed_cb");
@@ -4063,8 +3977,8 @@ vqual_granularity_changed_cb(GtkWidget *widget, signal_user_data_t *ud)
 
     ghb_vquality_range(ud, &vqmin, &vqmax, &step, &page, &digits, &inverted);
     val = ghb_settings_get_double(ud->settings, "VideoQualitySlider");
-    scale_configure(ud, "VideoQualitySlider", val, vqmin, vqmax,
-                    step, page, digits, inverted);
+    ghb_scale_configure(ud, "VideoQualitySlider", val, vqmin, vqmax,
+                        step, page, digits, inverted);
 }
 
 G_MODULE_EXPORT void
@@ -4968,11 +4882,13 @@ tweak_setting_cb(
                 ghb_settings_set_string(ud->settings, tweak_name, tweak);
             else
             {
+                GtkWindow *hb_window;
                 gchar *message;
+                hb_window = GTK_WINDOW(GHB_WIDGET(ud->builder, "hb_window"));
                 message = g_strdup_printf(
                             _("Invalid Settings:\n%s"),
                             tweak);
-                ghb_message_dialog(GTK_MESSAGE_ERROR, message, "Cancel", NULL);
+                ghb_message_dialog(hb_window, GTK_MESSAGE_ERROR, message, _("Cancel"), NULL);
                 g_free(message);
             }
         }
@@ -5261,27 +5177,6 @@ hb_visibility_event_cb(
 }
 
 G_MODULE_EXPORT void
-status_activate_cb(GtkStatusIcon *si, signal_user_data_t *ud)
-{
-    GtkWindow *window;
-    GdkWindowState state;
-
-    window = GTK_WINDOW(GHB_WIDGET(ud->builder, "hb_window"));
-    state = gdk_window_get_state(gtk_widget_get_window(GTK_WIDGET(window)));
-    if ((state & GDK_WINDOW_STATE_ICONIFIED) ||
-        (ud->hb_visibility != GDK_VISIBILITY_UNOBSCURED))
-    {
-        gtk_window_present(window);
-        gtk_window_set_skip_taskbar_hint(window, FALSE);
-    }
-    else
-    {
-        gtk_window_set_skip_taskbar_hint(window, TRUE);
-        gtk_window_iconify(window);
-    }
-}
-
-G_MODULE_EXPORT void
 show_hide_toggle_cb(GtkWidget *xwidget, signal_user_data_t *ud)
 {
     GtkWindow *window;
@@ -5327,9 +5222,6 @@ ghb_notify_done(signal_user_data_t *ud)
                 );
 #else
         ,NULL);
-
-    GtkStatusIcon *si = GTK_STATUS_ICON(GHB_OBJECT(ud->builder, "hb_status"));
-    notify_notification_attach_to_status_icon(notification, si);
 #endif
     GtkIconTheme *theme = gtk_icon_theme_get_default();
     GdkPixbuf *pb = gtk_icon_theme_load_icon(theme, "hb-icon", 32,

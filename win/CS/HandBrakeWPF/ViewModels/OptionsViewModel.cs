@@ -1417,22 +1417,13 @@ namespace HandBrakeWPF.ViewModels
 
             // Days between update checks
             this.checkForUpdatesFrequencies.Clear();
-            this.checkForUpdatesFrequencies.Add("Daily");
             this.checkForUpdatesFrequencies.Add("Weekly");
             this.checkForUpdatesFrequencies.Add("Monthly");
 
-            // TODO Refactor this.
-            switch (this.userSettingService.GetUserSetting<int>(UserSettingConstants.DaysBetweenUpdateCheck))
+            this.CheckForUpdatesFrequency = this.userSettingService.GetUserSetting<int>(UserSettingConstants.DaysBetweenUpdateCheck);
+            if (this.CheckForUpdatesFrequency > 1)
             {
-                case 1:
-                    this.CheckForUpdatesFrequency = 0;
-                    break;
-                case 7:
-                    this.CheckForUpdatesFrequency = 1;
-                    break;
-                default:
-                    this.CheckForUpdatesFrequency = 2;
-                    break;
+                this.CheckForUpdatesFrequency = 1;
             }
 
             // On Encode Completeion Action
@@ -1570,13 +1561,13 @@ namespace HandBrakeWPF.ViewModels
             this.MinLength = this.userSettingService.GetUserSetting<int>(UserSettingConstants.MinScanDuration);
 
             // Use dvdnav
-            this.DisableLibdvdNav = userSettingService.GetUserSetting<bool>(UserSettingConstants.DisableLibDvdNav);
+            this.DisableLibdvdNav = userSettingService.GetUserSetting<bool>(UserSettingConstants.DisableLibDvdNav);  
 
             int port;
             int.TryParse(userSettingService.GetUserSetting<string>(UserSettingConstants.ServerPort), out port);
             this.ServerPort = port;
             this.EnableProcessIsolation = userSettingService.GetUserSetting<bool>(UserSettingConstants.EnableProcessIsolation);
-            this.EnableLibHb = userSettingService.GetUserSetting<bool>(UserSettingConstants.EnableLibHb);
+            this.EnableLibHb = userSettingService.GetUserSetting<bool>(UserSettingConstants.UseLibHb);
         }
 
         /// <summary>
@@ -1629,7 +1620,6 @@ namespace HandBrakeWPF.ViewModels
             userSettingService.SetUserSetting(UserSettingConstants.PreviewScanCount, this.SelectedPreviewCount);
             userSettingService.SetUserSetting(UserSettingConstants.X264Step, double.Parse(this.SelectedGranulairty, CultureInfo.InvariantCulture));
             userSettingService.SetUserSetting(UserSettingConstants.ShowAdvancedTab, this.ShowAdvancedTab);
-            userSettingService.SetUserSetting(UserSettingConstants.ShowAdvancedTab, this.ShowAdvancedTab);
 
             int value;
             if (int.TryParse(this.MinLength.ToString(CultureInfo.InvariantCulture), out value))
@@ -1640,7 +1630,7 @@ namespace HandBrakeWPF.ViewModels
             userSettingService.SetUserSetting(UserSettingConstants.DisableLibDvdNav, this.DisableLibdvdNav);
             userSettingService.SetUserSetting(UserSettingConstants.EnableProcessIsolation, this.EnableProcessIsolation);
             userSettingService.SetUserSetting(UserSettingConstants.ServerPort, this.ServerPort.ToString(CultureInfo.InvariantCulture));
-            userSettingService.SetUserSetting(UserSettingConstants.EnableLibHb, this.EnableLibHb);
+            userSettingService.SetUserSetting(UserSettingConstants.UseLibHb, this.EnableLibHb);
         }
 
         /// <summary>
@@ -1655,6 +1645,11 @@ namespace HandBrakeWPF.ViewModels
             if (info.NewVersionAvailable)
             {
                 this.UpdateMessage = "A New Update is Available!";
+                this.UpdateAvailable = true;
+            }
+            else if (Environment.Is64BitOperatingSystem && !System.Environment.Is64BitProcess)
+            {
+                this.UpdateMessage = "Your system supports the 64bit version of HandBrake! This offers performance and stability improvements over this 32bit version.";
                 this.UpdateAvailable = true;
             }
             else
@@ -1674,6 +1669,8 @@ namespace HandBrakeWPF.ViewModels
         {
             if (info.TotalBytes == 0 || info.BytesRead == 0)
             {
+                this.UpdateAvailable = false;
+                this.UpdateMessage = info.WasSuccessful ? "Update Downloaded" : "Update Service Unavailable. You can try downloading the update from https://handbrake.fr";
                 return;
             }
 
@@ -1694,7 +1691,7 @@ namespace HandBrakeWPF.ViewModels
         private void DownloadComplete(DownloadStatus info)
         {
             this.UpdateAvailable = false;
-            this.UpdateMessage = info.WasSuccessful ? "Update Downloaded" : "Update Failed. You can try downloading the update from http://handbrake.fr";
+            this.UpdateMessage = info.WasSuccessful ? "Update Downloaded" : "Update Failed. You can try downloading the update from https://handbrake.fr";
 
             Process.Start(Path.Combine(Path.GetTempPath(), "handbrake-setup.exe"));
             Execute.OnUIThread(() => Application.Current.Shutdown());

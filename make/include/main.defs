@@ -12,15 +12,25 @@ ifeq (1,$(FEATURE.local_pkgconfig))
     MODULES += contrib/pkgconfig
 endif
 
+HB_TOOLS_PATH =
+ifeq (1,$(FEATURE.local_cmake))
+    MODULES += contrib/cmake
+    HB_TOOLS_PATH = $(call fn.ABSOLUTE,$(CONTRIB.build/)bin)
+endif
+
 ifeq (1,$(FEATURE.local_autotools))
     MODULES += contrib/autoconf
     MODULES += contrib/automake
     MODULES += contrib/libtool
     MODULES += contrib/m4
     AUTOTOOL_MODULES = AUTOCONF AUTOMAKE LIBTOOL M4
-    PATH := $(call fn.ABSOLUTE,$(CONTRIB.build/)bin):$(PATH)
+    HB_TOOLS_PATH = $(call fn.ABSOLUTE,$(CONTRIB.build/)bin)
 else
     AUTOTOOL_MODULES =
+endif
+
+ifneq (,$(HB_TOOLS_PATH))
+    PATH := $(HB_TOOLS_PATH):$(PATH)
 endif
 
 ifneq (,$(filter $(BUILD.system),cygwin mingw))
@@ -39,25 +49,18 @@ ifneq (,$(filter $(BUILD.system),darwin cygwin mingw))
     MODULES += contrib/libvorbis
     MODULES += contrib/libtheora
     MODULES += contrib/libsamplerate
+    MODULES += contrib/lame
+    MODULES += contrib/x264
 endif
 
 ifeq (1,$(FEATURE.fdk_aac))
     MODULES += contrib/fdk-aac
 endif
 
-ifeq (1,$(FEATURE.mp4v2))
-    MODULES += contrib/mp4v2
-endif
-
-ifeq (1,$(FEATURE.libmkv))
-    MODULES += contrib/libmkv
-endif
-
 ifeq (1,$(FEATURE.x265))
     MODULES += contrib/x265
 endif
 
-MODULES += contrib/lame
 MODULES += contrib/ffmpeg
 MODULES += contrib/libvpx
 MODULES += contrib/libdvdread
@@ -66,15 +69,15 @@ MODULES += contrib/libbluray
 
 ifneq (,$(filter $(BUILD.system),mingw))
 ifneq ($(HAS.pthread),1)
+ifneq ($(HAS.pthreadGC2),1)
     MODULES += contrib/pthreadw32
+endif
 endif
 endif
 
 ifeq (1,$(FEATURE.qsv))
     MODULES += contrib/libmfx
 endif
-
-MODULES += contrib/x264
 
 ifneq (,$(filter $(BUILD.system),cygwin mingw))
 ifneq ($(HAS.iconv),1)
@@ -83,11 +86,16 @@ endif
 ifneq ($(HAS.libz),1)
     MODULES += contrib/zlib
 endif
+ifneq ($(HAS.regex),1)
+    MODULES += contrib/libgnurx
+endif
 endif
 
 ifneq (,$(filter $(BUILD.system),solaris))
     MODULES += contrib/libiconv
 endif
+
+MODULES += contrib/jansson
 
 ## these must come after contrib since some contrib modules are optional
 MODULES += libhb
@@ -108,6 +116,11 @@ endif
 
 ifeq (1-linux,$(FEATURE.gtk)-$(BUILD.system))
     ## build gtk when gtk+linux
+    MODULES += gtk
+endif
+
+ifeq (1-kfreebsd,$(FEATURE.gtk)-$(BUILD.system))
+    ## build gtk when gtk+kfreebsd
     MODULES += gtk
 endif
 

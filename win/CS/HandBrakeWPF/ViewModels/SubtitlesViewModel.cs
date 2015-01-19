@@ -15,11 +15,13 @@ namespace HandBrakeWPF.ViewModels
     using System.Linq;
 
     using HandBrake.ApplicationServices.Model;
-    using HandBrake.ApplicationServices.Model.Encoding;
-    using HandBrake.ApplicationServices.Model.Subtitle;
-    using HandBrake.ApplicationServices.Parsing;
+    using HandBrake.ApplicationServices.Services.Encode.Model;
+    using HandBrake.ApplicationServices.Services.Encode.Model.Models;
+    using HandBrake.ApplicationServices.Services.Scan.Model;
     using HandBrake.ApplicationServices.Utilities;
 
+    using HandBrakeWPF.Model.Subtitles;
+    using HandBrakeWPF.Services.Presets.Model;
     using HandBrakeWPF.ViewModels.Interfaces;
 
     using Ookii.Dialogs.Wpf;
@@ -494,8 +496,6 @@ namespace HandBrakeWPF.ViewModels
 
         #region Implemented Interfaces
 
-        #region ITabInterface
-
         /// <summary>
         /// Setup this tab for the specified preset.
         /// </summary>
@@ -557,8 +557,6 @@ namespace HandBrakeWPF.ViewModels
 
         #endregion
 
-        #endregion
-
         #region Methods
 
         /// <summary>
@@ -594,7 +592,7 @@ namespace HandBrakeWPF.ViewModels
 
             if ((source.SubtitleType == SubtitleType.PGS || source.SubtitleType == SubtitleType.VobSub || source.SubtitleType == SubtitleType.ForeignAudioSearch)
                 && this.Task != null
-                && (this.Task.OutputFormat == OutputFormat.Mp4 || this.Task.OutputFormat == OutputFormat.M4V))
+                && this.Task.OutputFormat == OutputFormat.Mp4)
             {
                 if (track.CanBeBurned)
                 {

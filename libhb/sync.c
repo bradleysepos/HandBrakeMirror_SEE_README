@@ -171,7 +171,8 @@ hb_work_object_t * hb_sync_init( hb_job_t * job )
         else if( job->frame_to_stop )
         {
             /* Set the duration to a rough estimate */
-            duration = ( job->frame_to_stop / ( title->rate / title->rate_base ) ) * 90000;
+            duration = (int64_t)job->frame_to_stop * title->vrate.den * 90000 /
+                       title->vrate.num;
         }
         else
         {
@@ -182,7 +183,7 @@ hb_work_object_t * hb_sync_init( hb_job_t * job )
                 duration += chapter->duration;
             }
         }
-        sync->count_frames_max = duration * title->rate / title->rate_base / 90000;
+        sync->count_frames_max = duration * title->vrate.num / title->vrate.den / 90000;
     }
 
     hb_log( "sync: expecting %d video frames", sync->count_frames_max );
@@ -303,6 +304,37 @@ void syncVideoClose( hb_work_object_t * w )
 
 #define ABS(a)  ((a) < 0 ? -(a) : (a))
 
+static hb_buffer_t * merge_ssa(hb_buffer_t *a, hb_buffer_t *b)
+{
+    int len, ii;
+    char *text;
+    hb_buffer_t *buf = hb_buffer_init(a->size + b->size);
+    buf->s = a->s;
+
+    // Find the text in the second SSA sub
+    text = (char*)b->data;
+    for (ii = 0; ii < 8; ii++)
+    {
+        text = strchr(text, ',');
+        if (text == NULL)
+            break;
+        text++;
+    }
+    if (text != NULL)
+    {
+        len = sprintf((char*)buf->data, "%s\n%s", a->data, text);
+        if (len >= 0)
+            buf->size = len + 1;
+    }
+    else
+    {
+        memcpy(buf->data, a->data, a->size);
+        buf->size = a->size;
+    }
+
+    return buf;
+}
+
 static hb_buffer_t * mergeSubtitles(subtitle_sanitizer_t *sanitizer, int end)
 {
     hb_buffer_t *a, *b, *buf, *out = NULL, *last = NULL;
@@ -310,9 +342,10 @@ static hb_buffer_t * mergeSubtitles(subtitle_sanitizer_t *sanitizer, int end)
     do
     {
         a = sanitizer->list_current;
+        b = a != NULL ? a->next : NULL;
 
         buf = NULL;
-        if (a != NULL && end)
+        if (a != NULL && b == NULL && end)
         {
             sanitizer->list_current = a->next;
             if (sanitizer->list_current == NULL)
@@ -322,8 +355,6 @@ static hb_buffer_t * mergeSubtitles(subtitle_sanitizer_t *sanitizer, int end)
         }
         else if (a != NULL && a->s.stop != AV_NOPTS_VALUE)
         {
-            b = a->next;
-
             if (!sanitizer->merge)
             {
                 sanitizer->list_current = a->next;
@@ -338,24 +369,45 @@ static hb_buffer_t * mergeSubtitles(subtitle_sanitizer_t *sanitizer, int end)
                 if (ABS(a->s.start - b->s.start) <= 18000)
                 {
                     // subtitles start within 1/5 second of eachother, merge
-                    sanitizer->list_current = a->next;
-                    if (sanitizer->list_current == NULL)
-                        sanitizer->last = NULL;
+                    if (a->s.stop > b->s.stop)
+                    {
+                        // a continues after b, reorder the list and swap
+                        hb_buffer_t *tmp = a;
+                        a->next = b->next;
+                        b->next = a;
+                        if (sanitizer->last == b)
+                        {
+                            sanitizer->last = a;
+                        }
+                        a = b;
+                        b = tmp;
+                        sanitizer->list_current = a;
+                    }
+
                     a->next = NULL;
                     b->s.start = a->s.stop;
 
-                    buf = hb_buffer_init(a->size + b->size);
-                    buf->s = a->s;
-                    sprintf((char*)buf->data, "%s\n%s", a->data, b->data);
+                    buf = merge_ssa(a, b);
                     hb_buffer_close(&a);
+                    a = buf;
+                    buf = NULL;
+                    sanitizer->list_current = a;
 
-                    if (b->s.stop != AV_NOPTS_VALUE && ABS(b->s.stop - b->s.start) <= 18000)
+                    if (b->s.stop != AV_NOPTS_VALUE &&
+                        ABS(b->s.stop - b->s.start) <= 18000)
                     {
                         // b and a completely overlap, remove b
-                        sanitizer->list_current = b->next;
-                        if (sanitizer->list_current == NULL)
-                            sanitizer->last = NULL;
+                        a->next = b->next;
+                        b->next = NULL;
+                        if (sanitizer->last == b)
+                        {
+                            sanitizer->last = a;
+                        }
                         hb_buffer_close(&b);
+                    }
+                    else
+                    {
+                        a->next = b;
                     }
                 }
                 else
@@ -461,6 +513,7 @@ static hb_buffer_t * sanitizeSubtitle(
             sanitizer->last = sub;
         }
     }
+
     return mergeSubtitles(sanitizer, 0);
 }
 
@@ -646,7 +699,7 @@ int syncVideoWork( hb_work_object_t * w, hb_buffer_t ** buf_in,
 
         pv->common->first_pts[0] = INT64_MAX - 1;
         cur->s.start = sync->next_start;
-        cur->s.stop = cur->s.start + 90000. / ((double)job->vrate / (double)job->vrate_base);
+        cur->s.stop = cur->s.start + 90000L * job->vrate.den / job->vrate.num;
         sync->next_start += cur->s.stop - cur->s.start;;
 
         /* Make sure last frame is reflected in frame count */
@@ -848,6 +901,11 @@ int syncVideoWork( hb_work_object_t * w, hb_buffer_t ** buf_in,
                 out = sanitizeSubtitle(pv, i, sub);
                 if (out != NULL)
                     hb_fifo_push( subtitle->fifo_out, out );
+            }
+            else
+            {
+                // Push the end of stream marker
+                hb_fifo_push( subtitle->fifo_out, sub );
             }
         }
     }

@@ -47,10 +47,6 @@
 #define pipe(phandles)  _pipe (phandles, 4096, _O_BINARY)
 #endif
 
-#if defined(_USE_APP_IND)
-#include <libappindicator/app-indicator.h>
-#endif
-
 #include <glib/gstdio.h>
 #include <glib/gi18n.h>
 #include <gio/gio.h>
@@ -632,10 +628,11 @@ IoRedirect(signal_user_data_t *ud)
     g_io_channel_set_encoding(ud->activity_log, NULL, NULL);
     // redirect stderr to the writer end of the pipe
 #if defined(_WIN32)
-    // dup2 doesn't work on windows for some stupid reason
-    stderr->_file = pfd[1];
+    _dup2(pfd[1], STDERR_FILENO);
+    // Non-console windows apps do not have a stderr->_file assigned properly
+    stderr->_file = STDERR_FILENO;
 #else
-    dup2(pfd[1], /*stderr*/2);
+    dup2(pfd[1], STDERR_FILENO);
 #endif
     setvbuf(stderr, NULL, _IONBF, 0);
     channel = g_io_channel_unix_new(pfd[0]);
@@ -700,7 +697,8 @@ watch_volumes(signal_user_data_t *ud)
 }
 
 G_MODULE_EXPORT void x264_entry_changed_cb(GtkWidget *widget, signal_user_data_t *ud);
-G_MODULE_EXPORT void x264_option_changed_cb(GtkWidget *widget, signal_user_data_t *ud);
+G_MODULE_EXPORT void video_option_changed_cb(GtkWidget *widget, signal_user_data_t *ud);
+G_MODULE_EXPORT void plot_changed_cb(GtkWidget *widget, signal_user_data_t *ud);
 G_MODULE_EXPORT void position_overlay_cb(GtkWidget *widget, signal_user_data_t *ud);
 G_MODULE_EXPORT void preview_hud_size_alloc_cb(GtkWidget *widget, signal_user_data_t *ud);
 
@@ -730,7 +728,7 @@ GtkEntry {                          \n\
 @define-color gray46 #757575;       \n\
 @define-color white  #ffffff;       \n\
                                     \n\
-#preview_event_box,                 \n\
+#preview_hud,                       \n\
 #live_preview_play,                 \n\
 #live_duration,                     \n\
 #preview_fullscreen                 \n\
@@ -874,7 +872,7 @@ main(int argc, char *argv[])
 
     // Must set the names of the widgets that I want to modify
     // style for.
-    gtk_widget_set_name(GHB_WIDGET(ud->builder, "preview_event_box"), "preview_event_box");
+    gtk_widget_set_name(GHB_WIDGET(ud->builder, "preview_hud"), "preview_hud");
     gtk_widget_set_name(GHB_WIDGET(ud->builder, "preview_frame"), "preview_frame");
     gtk_widget_set_name(GHB_WIDGET(ud->builder, "live_preview_play"), "live_preview_play");
     gtk_widget_set_name(GHB_WIDGET(ud->builder, "live_preview_progress"), "live_preview_progress");
@@ -888,10 +886,10 @@ main(int argc, char *argv[])
     gtk_widget_set_name(widget, "preview_window");
 
     // Set up the "hud" control overlay for the preview window
-    GtkWidget *align, *draw, *hud, *blender;
+    GtkWidget *preview_box, *draw, *hud, *blender;
 
-    align = GHB_WIDGET(ud->builder, "preview_window_alignment");
-    draw = GHB_WIDGET(ud->builder, "preview_image_align");
+    preview_box = GHB_WIDGET(ud->builder, "preview_window_box");
+    draw = GHB_WIDGET(ud->builder, "preview_image");
     hud = GHB_WIDGET(ud->builder, "preview_hud");
 
 #if 0 // GTK_CHECK_VERSION(3, 0, 0)
@@ -908,7 +906,7 @@ main(int argc, char *argv[])
     // So for now, I'll just continue using my home-grown overlay
     // widget (GhbCompositor).
     blender = gtk_overlay_new();
-    gtk_container_add(GTK_CONTAINER(align), blender);
+    gtk_container_add(GTK_CONTAINER(preview_box), blender);
     gtk_container_add(GTK_CONTAINER(blender), draw);
     gtk_widget_set_valign (hud, GTK_ALIGN_END);
     gtk_widget_set_halign (hud, GTK_ALIGN_CENTER);
@@ -922,7 +920,7 @@ main(int argc, char *argv[])
     // Set up compositing for hud
     blender = ghb_compositor_new();
 
-    gtk_container_add(GTK_CONTAINER(align), blender);
+    gtk_container_add(GTK_CONTAINER(preview_box), blender);
     ghb_compositor_zlist_insert(GHB_COMPOSITOR(blender), draw, 1, 1);
     ghb_compositor_zlist_insert(GHB_COMPOSITOR(blender), hud, 2, .85);
     gtk_widget_show(blender);
@@ -943,9 +941,13 @@ main(int argc, char *argv[])
     buffer = gtk_text_view_get_buffer(textview);
     g_signal_connect(buffer, "changed", (GCallback)x264_entry_changed_cb, ud);
 
-    textview = GTK_TEXT_VIEW(GHB_WIDGET(ud->builder, "x264OptionExtra"));
+    textview = GTK_TEXT_VIEW(GHB_WIDGET(ud->builder, "VideoOptionExtra"));
     buffer = gtk_text_view_get_buffer(textview);
-    g_signal_connect(buffer, "changed", (GCallback)x264_option_changed_cb, ud);
+    g_signal_connect(buffer, "changed", (GCallback)video_option_changed_cb, ud);
+
+    textview = GTK_TEXT_VIEW(GHB_WIDGET(ud->builder, "MetaLongDescription"));
+    buffer = gtk_text_view_get_buffer(textview);
+    g_signal_connect(buffer, "changed", (GCallback)plot_changed_cb, ud);
 
     ghb_combo_init(ud);
 
@@ -961,13 +963,6 @@ main(int argc, char *argv[])
     // I wrote my own connector so that I could pass user data
     // to the callbacks.  Builder's standard autoconnect doesn't all this.
     gtk_builder_connect_signals_full(ud->builder, MyConnect, ud);
-
-    GtkWidget *presetSlider = GHB_WIDGET(ud->builder, "x264PresetSlider");
-    const char * const *x264_presets;
-    int count = 0;
-    x264_presets = hb_video_encoder_get_presets(HB_VCODEC_X264);
-    while (x264_presets && x264_presets[count]) count++;
-    gtk_range_set_range(GTK_RANGE(presetSlider), 0, count-1);
 
     ghb_init_audio_defaults_ui(ud);
     ghb_init_subtitle_defaults_ui(ud);
@@ -1051,35 +1046,6 @@ main(int argc, char *argv[])
     ghb_volname_cache_init();
     GHB_THREAD_NEW("Cache Volume Names", (GThreadFunc)ghb_cache_volnames, ud);
 
-#if defined(_USE_APP_IND)
-    GtkMenu *ai_menu = GTK_MENU(GHB_OBJECT(ud->builder, "tray_menu"));
-    ud->ai = app_indicator_new("HandBrake", "hb-icon", APP_INDICATOR_CATEGORY_APPLICATION_STATUS);
-    app_indicator_set_menu( ud->ai, ai_menu );
-    app_indicator_set_label( ud->ai, "", "99.99%");
-    if (ghb_settings_get_boolean(ud->prefs, "show_status"))
-    {
-        app_indicator_set_status( ud->ai, APP_INDICATOR_STATUS_ACTIVE );
-    }
-    else
-    {
-        app_indicator_set_status( ud->ai, APP_INDICATOR_STATUS_PASSIVE );
-    }
-    GtkStatusIcon *si;
-    si = GTK_STATUS_ICON(GHB_OBJECT(ud->builder, "hb_status"));
-
-    gtk_status_icon_set_visible(si, FALSE );
-#else
-    GtkStatusIcon *si;
-    si = GTK_STATUS_ICON(GHB_OBJECT(ud->builder, "hb_status"));
-
-    gtk_status_icon_set_visible(si,
-            ghb_settings_get_boolean(ud->prefs, "show_status"));
-
-    gtk_status_icon_set_has_tooltip(si, TRUE);
-    g_signal_connect(si, "query-tooltip",
-                    status_icon_query_tooltip_cb, ud);
-#endif
-
     GtkWidget *ghb_window = GHB_WIDGET(ud->builder, "hb_window");
 
     gint window_width, window_height;
@@ -1116,11 +1082,11 @@ main(int argc, char *argv[])
     GtkFileChooser *chooser;
     chooser = GTK_FILE_CHOOSER(GHB_WIDGET(ud->builder, "source_dialog"));
     filter = GTK_FILE_FILTER(GHB_OBJECT(ud->builder, "SourceFilterAll"));
-    gtk_file_filter_set_name(filter, "All");
+    gtk_file_filter_set_name(filter, _("All"));
     gtk_file_filter_add_pattern(filter, "*");
     gtk_file_chooser_add_filter(chooser, filter);
     filter = GTK_FILE_FILTER(GHB_OBJECT(ud->builder, "SourceFilterVideo"));
-    gtk_file_filter_set_name(filter, "Video");
+    gtk_file_filter_set_name(filter, _("Video"));
     gtk_file_filter_add_mime_type(filter, "video/*");
     gtk_file_chooser_add_filter(chooser, filter);
     filter = GTK_FILE_FILTER(GHB_OBJECT(ud->builder, "SourceFilterTS"));
@@ -1227,7 +1193,6 @@ main(int argc, char *argv[])
     // Everything should be go-to-go.  Lets rock!
 
     gtk_main();
-    gtk_status_icon_set_visible(si, FALSE);
     ghb_backend_close();
 
     ghb_value_free(ud->queue);

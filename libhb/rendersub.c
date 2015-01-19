@@ -136,7 +136,7 @@ static void blend( hb_buffer_t *dst, hb_buffer_t *src, int left, int top )
              */
             y_out[left + xx] =
                 ( (uint16_t)y_out[left + xx] * ( 255 - alpha ) +
-                     (uint16_t)y_in[xx] * alpha ) >> 8;
+                     (uint16_t)y_in[xx] * alpha ) / 255;
         }
     }
 
@@ -164,12 +164,12 @@ static void blend( hb_buffer_t *dst, hb_buffer_t *src, int left, int top )
             // Blend averge U and alpha
             u_out[(left >> wshift) + xx] =
                 ( (uint16_t)u_out[(left >> wshift) + xx] * ( 255 - alpha ) +
-                  (uint16_t)u_in[xx] * alpha ) >> 8;
+                  (uint16_t)u_in[xx] * alpha ) / 255;
 
             // Blend V and alpha
             v_out[(left >> wshift) + xx] =
                 ( (uint16_t)v_out[(left >> wshift) + xx] * ( 255 - alpha ) +
-                  (uint16_t)v_in[xx] * alpha ) >> 8;
+                  (uint16_t)v_in[xx] * alpha ) / 255;
         }
     }
 }
@@ -509,11 +509,11 @@ static int ssa_init( hb_filter_object_t * filter,
         return 1;
     }
 
-    int width = init->width - ( pv->crop[2] + pv->crop[3] );
-    int height = init->height - ( pv->crop[0] + pv->crop[1] );
+    int width = init->geometry.width - ( pv->crop[2] + pv->crop[3] );
+    int height = init->geometry.height - ( pv->crop[0] + pv->crop[1] );
     ass_set_frame_size( pv->renderer, width, height);
 
-    double par = (double)init->par_width / init->par_height;
+    double par = (double)init->geometry.par.num / init->geometry.par.den;
     ass_set_aspect_ratio( pv->renderer, 1, par );
 
     return 0;
@@ -592,8 +592,8 @@ static int textsub_init( hb_filter_object_t * filter,
 {
     hb_filter_private_t * pv = filter->private_data;
 
-    int width = init->width - pv->crop[2] - pv->crop[3];
-    int height = init->height - pv->crop[0] - pv->crop[1];
+    int width = init->geometry.width - pv->crop[2] - pv->crop[3];
+    int height = init->geometry.height - pv->crop[0] - pv->crop[1];
 
     // Text subtitles for which we create a dummy ASS header need
     // to have the header rewritten with the correct dimensions.
@@ -623,8 +623,8 @@ static void process_sub(hb_filter_private_t *pv, hb_buffer_t *sub)
     // Parse MKV-SSA packet
     // SSA subtitles always have an explicit stop time, so we
     // do not need to do special processing for stop == AV_NOPTS_VALUE
-    start = sub->s.start / 90;
-    dur = (sub->s.stop - sub->s.start) / 90;
+    start = sub->s.start;
+    dur = sub->s.stop - sub->s.start;
     ass_process_chunk(pv->ssaTrack, ssa, sub->size, start, dur);
     free(ssa);
 }
@@ -652,10 +652,20 @@ static int textsub_work(hb_filter_object_t * filter,
         return HB_FILTER_DONE;
     }
 
+    int in_start_ms = in->s.start / 90;
+
     // Get any pending subtitles and add them to the active
     // subtitle list
     while ((sub = hb_fifo_get(filter->subtitle->fifo_out)))
     {
+        // libass expects times in ms.  So to make the math easy,
+        // convert to ms immediately.
+        sub->s.start /= 90;
+        if (sub->s.stop != AV_NOPTS_VALUE)
+        {
+            sub->s.stop /= 90;
+        }
+
         // Subtitle formats such as CC can have stop times
         // that are not known until an "erase display" command
         // is encountered in the stream.  For these formats
@@ -681,6 +691,7 @@ static int textsub_work(hb_filter_object_t * filter,
             // We don't know the duration of this sub.  So we will
             // apply it to every video frame until we see a "clear" sub.
             pv->current_sub = sub;
+            pv->current_sub->s.stop = pv->current_sub->s.start;
         }
         else
         {
@@ -690,13 +701,13 @@ static int textsub_work(hb_filter_object_t * filter,
             hb_buffer_close(&sub);
         }
     }
-    if (pv->current_sub != NULL && pv->current_sub->s.start < in->s.start)
+    if (pv->current_sub != NULL && pv->current_sub->s.start <= in_start_ms)
     {
         // We don't know the duration of this subtitle, but we know
         // that it started before the current video frame and that
         // it is still active.  So render it on this video frame.
-        pv->current_sub->s.start = in->s.start;
-        pv->current_sub->s.stop = in->s.start + 90;
+        pv->current_sub->s.start = pv->current_sub->s.stop;
+        pv->current_sub->s.stop = in_start_ms + 1;
         process_sub(pv, pv->current_sub);
     }
 

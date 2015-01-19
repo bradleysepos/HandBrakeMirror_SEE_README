@@ -99,7 +99,8 @@ struct hb_work_private_s
     uint32_t        nframes;
     uint32_t        ndrops;
     uint32_t        decode_errors;
-    int             brokenByMicrosoft; // video stream may contain packed b-frames
+    int64_t         prev_pts;
+    int             brokenTS; // video stream may contain packed b-frames
     hb_buffer_t*    delayq[HEAP_SIZE];
     int             queue_primed;
     pts_heap_t      pts_heap;
@@ -507,7 +508,7 @@ static void closePrivData( hb_work_private_t ** ppv )
         }
 #endif
 
-        free( pv );
+        free(pv);
     }
     *ppv = NULL;
 }
@@ -572,7 +573,7 @@ static int decavcodecaWork( hb_work_object_t * w, hb_buffer_t ** buf_in,
             pout = in->data;
             len = pout_len = in->size;
         }
-        if (pout)
+        if (pout != NULL && pout_len > 0)
         {
             decodeAudio( w->audio, pv, pout, pout_len, cur );
         }
@@ -591,8 +592,8 @@ static int decavcodecaInfo( hb_work_object_t *w, hb_work_info_t *info )
     {
         AVCodecContext *context = pv->context;
         info->bitrate = context->bit_rate;
-        info->rate = context->time_base.num;
-        info->rate_base = context->time_base.den;
+        info->rate.num = context->time_base.num;
+        info->rate.den = context->time_base.den;
         info->profile = context->profile;
         info->level = context->level;
         return 1;
@@ -645,10 +646,15 @@ static int decavcodecaBSInfo( hb_work_object_t *w, const hb_buffer_t *buf,
     }
 
     hb_ff_set_sample_fmt( context, codec, AV_SAMPLE_FMT_FLT );
-    if ( hb_avcodec_open( context, codec, NULL, 0 ) )
+
+    AVDictionary * av_opts = NULL;
+    av_dict_set( &av_opts, "err_detect", "crccheck+explode", 0 );
+    if ( hb_avcodec_open( context, codec, &av_opts, 0 ) )
     {
+        av_dict_free( &av_opts );
         return -1;
     }
+    av_dict_free( &av_opts );
     unsigned char *parse_buffer;
     int parse_pos, dec_pos, parse_buffer_size;
 
@@ -699,19 +705,20 @@ static int decavcodecaBSInfo( hb_work_object_t *w, const hb_buffer_t *buf,
                 dec_len = avcodec_decode_audio4(context, frame, &got_frame, &avp);
                 if (dec_len < 0)
                 {
+                    av_frame_free(&frame);
                     break;
                 }
                 if (dec_len > 0 && got_frame)
                 {
-                    info->rate_base          = 1;
+                    info->rate.den = 1;
                     // libavcoded doesn't consistently set frame->sample_rate
                     if (frame->sample_rate != 0)
                     {
-                        info->rate = frame->sample_rate;
+                        info->rate.num = frame->sample_rate;
                     }
                     else
                     {
-                        info->rate = context->sample_rate;
+                        info->rate.num = context->sample_rate;
                         hb_log("decavcodecaBSInfo: warning: invalid frame sample_rate! Using context sample_rate.");
                     }
                     info->samples_per_frame  = frame->nb_samples;
@@ -720,7 +727,7 @@ static int decavcodecaBSInfo( hb_work_object_t *w, const hb_buffer_t *buf,
                     int channels = av_get_channel_layout_nb_channels(frame->channel_layout);
                     if (bps > 0)
                     {
-                        info->bitrate = (bps * channels * info->rate);
+                        info->bitrate = bps * channels * info->rate.num;
                     }
                     else if (context->bit_rate > 0)
                     {
@@ -773,9 +780,11 @@ static int decavcodecaBSInfo( hb_work_object_t *w, const hb_buffer_t *buf,
                     }
 
                     ret = 1;
+                    av_frame_free(&frame);
                     break;
                 }
                 dec_pos += dec_len;
+                av_frame_free(&frame);
             }
             parse_pos += parse_len;
         }
@@ -833,8 +842,8 @@ static hb_buffer_t *copy_frame( hb_work_private_t *pv )
     }
     else
     {
-        w = pv->job->title->width;
-        h = pv->job->title->height;
+        w = pv->job->title->geometry.width;
+        h = pv->job->title->geometry.height;
     }
 
 #ifdef USE_HWD
@@ -1145,6 +1154,20 @@ static hb_buffer_t * cc_fill_buffer(hb_work_private_t *pv, uint8_t *cc, int size
     return buf;
 }
 
+static int get_frame_type(int type)
+{
+    switch(type)
+    {
+        case AV_PICTURE_TYPE_I:
+            return HB_FRAME_I;
+        case AV_PICTURE_TYPE_B:
+            return HB_FRAME_B;
+        case AV_PICTURE_TYPE_P:
+            return HB_FRAME_P;
+    }
+    return 0;
+}
+
 /*
  * Decodes a video frame from the specified raw packet data
  *      ('data', 'size', 'sequence').
@@ -1284,6 +1307,13 @@ static int decodeFrame( hb_work_object_t *w, uint8_t *data, int size, int sequen
         else
         {
             pts = pv->frame->pkt_pts;
+            // Detect streams with broken out of order timestamps
+            if (!pv->brokenTS && pv->frame->pkt_pts < pv->prev_pts)
+            {
+                hb_log("Broken timestamps detected.  Reordering.");
+                pv->brokenTS = 1;
+            }
+            pv->prev_pts = pv->frame->pkt_pts;
         }
 
         pv->pts_next = pts + frame_dur;
@@ -1304,6 +1334,7 @@ static int decodeFrame( hb_work_object_t *w, uint8_t *data, int size, int sequen
         {
             flags |= PIC_FLAG_REPEAT_FRAME;
         }
+        int frametype = get_frame_type(pv->frame->pict_type);
 
         // Check for CC data
         AVFrameSideData *sd;
@@ -1329,7 +1360,7 @@ static int decodeFrame( hb_work_object_t *w, uint8_t *data, int size, int sequen
                 if (subtitle == NULL)
                 {
                     subtitle = calloc(sizeof( hb_subtitle_t ), 1);
-                    subtitle->track = 0;
+                    subtitle->track = hb_list_count(pv->title->list_subtitle);
                     subtitle->id = 0;
                     subtitle->format = TEXTSUB;
                     subtitle->source = CC608SUB;
@@ -1366,7 +1397,7 @@ static int decodeFrame( hb_work_object_t *w, uint8_t *data, int size, int sequen
 
         // if we're doing a scan or this content couldn't have been broken
         // by Microsoft we don't worry about timestamp reordering
-        if ( ! pv->job || ! pv->brokenByMicrosoft )
+        if ( ! pv->job || ! pv->brokenTS )
         {
             buf = copy_frame( pv );
             av_frame_unref(pv->frame);
@@ -1374,6 +1405,7 @@ static int decodeFrame( hb_work_object_t *w, uint8_t *data, int size, int sequen
             buf->sequence = sequence;
 
             buf->s.flags = flags;
+            buf->s.frametype = frametype;
 
             if ( pv->new_chap && buf->s.start >= pv->chap_time )
             {
@@ -1419,7 +1451,6 @@ static int decodeFrame( hb_work_object_t *w, uint8_t *data, int size, int sequen
         {
             pv->queue_primed = 1;
             buf->s.start = heap_pop( &pv->pts_heap );
-
             if ( pv->new_chap && buf->s.start >= pv->chap_time )
             {
                 buf->s.new_chap = pv->new_chap;
@@ -1441,6 +1472,7 @@ static int decodeFrame( hb_work_object_t *w, uint8_t *data, int size, int sequen
         buf->sequence = sequence;
         /* Store picture flags for later use by filters */
         buf->s.flags = flags;
+        buf->s.frametype = frametype;
         pv->delayq[slot] = buf;
         heap_push( &pv->pts_heap, pts );
 
@@ -1644,6 +1676,10 @@ static int decavcodecvInit( hb_work_object_t * w, hb_job_t * job )
         // Set encoder opts...
         AVDictionary * av_opts = NULL;
         av_dict_set( &av_opts, "refcounted_frames", "1", 0 );
+        if (pv->title->flags & HBTF_NO_IDR)
+        {
+            av_dict_set( &av_opts, "flags", "output_corrupt", 0 );
+        }
 
         if ( hb_avcodec_open( pv->context, codec, &av_opts, pv->threads ) )
         {
@@ -1660,7 +1696,7 @@ static int decavcodecvInit( hb_work_object_t * w, hb_job_t * job )
         //     info externally. We should patch ffmpeg to add a flag to the
         //     codec context for this but until then we mark all ffmpeg streams
         //     as suspicious.
-        pv->brokenByMicrosoft = 1;
+        pv->brokenTS = 1;
     }
     else
     {
@@ -1698,37 +1734,6 @@ static int decavcodecvInit( hb_work_object_t * w, hb_job_t * job )
     return 0;
 }
 
-static int next_hdr( hb_buffer_t *in, int offset )
-{
-    uint8_t *dat = in->data;
-    uint16_t last2 = 0xffff;
-    for ( ; in->size - offset > 1; ++offset )
-    {
-        if ( last2 == 0 && dat[offset] == 0x01 )
-            // found an mpeg start code
-            return offset - 2;
-
-        last2 = ( last2 << 8 ) | dat[offset];
-    }
-
-    return -1;
-}
-
-static int find_hdr( hb_buffer_t *in, int offset, uint8_t hdr_type )
-{
-    if ( in->size - offset < 4 )
-        // not enough room for an mpeg start code
-        return -1;
-
-    for ( ; ( offset = next_hdr( in, offset ) ) >= 0; ++offset )
-    {
-        if ( in->data[offset+3] == hdr_type )
-            // found it
-            break;
-    }
-    return offset;
-}
-
 static int setup_extradata( hb_work_object_t *w, hb_buffer_t *in )
 {
     hb_work_private_t *pv = w->private_data;
@@ -1738,53 +1743,31 @@ static int setup_extradata( hb_work_object_t *w, hb_buffer_t *in )
     // vc1t_read_header allocates 'extradata' to deal with header issues
     // related to Microsoft's bizarre engineering notions. We alloc a chunk
     // of space to make vc1 work then associate the codec with the context.
-    if ( w->codec_param != AV_CODEC_ID_VC1 )
+    if (pv->context->extradata == NULL)
     {
-        // we haven't been inflicted with M$ - allocate a little space as
-        // a marker and return success.
-        pv->context->extradata_size = 0;
-        // av_malloc uses posix_memalign which is allowed to
-        // return NULL when allocating 0 bytes.  We use extradata == NULL
-        // to trigger initialization of extradata and the decoder, so
-        // we can not set it to NULL here. So allocate a small
-        // buffer instead.
-        pv->context->extradata = av_malloc(1);
-        return 0;
-    }
-
-    // find the start and and of the sequence header
-    int shdr, shdr_end;
-    if ( ( shdr = find_hdr( in, 0, 0x0f ) ) < 0 )
-    {
-        // didn't find start of seq hdr
+        if (pv->parser == NULL || pv->parser == NULL ||
+            pv->parser->parser->split == NULL)
+        {
+            return 0;
+        }
+        else
+        {
+            int size;
+            size = pv->parser->parser->split(pv->context, in->data, in->size);
+            if (size > 0)
+            {
+                pv->context->extradata_size = size;
+                pv->context->extradata =
+                                av_malloc(size + FF_INPUT_BUFFER_PADDING_SIZE);
+                if (pv->context->extradata == NULL)
+                    return 1;
+                memcpy(pv->context->extradata, in->data, size);
+                return 0;
+            }
+        }
         return 1;
     }
-    if ( ( shdr_end = next_hdr( in, shdr + 4 ) ) < 0 )
-    {
-        shdr_end = in->size;
-    }
-    shdr_end -= shdr;
 
-    // find the start and and of the entry point header
-    int ehdr, ehdr_end;
-    if ( ( ehdr = find_hdr( in, 0, 0x0e ) ) < 0 )
-    {
-        // didn't find start of entry point hdr
-        return 1;
-    }
-    if ( ( ehdr_end = next_hdr( in, ehdr + 4 ) ) < 0 )
-    {
-        ehdr_end = in->size;
-    }
-    ehdr_end -= ehdr;
-
-    // found both headers - allocate an extradata big enough to hold both
-    // then copy them into it.
-    pv->context->extradata_size = shdr_end + ehdr_end;
-    pv->context->extradata = av_malloc(pv->context->extradata_size + 8);
-    memcpy( pv->context->extradata, in->data + shdr, shdr_end );
-    memcpy( pv->context->extradata + shdr_end, in->data + ehdr, ehdr_end );
-    memset( pv->context->extradata + shdr_end + ehdr_end, 0, 8);
     return 0;
 }
 
@@ -1862,6 +1845,10 @@ static int decavcodecvWork( hb_work_object_t * w, hb_buffer_t ** buf_in,
 
         AVDictionary * av_opts = NULL;
         av_dict_set( &av_opts, "refcounted_frames", "1", 0 );
+        if (pv->title->flags & HBTF_NO_IDR)
+        {
+            av_dict_set( &av_opts, "flags", "output_corrupt", 0 );
+        }
 
         // disable threaded decoding for scan, can cause crashes
         if ( hb_avcodec_open( pv->context, codec, &av_opts, pv->threads ) )
@@ -2011,15 +1998,15 @@ static int decavcodecvInfo( hb_work_object_t *w, hb_work_info_t *info )
     // HandBrake's video pipeline uses yuv420 color.  This means all
     // dimensions must be even.  So we must adjust the dimensions
     // of incoming video if not even.
-    info->width = pv->context->width & ~1;
-    info->height = pv->context->height & ~1;
+    info->geometry.width = pv->context->width & ~1;
+    info->geometry.height = pv->context->height & ~1;
 
-    info->pixel_aspect_width = pv->context->sample_aspect_ratio.num;
-    info->pixel_aspect_height = pv->context->sample_aspect_ratio.den;
+    info->geometry.par.num = pv->context->sample_aspect_ratio.num;
+    info->geometry.par.den = pv->context->sample_aspect_ratio.den;
 
     compute_frame_duration( pv );
-    info->rate = 27000000;
-    info->rate_base = pv->duration * 300.;
+    info->rate.num = 27000000;
+    info->rate.den = pv->duration * 300.;
 
     info->profile = pv->context->profile;
     info->level = pv->context->level;
@@ -2040,11 +2027,11 @@ static int decavcodecvInfo( hb_work_object_t *w, hb_work_info_t *info )
             break;
         default:
         {
-            if( ( info->width >= 1280 || info->height >= 720 ) ||
-                ( info->width >   720 && info->height >  576 ) )
+            if ((info->geometry.width >= 1280 || info->geometry.height >= 720)||
+                (info->geometry.width >   720 && info->geometry.height >  576 ))
                 // ITU BT.709 HD content
                 info->color_prim = HB_COLR_PRI_BT709;
-            else if( info->rate_base == 1080000 )
+            else if( info->rate.den == 1080000 )
                 // ITU BT.601 DVD or SD TV content (PAL)
                 info->color_prim = HB_COLR_PRI_EBUTECH;
             else
@@ -2081,8 +2068,8 @@ static int decavcodecvInfo( hb_work_object_t *w, hb_work_info_t *info )
             break;
         default:
         {
-            if( ( info->width >= 1280 || info->height >= 720 ) ||
-                ( info->width >   720 && info->height >  576 ) )
+            if ((info->geometry.width >= 1280 || info->geometry.height >= 720)||
+                (info->geometry.width >   720 && info->geometry.height >  576 ))
                 // ITU BT.709 HD content
                 info->color_matrix = HB_COLR_MAT_BT709;
             else

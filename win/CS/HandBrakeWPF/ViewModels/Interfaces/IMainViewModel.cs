@@ -9,7 +9,12 @@
 
 namespace HandBrakeWPF.ViewModels.Interfaces
 {
+    using System.Windows;
+
     using HandBrake.ApplicationServices.Model;
+    using HandBrake.ApplicationServices.Services.Encode.Model;
+
+    using HandBrakeWPF.Services.Presets.Model;
 
     /// <summary>
     /// The Main Window View Model
@@ -92,5 +97,13 @@ namespace HandBrakeWPF.ViewModels.Interfaces
         /// The show cli query.
         /// </summary>
         void ShowCliQuery();
+
+        /// <summary>
+        /// The files dropped on window.
+        /// </summary>
+        /// <param name="e">
+        /// The e.
+        /// </param>
+        void FilesDroppedOnWindow(DragEventArgs e);
     }
 }

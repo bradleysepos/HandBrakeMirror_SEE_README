@@ -24,8 +24,12 @@ namespace HandBrakeWPF.ViewModels
     using HandBrake.ApplicationServices;
     using HandBrake.ApplicationServices.EventArgs;
     using HandBrake.ApplicationServices.Model;
-    using HandBrake.ApplicationServices.Parsing;
+    using HandBrake.ApplicationServices.Services.Encode.EventArgs;
+    using HandBrake.ApplicationServices.Services.Encode.Interfaces;
     using HandBrake.ApplicationServices.Services.Interfaces;
+    using HandBrake.ApplicationServices.Services.Scan.EventArgs;
+    using HandBrake.ApplicationServices.Services.Scan.Interfaces;
+    using HandBrake.ApplicationServices.Services.Scan.Model;
     using HandBrake.ApplicationServices.Utilities;
 
     using HandBrakeWPF.Commands;
@@ -33,6 +37,9 @@ namespace HandBrakeWPF.ViewModels
     using HandBrakeWPF.Helpers;
     using HandBrakeWPF.Model;
     using HandBrakeWPF.Services.Interfaces;
+    using HandBrakeWPF.Services.Presets.Interfaces;
+    using HandBrakeWPF.Services.Presets.Model;
+    using HandBrakeWPF.Utilities;
     using HandBrakeWPF.ViewModels.Interfaces;
     using HandBrakeWPF.Views;
 
@@ -553,9 +560,6 @@ namespace HandBrakeWPF.ViewModels
         /// </summary>
         public override void OnLoad()
         {
-            // Check the CLI Executable.
-            CliCheckHelper.CheckCLIVersion();
-
             // Perform an update check if required
             // this.updateService.PerformStartupUpdateCheck(this.HandleUpdateCheckResults);
 
