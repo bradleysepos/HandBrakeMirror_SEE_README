@@ -702,7 +702,6 @@ class RepoProbe( ShellProbe ):
         except:
             pass
 
-        self.vcs = 'foo'
         super( RepoProbe, self ).__init__( 'svn info', '%s info %s' % (svn,cfg.src_dir) )
         if super( RepoProbe, self).__success__ == True:
             self.vcs = 'svn'
