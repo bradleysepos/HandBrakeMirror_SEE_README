@@ -1,0 +1,25 @@
+#!/bin/bash
+# git-svninfo - git repo information formatted like svn info
+
+cd "$1"
+
+GIT_AUTHOR=$(git log -1 --pretty=format:"%an")
+GIT_ROOT=$(git rev-parse --show-toplevel)
+GIT_REV=$(git log -1 --pretty=format:"%H")
+GIT_REV_DATE=$(git log -1 --pretty=format:"%ci (%cD)" | sed 's/ [0-9][0-9]:[0-9][0-9]:[0-9][0-9] [+\-][0-9][0-9][0-9][0-9])$/)/')
+GIT_URL=$(git remote -v | grep fetch | awk '{print $2}' | head -n 1)
+SVN_ID=$(git log -1 | grep git-svn-id | awk '{print $3}')
+SVN_REV=$(git log -1 | grep git-svn-id | sed 's/^.*@//g' | sed 's/ .*$//g')
+
+echo "Path: ."
+echo "Working Copy Root Path: ${GIT_ROOT}"
+echo "URL: ${GIT_URL}"
+echo "Repository Root: ${GIT_URL}"
+echo "Repository UUID: ${SVN_ID}"
+echo "Revision: ${SVN_REV}"
+echo "Node Kind: directory"
+echo "Schedule: normal"
+echo "Last Changed Author: ${GIT_AUTHOR}"
+echo "Last Changed Rev: ${SVN_REV}"
+echo "Last Changed Date: ${GIT_REV_DATE}"
+echo ""

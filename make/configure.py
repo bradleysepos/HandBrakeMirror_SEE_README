@@ -307,6 +307,9 @@ class ShellProbe( Action ):
         if pipe.returncode:
             self.msg_end = 'code %d' % (pipe.returncode)
 
+    def __success__( self ):
+        return self.fail != True
+
     def _dumpSession( self, printf ):
         printf( '  + %s\n', self.command )
         super( ShellProbe, self )._dumpSession( printf )
@@ -682,6 +685,8 @@ class SelectMode( dict ):
 class RepoProbe( ShellProbe ):
     def __init__( self ):
         svn = 'svn'
+        git = 'git'
+        git_svninfo = cfg.src_dir + '/scripts/git-svninfo'
 
         ## Possible the repo was created using an incompatible version than what is
         ## available in PATH when probe runs. Workaround by checking for file
@@ -697,7 +702,14 @@ class RepoProbe( ShellProbe ):
         except:
             pass
 
+        self.vcs = 'foo'
         super( RepoProbe, self ).__init__( 'svn info', '%s info %s' % (svn,cfg.src_dir) )
+        if super( RepoProbe, self).__success__ == True:
+            self.vcs = 'svn'
+        else:
+            super( RepoProbe, self).__init__( 'git-svninfo', '%s %s' % (git_svninfo,cfg.src_dir) )
+            if super( RepoProbe, self).__success__ == True:
+                self.vcs = 'git'
 
         self.url       = 'svn://nowhere.com/project/unknown'
         self.root      = 'svn://nowhere.com/project'
