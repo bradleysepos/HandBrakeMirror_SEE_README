@@ -8,8 +8,8 @@ GIT_ROOT=$(git rev-parse --show-toplevel)
 GIT_REV=$(git log -1 --pretty=format:"%H")
 GIT_REV_DATE=$(git log -1 --pretty=format:"%ci (%cD)" | sed 's/ [0-9][0-9]:[0-9][0-9]:[0-9][0-9] [+\-][0-9][0-9][0-9][0-9])$/)/')
 GIT_URL=$(git remote -v | grep fetch | awk '{print $2}' | head -n 1)
-SVN_ID=$(git log -1 | grep git-svn-id | awk '{print $3}')
-SVN_REV=$(git log -1 | grep git-svn-id | sed 's/^.*@//g' | sed 's/ .*$//g')
+SVN_ID=$(git log -n 1 --grep 'git-svn-id' | grep git-svn-id | awk '{print $3}')
+SVN_REV=$(git log -n 1 --grep 'git-svn-id' | grep git-svn-id | sed 's/^.*@//g' | sed 's/ .*$//g')
 
 echo "Path: ."
 echo "Working Copy Root Path: ${GIT_ROOT}"
