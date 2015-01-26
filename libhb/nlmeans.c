@@ -777,7 +777,7 @@ static int nlmeans_init(hb_filter_object_t *filter,
 
     NLMeansFunctions *functions = &pv->functions;
     functions->build_integral = build_integral_scalar;
-    if (NLMEANS_ARCH_X86 == 1)
+    if (ARCH_X86 == 1)
     {
         nlmeans_init_x86(functions);
     }

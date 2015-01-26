@@ -8,13 +8,6 @@
    For full terms see the file COPYING file or visit http://www.gnu.org/licenses/gpl-2.0.html
  */
 
-#if ARCH_X86_64 || ARCH_X86_32
-#define NLMEANS_ARCH_X86 1
-#endif
-#ifndef NLMEANS_ARCH_X86
-#define NLMEANS_ARCH_X86 0
-#endif
-
 typedef struct
 {
     void (*build_integral)(uint32_t *integral,
