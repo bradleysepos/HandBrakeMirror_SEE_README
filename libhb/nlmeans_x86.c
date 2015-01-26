@@ -14,18 +14,18 @@
 #include "libavutil/cpu.h"
 #include "nlmeans.h"
 
-static void nlmeans_build_integral_sse2(uint32_t *integral,
-                                        int       integral_stride,
-                                  const uint8_t  *src,
-                                  const uint8_t  *src_pre,
-                                        int       src_w,
-                                  const uint8_t  *compare,
-                                  const uint8_t  *compare_pre,
-                                        int       compare_w,
-                                        int       w,
-                                        int       h,
-                                        int       dx,
-                                        int       dy)
+static void build_integral_sse2(uint32_t *integral,
+                                int       integral_stride,
+                          const uint8_t  *src,
+                          const uint8_t  *src_pre,
+                                int       src_w,
+                          const uint8_t  *compare,
+                          const uint8_t  *compare_pre,
+                                int       compare_w,
+                                int       w,
+                                int       h,
+                                int       dx,
+                                int       dy)
 {
     const __m128i zero = _mm_set1_epi8(0);
 
@@ -149,6 +149,6 @@ void nlmeans_init_x86(NLMeansFunctions *functions)
 {
     if (av_get_cpu_flags() & AV_CPU_FLAG_SSE2)
     {
-        functions->nlmeans_build_integral = nlmeans_build_integral_sse2;
+        functions->build_integral = build_integral_sse2;
     }
 }

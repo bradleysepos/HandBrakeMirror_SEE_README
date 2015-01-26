@@ -571,18 +571,18 @@ static void nlmeans_prefilter(BorderedPlane *src,
     hb_unlock(src->mutex);
 }
 
-static void nlmeans_build_integral(uint32_t *integral,
-                                   int       integral_stride,
-                             const uint8_t  *src,
-                             const uint8_t  *src_pre,
-                                   int       src_w,
-                             const uint8_t  *compare,
-                             const uint8_t  *compare_pre,
-                                   int       compare_w,
-                                   int       w,
-                                   int       h,
-                                   int       dx,
-                                   int       dy)
+static void build_integral_scalar(uint32_t *integral,
+                                  int       integral_stride,
+                            const uint8_t  *src,
+                            const uint8_t  *src_pre,
+                                  int       src_w,
+                            const uint8_t  *compare,
+                            const uint8_t  *compare_pre,
+                                  int       compare_w,
+                                  int       w,
+                                  int       h,
+                                  int       dx,
+                                  int       dy)
 {
     memset(integral-1 - integral_stride, 0, (w+1) * sizeof(uint32_t));
     for (int y = 0; y < h; y++)
@@ -690,18 +690,18 @@ static void nlmeans_plane(NLMeansFunctions *functions,
                 }
 
                 // Build integral
-                functions->nlmeans_build_integral(integral,
-                                                 integral_stride,
-                                                 src,
-                                                 src_pre,
-                                                 src_w,
-                                                 compare,
-                                                 compare_pre,
-                                                 compare_w,
-                                                 w,
-                                                 h,
-                                                 dx,
-                                                 dy);
+                functions->build_integral(integral,
+                                          integral_stride,
+                                          src,
+                                          src_pre,
+                                          src_w,
+                                          compare,
+                                          compare_pre,
+                                          compare_w,
+                                          w,
+                                          h,
+                                          dx,
+                                          dy);
 
                 // Average displacement
                 // TODO: Parallelize this
@@ -776,8 +776,7 @@ static int nlmeans_init(hb_filter_object_t *filter,
     hb_filter_private_t *pv = filter->private_data;
 
     NLMeansFunctions *functions = &pv->functions;
-    functions->nlmeans_build_integral = nlmeans_build_integral;
-
+    functions->build_integral = build_integral_scalar;
     if (NLMEANS_ARCH_X86 == 1)
     {
         nlmeans_init_x86(functions);
