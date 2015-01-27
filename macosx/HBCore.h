@@ -4,11 +4,12 @@
  Homepage: <http://handbrake.fr/>.
  It may be used under the terms of the GNU General Public License. */
 
-#import <Cocoa/Cocoa.h>
-
+#import <Foundation/Foundation.h>
 #include "hb.h"
 
 @class HBJob;
+@class HBPicture;
+@class HBTitle;
 
 // These constants specify the current state of HBCore.
 typedef NS_ENUM(NSUInteger, HBState) {
@@ -23,7 +24,7 @@ typedef NS_ENUM(NSUInteger, HBState) {
 };
 
 typedef void (^HBCoreProgressHandler)(HBState state, hb_state_t hb_state);
-typedef void (^HBCoreCompletationHandler)(BOOL success);
+typedef void (^HBCoreCompletionHandler)(BOOL success);
 
 /**
  * HBCore is an Objective-C interface to the low-level HandBrake library.
@@ -41,17 +42,27 @@ typedef void (^HBCoreCompletationHandler)(BOOL success);
 + (void)setDVDNav:(BOOL)enabled;
 
 /**
+ *  Inits libhb globals.
+ */
++ (void)initGlobal;
+
+/**
  *  Performs the final cleanup for the process.
  */
 + (void)closeGlobal;
+
+/**
+ *  Registers a global error handler block.
+ *
+ *  @param handler a block called with the error message.
+ */
++ (void)registerErrorHandler:(void (^)(NSString *error))handler;
 
 /**
  * Opens low level HandBrake library. This should be called once before other
  * functions HBCore are used.
  *
  * @param loggingLevel         the desired libhb logging level.
- *
- * @return YES if libhb was opened, NO if there was an error.
  */
 - (instancetype)initWithLoggingLevel:(int)loggingLevel;
 
@@ -59,16 +70,6 @@ typedef void (^HBCoreCompletationHandler)(BOOL success);
  * Current state of HBCore.
  */
 @property (nonatomic, readonly) HBState state;
-
-/**
- * Pointer to a hb_state_s struct containing the detailed state information of libhb.
- */
-@property (nonatomic, readonly) hb_state_t *hb_state;
-
-/**
- * Pointer to a libhb handle used by this HBCore instance.
- */
-@property (nonatomic, readonly) hb_handle_t *hb_handle;
 
 /**
  *  The name of the core, used for debugging purpose.
@@ -86,22 +87,20 @@ typedef void (^HBCoreCompletationHandler)(BOOL success);
 - (BOOL)canScan:(NSURL *)url error:(NSError **)error;
 
 /**
- *  Starts the asynchronous execution of a scan.
+ *  Initiates an asynchronous scan operation and returns immediately.
  *
- *  @param url              the URL of the input file.
- *  @param titleNum         the number of the desired title. Use 0 to scan every title.
- *  @param previewsNum      the number of previews image to generate.
- *  @param minTitleDuration the minimum duration of the wanted titles in seconds.
+ *  @param url                 the URL of the input file.
+ *  @param index            the index of the desired title. Use 0 to scan every title.
+ *  @param previewsNum         the number of previews image to generate.
+ *  @param seconds             the minimum duration of the wanted titles in seconds.
+ *  @param progressHandler     a block called periodically with the progress information.
+ *  @param completionHandler   a block called with the scan result.
  */
-- (void)scanURL:(NSURL *)url
-     titleIndex:(NSUInteger)titleNum
-       previews:(NSUInteger)previewsNum
-    minDuration:(NSUInteger)minTitleDuration
-progressHandler:(HBCoreProgressHandler)progressHandler
-completationHandler:(HBCoreCompletationHandler)completationHandler;
+- (void)scanURL:(NSURL *)url titleIndex:(NSUInteger)index previews:(NSUInteger)previewsNum minDuration:(NSUInteger)seconds progressHandler:(HBCoreProgressHandler)progressHandler completionHandler:(HBCoreCompletionHandler)completionHandler;
 
 /**
  *  Cancels the scan execution.
+ *  Cancel can be invoked when the scan is running.
  */
 - (void)cancelScan;
 
@@ -111,24 +110,45 @@ completationHandler:(HBCoreCompletationHandler)completationHandler;
 @property (nonatomic, readonly) NSArray *titles;
 
 /**
- *  Starts an asynchronous encoding session with the passed job.
+ *  This function converts an image created by libhb (specified via index)
+ *  into an CGImage.
  *
- *  @param job the job to encode.
+ *  @param index       the index of the desired image.
+ *  @param title       Handle to hb_title_t of desired title
+ *  @param frame       a HBPicture instance that describe the image's frame.
+ *  @param deinterlace whether the preview image must be deinterlaced or not.
+ *
+ *  @return a CGImageRef of the wanted image, NULL if the index is out of bounds.
  */
-- (void)encodeJob:(HBJob *)job progressHandler:(HBCoreProgressHandler)progressHandler completationHandler:(HBCoreCompletationHandler)completationHandler;
+- (CGImageRef)copyImageAtIndex:(NSUInteger)index
+                      forTitle:(HBTitle *)title
+                  pictureFrame:(HBPicture *)frame
+                   deinterlace:(BOOL)deinterlace;
 
 /**
- * Stops encoding session and releases resources.
+ *  Initiates an asynchronous encode operation and returns immediately.
+ *
+ *  @param job                 the job to encode
+ *  @param progressHandler     a block called periodically with the progress information.
+ *  @param completionHandler   a block called with the scan result
+ */
+- (void)encodeJob:(HBJob *)job progressHandler:(HBCoreProgressHandler)progressHandler completionHandler:(HBCoreCompletionHandler)completionHandler;
+
+/**
+ *  Stops encode operation and releases resources.
+ *  Cancel can be invoked when the encode is running.
  */
 - (void)cancelEncode;
 
 /**
- *  Pauses the encoding session.
+ *  Pauses the encode operation.
+ *  Pause can be invoked when the encode is running.
  */
 - (void)pause;
 
 /**
  *  Resumes a paused encoding session.
+ *  Resume can be invoked when the encode is running.
  */
 - (void)resume;
 

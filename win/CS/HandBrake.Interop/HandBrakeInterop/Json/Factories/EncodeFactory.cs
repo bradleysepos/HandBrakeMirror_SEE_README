@@ -200,7 +200,7 @@ namespace HandBrake.Interop.Json.Factories
                 }
                 else
                 {
-                    SubtitleList track = new SubtitleList { Burn = item.BurnedIn, Default = item.Default, Force = item.Forced, ID = item.TrackNumber, Track = item.TrackNumber };
+                    SubtitleList track = new SubtitleList { Burn = item.BurnedIn, Default = item.Default, Force = item.Forced, ID = item.TrackNumber, Track = (item.TrackNumber - 1) };
                     subtitle.SubtitleList.Add(track);
                 }
             }
@@ -286,7 +286,6 @@ namespace HandBrake.Interop.Json.Factories
             audio.CopyMask = (int)NativeConstants.HB_ACODEC_ANY;
 
             audio.AudioList = new List<AudioList>();
-            int numTracks = 0;
             foreach (AudioEncoding item in job.AudioEncodings)
             {
                 HBAudioEncoder encoder = HandBrakeEncoderHelpers.GetAudioEncoder(item.Encoder);
@@ -297,7 +296,7 @@ namespace HandBrake.Interop.Json.Factories
 
                 AudioList audioTrack = new AudioList
                     {
-                        Track = numTracks++, 
+                        Track = item.InputNumber - 1, 
                         DRC = item.Drc, 
                         Encoder = encoder.Id, 
                         Gain = item.Gain, 

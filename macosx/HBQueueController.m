@@ -8,7 +8,8 @@
 #import "HBQueueController.h"
 
 #import "HBCore.h"
-#import "Controller.h"
+#import "HBController.h"
+#import "HBAppDelegate.h"
 #import "HBOutputPanelController.h"
 
 #import "HBQueueOutlineView.h"
@@ -42,6 +43,8 @@
 
 @property (nonatomic, readonly) HBDistributedArray *jobs;
 @property (nonatomic, retain)   HBJob *currentJob;
+
+@property (nonatomic, readwrite) BOOL stop;
 
 @property (nonatomic, readwrite) NSUInteger pendingItemsCount;
 @property (nonatomic, readwrite) NSUInteger workingItemsCount;
@@ -133,6 +136,45 @@
 }
 
 #pragma mark Toolbar
+
+- (BOOL)validateMenuItem:(NSMenuItem *)menuItem
+{
+    SEL action = menuItem.action;
+
+    if (action == @selector(rip:))
+    {
+        if (self.core.state == HBStateIdle)
+        {
+            menuItem.title = NSLocalizedString(@"Start Encoding", nil);
+            menuItem.keyEquivalent = @"s";
+
+            return (self.pendingItemsCount > 0);
+        }
+        else if (self.core.state != HBStateIdle)
+        {
+            menuItem.title = NSLocalizedString(@"Stop Encoding", nil);
+            menuItem.keyEquivalent = @".";
+
+            return YES;
+        }
+    }
+
+    if (action == @selector(pause:))
+    {
+        if (self.core.state != HBStatePaused)
+        {
+            menuItem.title = NSLocalizedString(@"Pause Encoding", nil);
+        }
+        else
+        {
+            menuItem.title = NSLocalizedString(@"Resume Encoding", nil);
+        }
+
+        return (self.core.state == HBStateWorking || self.core.state == HBStatePaused);
+    }
+    
+    return YES;
+}
 
 - (BOOL)validateToolbarItem:(NSToolbarItem *)theItem
 {
@@ -454,7 +496,11 @@
     self.currentJob = nil;
 
     // since we have successfully completed an encode, we go to the next
-    [self encodeNextQueueItem];
+    if (!self.stop)
+    {
+        [self encodeNextQueueItem];
+    }
+    self.stop = NO;
 
     [self.window.toolbar validateVisibleItems];
     [self reloadQueue];
@@ -486,7 +532,7 @@
            self.progressTextField.stringValue = status;
            [self.controller setQueueInfo:status progress:0 hidden:NO];
        }
-   completationHandler:^(BOOL success) {
+   completionHandler:^(BOOL success) {
        if (success)
        {
            [self doEncodeQueueItem];
@@ -627,7 +673,7 @@
              self.progressTextField.stringValue = string;
              [self.controller setQueueInfo:string progress:progress * 100.0 hidden:NO];
          }
-     completationHandler:^(BOOL success) {
+     completionHandler:^(BOOL success) {
          NSString *info = NSLocalizedString(@"Encode Finished.", @"");
 
          self.progressTextField.stringValue = info;
@@ -650,29 +696,44 @@
 }
 
 /**
- * Cancels and deletes the current job and starts processing the next in queue.
+ * Cancels the current job
  */
 - (void)doCancelCurrentJob
 {
+    self.currentJob.state = HBJobStateCanceled;
+
+    if (self.core.state == HBStateScanning)
+    {
+        [self.core cancelScan];
+    }
+    else
+    {
+        [self.core cancelEncode];
+    }
+}
+
+/**
+ * Cancels the current job and starts processing the next in queue.
+ */
+- (void)cancelCurrentJobAndContinue
+{
     [self.jobs beginTransaction];
 
-    self.currentJob.state = HBJobStateCanceled;
-    [self.core cancelEncode];
+    [self doCancelCurrentJob];
 
     [self.jobs commit];
     [self reloadQueue];
 }
 
 /**
- * Cancels and deletes the current job and stops libhb from processing the remaining encodes.
+ * Cancels the current job and stops libhb from processing the remaining encodes.
  */
-- (void)doCancelCurrentJobAndStop
+- (void)cancelCurrentJobAndStop
 {
     [self.jobs beginTransaction];
 
-    self.currentJob.state = HBJobStateCanceled;
-
-    [self.core cancelEncode];
+    self.stop = YES;
+    [self doCancelCurrentJob];
 
     [self.jobs commit];
     [self reloadQueue];
@@ -835,13 +896,8 @@
 
     if (returnCode == NSAlertSecondButtonReturn)
     {
-        // We need to save the currently encoding item number first
         NSInteger index = [self.jobs indexOfObject:self.currentJob];
-        // Since we are encoding, we need to let fHBController Cancel this job
-        // upon which it will move to the next one if there is one
-        [self doCancelCurrentJob];
-        // Now, we can go ahead and remove the job we just cancelled since
-        // we have its item number from above
+        [self cancelCurrentJobAndContinue];
         [self removeQueueItemAtIndex:index];
     }
 }
@@ -882,7 +938,7 @@
         NSInteger response = [alert runModal];
         if (response == NSAlertSecondButtonReturn)
         {
-            [self.controller showPreferencesWindow:nil];
+            [self.delegate showPreferencesWindow:nil];
         }
         [alert release];
     }
@@ -901,7 +957,7 @@
         NSInteger response = [alert runModal];
         if (response == NSAlertSecondButtonReturn)
         {
-            [self.controller showPreferencesWindow:nil];
+            [self.delegate showPreferencesWindow:nil];
         }
         [alert release];
     }
@@ -915,7 +971,7 @@
     // Rip or Cancel ?
     if (self.core.state == HBStateWorking || self.core.state == HBStatePaused)
     {
-        [self cancel:sender];
+        [self cancelRip:sender];
     }
     // If there are pending jobs in the queue, then this is a rip the queue
     else if (self.pendingItemsCount > 0)
@@ -938,7 +994,7 @@
  * Cancel: returns immediately after posting the alert. Later, when the user
  * acknowledges the alert, doCancelCurrentJob is called.
  */
-- (IBAction)cancel:(id)sender
+- (IBAction)cancelRip:(id)sender
 {
     [self.core pause];
 
@@ -976,11 +1032,11 @@
 
     if (returnCode == NSAlertSecondButtonReturn)
     {
-        [self doCancelCurrentJobAndStop];  // <- this also stops libhb
+        [self cancelCurrentJobAndStop];
     }
     else if (returnCode == NSAlertThirdButtonReturn)
     {
-        [self doCancelCurrentJob];
+        [self cancelCurrentJobAndContinue];
     }
 }
 
@@ -992,7 +1048,7 @@
     HBState s = self.core.state;
     if ((s == HBStatePaused) || (s == HBStateWorking) || (s == HBStateMuxing))
     {
-        [self cancel:self];
+        [self cancelRip:self];
     }
     else if (self.pendingItemsCount > 0)
     {

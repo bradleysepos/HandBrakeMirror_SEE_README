@@ -14,7 +14,6 @@ namespace HandBrakeWPF.ViewModels
     using System.IO;
     using System.Linq;
 
-    using HandBrake.ApplicationServices.Model;
     using HandBrake.ApplicationServices.Services.Encode.Model;
     using HandBrake.ApplicationServices.Services.Encode.Model.Models;
     using HandBrake.ApplicationServices.Services.Scan.Model;
@@ -24,7 +23,7 @@ namespace HandBrakeWPF.ViewModels
     using HandBrakeWPF.Services.Presets.Model;
     using HandBrakeWPF.ViewModels.Interfaces;
 
-    using Ookii.Dialogs.Wpf;
+    using Microsoft.Win32;
 
     /// <summary>
     /// The Subtitles View Model
@@ -313,7 +312,7 @@ namespace HandBrakeWPF.ViewModels
         /// </summary>
         public void Import()
         {
-            VistaOpenFileDialog dialog = new VistaOpenFileDialog
+            OpenFileDialog dialog = new OpenFileDialog
                 {
                     Filter = "SRT files (*.srt)|*.srt",
                     CheckFileExists = true,
@@ -531,6 +530,9 @@ namespace HandBrakeWPF.ViewModels
         /// <summary>
         /// Setup this window for a new source
         /// </summary>
+        /// <param name="source">
+        /// The source.
+        /// </param>
         /// <param name="title">
         /// The title.
         /// </param>
@@ -540,7 +542,7 @@ namespace HandBrakeWPF.ViewModels
         /// <param name="task">
         /// The task.
         /// </param>
-        public void SetSource(Title title, Preset preset, EncodeTask task)
+        public void SetSource(Source source, Title title, Preset preset, EncodeTask task)
         {
             this.SourceTracks.Clear();
             this.SourceTracks.Add(ForeignAudioSearchTrack);

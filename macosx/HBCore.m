@@ -12,16 +12,35 @@
 
 #include <dlfcn.h>
 
+static BOOL globalInitialized = NO;
+
+static void (^errorHandler)(NSString *error) = NULL;
+static void hb_error_handler(const char *errmsg)
+{
+    NSString *error = @(errmsg);
+    if (error)
+    {
+        errorHandler(error);
+    }
+}
+
 /**
  * Private methods of HBCore.
  */
 @interface HBCore ()
 
+/// Pointer to a hb_state_s struct containing the detailed state information of libhb.
+@property (nonatomic, readonly) hb_state_t *hb_state;
+
+/// Pointer to a libhb handle used by this HBCore instance.
+@property (nonatomic, readonly) hb_handle_t *hb_handle;
+
 /// Current state of HBCore.
 @property (nonatomic, readwrite) HBState state;
 
 /// Timer used to poll libhb for state changes.
-@property (nonatomic, readwrite, retain) NSTimer *updateTimer;
+@property (nonatomic, readwrite) dispatch_source_t updateTimer;
+@property (nonatomic, readonly) dispatch_queue_t updateTimerQueue;
 
 /// Current scanned titles.
 @property (nonatomic, readwrite, retain) NSArray *titles;
@@ -29,13 +48,11 @@
 /// Progress handler.
 @property (nonatomic, readwrite, copy) HBCoreProgressHandler progressHandler;
 
-/// Completation handler.
-@property (nonatomic, readwrite, copy) HBCoreCompletationHandler completationHandler;
+/// Completion handler.
+@property (nonatomic, readwrite, copy) HBCoreCompletionHandler completionHandler;
 
 /// User cancelled.
 @property (nonatomic, readwrite, getter=isCancelled) BOOL cancelled;
-
-- (void)stateUpdateTimer:(NSTimer *)timer;
 
 @end
 
@@ -46,9 +63,23 @@
     hb_dvd_set_dvdnav(enabled);
 }
 
++ (void)initGlobal
+{
+    hb_global_init();
+    globalInitialized = YES;
+}
+
 + (void)closeGlobal
 {
+    NSAssert(globalInitialized, @"[HBCore closeGlobal] global closed but not initialized");
+    [errorHandler release];
     hb_global_close();
+}
+
++ (void)registerErrorHandler:(void (^)(NSString *error))handler
+{
+    errorHandler = [handler copy];
+    hb_register_error_handler(&hb_error_handler);
 }
 
 /**
@@ -64,8 +95,6 @@
  * functions HBCore are used.
  *
  * @param debugMode         If set to YES, libhb will print verbose debug output.
- *
- * @return YES if libhb was opened, NO if there was an error.
  */
 - (instancetype)initWithLoggingLevel:(int)loggingLevel
 {
@@ -74,6 +103,7 @@
     {
         _name = @"HBCore";
         _state = HBStateIdle;
+        _updateTimerQueue = dispatch_queue_create("fr.handbrake.coreQueue", DISPATCH_QUEUE_SERIAL);
         _hb_state = malloc(sizeof(struct hb_state_s));
 
         _hb_handle = hb_init(loggingLevel, 0);
@@ -93,10 +123,19 @@
 - (void)dealloc
 {
     [self stopUpdateTimer];
+
+    dispatch_release(_updateTimerQueue);
+
     hb_close(&_hb_handle);
     _hb_handle = NULL;
-
     free(_hb_state);
+
+    [_name release];
+    _name = nil;
+
+    [_titles release];
+    _titles = nil;
+
     [super dealloc];
 }
 
@@ -147,11 +186,17 @@
     return YES;
 }
 
-- (void)scanURL:(NSURL *)url titleIndex:(NSUInteger)titleNum previews:(NSUInteger)previewsNum minDuration:(NSUInteger)minTitleDuration progressHandler:(HBCoreProgressHandler)progressHandler completationHandler:(HBCoreCompletationHandler)completationHandler
+- (void)scanURL:(NSURL *)url titleIndex:(NSUInteger)index previews:(NSUInteger)previewsNum minDuration:(NSUInteger)seconds progressHandler:(HBCoreProgressHandler)progressHandler completionHandler:(HBCoreCompletionHandler)completionHandler
 {
-    // Copy the progress/completation blocks
+    NSAssert(self.state == HBStateIdle, @"[HBCore scanURL:] called while another scan or encode already in progress");
+    NSAssert(url, @"[HBCore scanURL:] called with nil url.");
+
+    // Reset the titles array
+    self.titles = nil;
+
+    // Copy the progress/completion blocks
     self.progressHandler = progressHandler;
-    self.completationHandler = completationHandler;
+    self.completionHandler = completionHandler;
 
     // Start the timer to handle libhb state changes
     [self startUpdateTimerWithInterval:0.2];
@@ -167,25 +212,25 @@
     }
 
     // convert minTitleDuration from seconds to the internal HB time
-    uint64_t min_title_duration_ticks = 90000LL * minTitleDuration;
+    uint64_t min_title_duration_ticks = 90000LL * seconds;
 
     // If there is no title number passed to scan, we use 0
     // which causes the default behavior of a full source scan
-    if (titleNum > 0)
+    if (index > 0)
     {
-        [HBUtilities writeToActivityLog:"%s scanning specifically for title: %d", self.name.UTF8String, titleNum];
+        [HBUtilities writeToActivityLog:"%s scanning specifically for title: %d", self.name.UTF8String, index];
     }
     else
     {
         // minimum title duration doesn't apply to title-specific scan
         // it doesn't apply to batch scan either, but we can't tell it apart from DVD & BD folders here
-        [HBUtilities writeToActivityLog:"%s scanning titles with a duration of %d seconds or more", self.name.UTF8String, minTitleDuration];
+        [HBUtilities writeToActivityLog:"%s scanning titles with a duration of %d seconds or more", self.name.UTF8String, seconds];
     }
 
     hb_system_sleep_prevent(_hb_handle);
 
     hb_scan(_hb_handle, path.fileSystemRepresentation,
-            (int)titleNum, (int)previewsNum,
+            (int)index, (int)previewsNum,
             1, min_title_duration_ticks);
 
     // Set the state, so the UI can be update
@@ -199,6 +244,12 @@
  */
 - (BOOL)scanDone
 {
+    if (self.isCancelled)
+    {
+        self.cancelled = NO;
+        return NO;
+    }
+
     hb_title_set_t *title_set = hb_get_title_set(_hb_handle);
     NSMutableArray *titles = [NSMutableArray array];
 
@@ -217,18 +268,87 @@
 
 - (void)cancelScan
 {
+    self.cancelled = YES;
     hb_scan_stop(_hb_handle);
-
     [HBUtilities writeToActivityLog:"%s scan cancelled", self.name.UTF8String];
+}
+
+#pragma mark - Preview images
+
+- (CGImageRef)copyImageAtIndex:(NSUInteger)index
+                      forTitle:(HBTitle *)title
+                  pictureFrame:(HBPicture *)frame
+                   deinterlace:(BOOL)deinterlace
+{
+    CGImageRef img = NULL;
+
+    hb_geometry_settings_t geo;
+    memset(&geo, 0, sizeof(geo));
+    geo.geometry.width = frame.width;
+    geo.geometry.height = frame.height;
+    // ignore the par.
+    geo.geometry.par.num = 1;
+    geo.geometry.par.den = 1;
+    int crop[4] = {frame.cropTop, frame.cropBottom, frame.cropLeft, frame.cropRight};
+    memcpy(geo.crop, crop, sizeof(int[4]));
+
+    hb_image_t *image = hb_get_preview2(_hb_handle, title.index, (int)index, &geo, deinterlace);
+
+    if (image)
+    {
+        // Create an CGImageRef and copy the libhb image into it.
+        // The image data returned by hb_get_preview2 is 4 bytes per pixel, BGRA format.
+        // Alpha is ignored.
+        CGBitmapInfo bitmapInfo = kCGBitmapByteOrderDefault | kCGImageAlphaNone;
+        CFMutableDataRef imgData = CFDataCreateMutable(kCFAllocatorDefault, 3 * image->width * image->height);
+        CGDataProviderRef provider = CGDataProviderCreateWithCFData(imgData);
+        CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+        img = CGImageCreate(image->width,
+                            image->height,
+                            8,
+                            24,
+                            image->width * 3,
+                            colorSpace,
+                            bitmapInfo,
+                            provider,
+                            NULL,
+                            NO,
+                            kCGRenderingIntentDefault);
+        CGColorSpaceRelease(colorSpace);
+        CGDataProviderRelease(provider);
+        CFRelease(imgData);
+
+        UInt8 *src_line = image->data;
+        UInt8 *dst = CFDataGetMutableBytePtr(imgData);
+        for (int r = 0; r < image->height; r++)
+        {
+            UInt8 *src = src_line;
+            for (int c = 0; c < image->width; c++)
+            {
+                *dst++ = src[2];
+                *dst++ = src[1];
+                *dst++ = src[0];
+                src += 4;
+            }
+            src_line += image->plane[0].stride;
+        }
+
+        hb_image_close(&image);
+    }
+    
+    return img;
 }
 
 #pragma mark - Encodes
 
-- (void)encodeJob:(HBJob *)job progressHandler:(HBCoreProgressHandler)progressHandler completationHandler:(HBCoreCompletationHandler)completationHandler;
+- (void)encodeJob:(HBJob *)job progressHandler:(HBCoreProgressHandler)progressHandler completionHandler:(HBCoreCompletionHandler)completionHandler;
 {
-    // Copy the progress/completation blocks
+    NSAssert(self.state == HBStateIdle, @"[HBCore encodeJob:] called while another scan or encode already in progress");
+    NSAssert(job, @"[HBCore encodeJob:] called with nil job");
+
+    // Copy the progress/completion blocks
     self.progressHandler = progressHandler;
-    self.completationHandler = completationHandler;
+    self.completionHandler = completionHandler;
 
     // Start the timer to handle libhb state changes
     [self startUpdateTimerWithInterval:0.5];
@@ -236,7 +356,7 @@
     // Add the job to libhb
     hb_job_t *hb_job = job.hb_job;
     hb_job_set_file(hb_job, job.destURL.path.fileSystemRepresentation);
-    hb_add(self.hb_handle, hb_job);
+    hb_add(_hb_handle, hb_job);
 
     // Free the job
     hb_job_close(&hb_job);
@@ -279,11 +399,8 @@
 - (void)cancelEncode
 {
     self.cancelled = YES;
-
     hb_stop(_hb_handle);
-    hb_system_sleep_allow(_hb_handle);
-
-    [HBUtilities writeToActivityLog:"%s stop", self.name.UTF8String];
+    [HBUtilities writeToActivityLog:"%s encode cancelled", self.name.UTF8String];
 }
 
 
@@ -310,13 +427,16 @@
 {
     if (!self.updateTimer)
     {
-        self.updateTimer = [NSTimer scheduledTimerWithTimeInterval:seconds
-                                                            target:self
-                                                          selector:@selector(stateUpdateTimer:)
-                                                          userInfo:NULL
-                                                           repeats:YES];
-
-        [[NSRunLoop currentRunLoop] addTimer:self.updateTimer forMode:NSEventTrackingRunLoopMode];
+        dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+        if (timer)
+        {
+            dispatch_source_set_timer(timer, dispatch_walltime(NULL, 0), (uint64_t)(seconds * NSEC_PER_SEC), (uint64_t)(seconds * NSEC_PER_SEC / 10));
+            dispatch_source_set_event_handler(timer, ^{
+                [self updateState];
+            });
+            dispatch_resume(timer);
+        }
+        self.updateTimer = timer;
     }
 }
 
@@ -325,45 +445,21 @@
  */
 - (void)stopUpdateTimer
 {
-    [self.updateTimer invalidate];
-    self.updateTimer = nil;
-}
-
-/**
- * Transforms a libhb state constant to a matching HBCore selector.
- */
-- (const SEL)selectorForState:(HBState)stateValue
-{
-    switch (stateValue)
+    if (self.updateTimer)
     {
-        case HB_STATE_WORKING:
-        case HB_STATE_SCANNING:
-        case HB_STATE_MUXING:
-        case HB_STATE_PAUSED:
-        case HB_STATE_SEARCHING:
-            return @selector(handleProgress);
-        case HB_STATE_SCANDONE:
-            return @selector(handleScanCompletation);
-        case HB_STATE_WORKDONE:
-            return @selector(handleWorkCompletation);
-        default:
-            NSAssert1(NO, @"[HBCore selectorForState:] unknown state %lu", stateValue);
-            return NULL;
+        dispatch_source_cancel(self.updateTimer);
+        dispatch_release(self.updateTimer);
+        self.updateTimer = NULL;
     }
 }
 
 /**
  * This method polls libhb continuously for state changes and processes them.
  * Additional processing for each state is performed in methods that start
- * with 'handle' (e.g. handleHBStateScanning).
+ * with 'handle'.
  */
-- (void)stateUpdateTimer:(NSTimer *)timer
+- (void)updateState
 {
-    if (!_hb_handle)
-    {
-        // Libhb is not open so we cannot do anything.
-        return;
-    }
     hb_get_state(_hb_handle, _hb_state);
 
     if (_hb_state->state == HB_STATE_IDLE)
@@ -375,29 +471,21 @@
     // Update HBCore state to reflect the current state of libhb
     self.state = _hb_state->state;
 
-    // Determine name of the method that does further processing for this state.
-    SEL sel = [self selectorForState:self.state];
-
+    // Call the handler for the current state
     if (_hb_state->state == HB_STATE_WORKDONE || _hb_state->state == HB_STATE_SCANDONE)
     {
-        // Libhb reported HB_STATE_WORKDONE or HB_STATE_SCANDONE,
-        // so nothing interesting will happen after this point, stop the timer.
-        [self stopUpdateTimer];
-
-        // Set the state to idle, because the update timer won't fire again.
-        self.state = HBStateIdle;
-        hb_system_sleep_allow(_hb_handle);
+        [self handleCompletion];
     }
-
-    // Call the determined selector.
-    [self performSelector:sel];
+    else
+    {
+        [self handleProgress];
+    }
 }
 
-#pragma mark - Notifications
+#pragma mark - Blocks callbacks
 
 /**
- * Processes HBStateSearching state information. Current implementation just
- * sends HBCoreSearchingNotification.
+ * Processes progress state information.
  */
 - (void)handleProgress
 {
@@ -408,39 +496,65 @@
 }
 
 /**
- * Processes HBStateScanDone state information. Current implementation just
- * sends HBCoreScanDoneNotification.
+ * Processes completion state information.
  */
-- (void)handleScanCompletation
+- (void)handleCompletion
 {
-    BOOL success = [self scanDone];
+    // Libhb reported HB_STATE_WORKDONE or HB_STATE_SCANDONE,
+    // so nothing interesting will happen after this point, stop the timer.
+    [self stopUpdateTimer];
 
-    if (self.completationHandler)
+    // Set the state to idle, because the update timer won't fire again.
+    self.state = HBStateIdle;
+    // Reallow system sleep.
+    hb_system_sleep_allow(_hb_handle);
+
+    // Call the completion block and clean ups the handlers
+    self.progressHandler = nil;
+    if (_hb_state->state == HB_STATE_WORKDONE)
     {
-        HBCoreCompletationHandler completationHandler = [self.completationHandler retain];
-        self.progressHandler = nil;
-        self.completationHandler = nil;
-        completationHandler(success);
-        [completationHandler release];
+        [self handleWorkCompletion];
+    }
+    else
+    {
+        [self handleScanCompletion];
     }
 }
 
 /**
- * Processes HBStateWorkDone state information. Current implementation just
- * sends HBCoreWorkDoneNotification.
+ *  Runs the completion block and clean ups the internal blocks.
+ *
+ *  @param result the result to pass to the completion block.
  */
-- (void)handleWorkCompletation
+- (void)runCompletionBlockAndCleanUpWithResult:(BOOL)result
 {
-    BOOL success = [self workDone];
-
-    if (self.completationHandler)
+    if (self.completionHandler)
     {
-        HBCoreCompletationHandler completationHandler = [self.completationHandler retain];
-        self.progressHandler = nil;
-        self.completationHandler = nil;
-        completationHandler(success);
-        [completationHandler release];
+        // Retain the completion block, because it could be replaced
+        // inside the same block.
+        HBCoreCompletionHandler completionHandler = [self.completionHandler retain];
+        self.completionHandler = nil;
+        completionHandler(result);
+        [completionHandler release];
     }
+}
+
+/**
+ * Processes scan completion.
+ */
+- (void)handleScanCompletion
+{
+    BOOL result = [self scanDone];
+    [self runCompletionBlockAndCleanUpWithResult:result];
+}
+
+/**
+ * Processes work completion.
+ */
+- (void)handleWorkCompletion
+{
+    BOOL result = [self workDone];
+    [self runCompletionBlockAndCleanUpWithResult:result];
 }
 
 @end

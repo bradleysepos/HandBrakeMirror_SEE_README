@@ -21,9 +21,7 @@ namespace HandBrakeWPF.Startup
     using Castle.Windsor;
 
     using HandBrake.ApplicationServices;
-    using HandBrake.ApplicationServices.Services;
     using HandBrake.ApplicationServices.Services.Encode.Interfaces;
-    using HandBrake.ApplicationServices.Services.Interfaces;
     using HandBrake.ApplicationServices.Services.Scan;
     using HandBrake.ApplicationServices.Services.Scan.Interfaces;
 
@@ -95,7 +93,6 @@ namespace HandBrakeWPF.Startup
             this.windsorContainer.Register(Component.For<IAudioViewModel>().ImplementedBy<AudioViewModel>().LifeStyle.Is(LifestyleType.Singleton));
             this.windsorContainer.Register(Component.For<IX264ViewModel>().ImplementedBy<X264ViewModel>().LifeStyle.Is(LifestyleType.Singleton));
             this.windsorContainer.Register(Component.For<IAdvancedViewModel>().ImplementedBy<AdvancedViewModel>().LifeStyle.Is(LifestyleType.Singleton));
-            this.windsorContainer.Register(Component.For<IEncoderOptionsViewModel>().ImplementedBy<EncoderOptionsViewModel>().LifeStyle.Is(LifestyleType.Singleton));
             this.windsorContainer.Register(Component.For<IPictureSettingsViewModel>().ImplementedBy<PictureSettingsViewModel>().LifeStyle.Is(LifestyleType.Singleton));
             this.windsorContainer.Register(Component.For<IChaptersViewModel>().ImplementedBy<ChaptersViewModel>().LifeStyle.Is(LifestyleType.Singleton));
             this.windsorContainer.Register(Component.For<ISubtitlesViewModel>().ImplementedBy<SubtitlesViewModel>().LifeStyle.Is(LifestyleType.Singleton));
