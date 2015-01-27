@@ -774,12 +774,20 @@ static int nlmeans_init(hb_filter_object_t *filter,
 {
     filter->private_data = calloc(sizeof(struct hb_filter_private_s), 1);
     hb_filter_private_t *pv = filter->private_data;
-
     NLMeansFunctions *functions = &pv->functions;
+
+    const int variant_name_size = 40;
+    char variant_name[variant_name_size] = "NLMeans";
+    int  variant_name_free = variant_name_size - strlen(variant_name) - 1;
+
     functions->build_integral = build_integral_scalar;
     if (ARCH_X86 == 1)
     {
-        nlmeans_init_x86(functions);
+        nlmeans_init_x86(functions, &variant_name, variant_name_free);
+    }
+    else
+    {
+        strncat(variant_name, " scalar", variant_name_free);
     }
 
     // Mark parameters unset
@@ -853,7 +861,7 @@ static int nlmeans_init(hb_filter_object_t *filter,
     if (taskset_init(&pv->taskset, pv->thread_count,
                      sizeof(nlmeans_thread_arg_t)) == 0)
     {
-        hb_error("nlmeans could not initialize taskset");
+        hb_error("NLMeans could not initialize taskset");
         goto fail;
     }
 
@@ -862,7 +870,7 @@ static int nlmeans_init(hb_filter_object_t *filter,
         pv->thread_data[ii] = taskset_thread_args(&pv->taskset, ii);
         if (pv->thread_data[ii] == NULL)
         {
-            hb_error("nlmeans could not create thread args");
+            hb_error("NLMeans could not create thread args");
             goto fail;
         }
         pv->thread_data[ii]->pv = pv;
@@ -870,11 +878,12 @@ static int nlmeans_init(hb_filter_object_t *filter,
         if (taskset_thread_spawn(&pv->taskset, ii, "nlmeans_filter",
                                  nlmeans_filter_thread, HB_NORMAL_PRIORITY) == 0)
         {
-            hb_error("nlmeans could not spawn thread");
+            hb_error("NLMeans could not spawn thread");
             goto fail;
         }
     }
 
+    hb_log("%s variant initialized", variant_name);
     return 0;
 
 fail:
@@ -932,7 +941,7 @@ static void nlmeans_filter_thread(void *thread_args_v)
     hb_filter_private_t *pv = thread_data->pv;
     int segment = thread_data->segment;
 
-    hb_log("NLMeans Denoise thread started for segment %d", segment);
+    hb_log("NLMeans thread started for segment %d", segment);
 
     while (1)
     {

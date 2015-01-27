@@ -24,4 +24,4 @@ typedef struct
                            int       dy);
 } NLMeansFunctions;
 
-void nlmeans_init_x86(NLMeansFunctions *functions);
+void nlmeans_init_x86(NLMeansFunctions *functions, char *variant_name, const int *variant_name_free);
