@@ -776,18 +776,14 @@ static int nlmeans_init(hb_filter_object_t *filter,
     hb_filter_private_t *pv = filter->private_data;
     NLMeansFunctions *functions = &pv->functions;
 
-    const int variant_name_size = 40;
-    char variant_name[variant_name_size] = "NLMeans";
-    int  variant_name_free = variant_name_size - strlen(variant_name) - 1;
-
     functions->build_integral = build_integral_scalar;
     if (ARCH_X86 == 1)
     {
-        nlmeans_init_x86(functions, &variant_name, variant_name_free);
+        nlmeans_init_x86(functions);
     }
     else
     {
-        strncat(variant_name, " scalar", variant_name_free);
+        hb_log("NLMeans using scalar implementation");
     }
 
     // Mark parameters unset
@@ -883,7 +879,6 @@ static int nlmeans_init(hb_filter_object_t *filter,
         }
     }
 
-    hb_log("%s variant initialized", variant_name);
     return 0;
 
 fail:

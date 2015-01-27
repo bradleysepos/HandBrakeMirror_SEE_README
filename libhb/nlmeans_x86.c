@@ -145,11 +145,11 @@ static void build_integral_sse2(uint32_t *integral,
     }
 }
 
-void nlmeans_init_x86(NLMeansFunctions *functions, char *variant_name, const int *variant_name_free)
+void nlmeans_init_x86(NLMeansFunctions *functions)
 {
     if (av_get_cpu_flags() & AV_CPU_FLAG_SSE2)
     {
         functions->build_integral = build_integral_sse2;
-        strncat(variant_name, " SSE2", variant_name_free);
+        hb_log("NLMeans using SSE2 optimizations");
     }
 }
