@@ -781,10 +781,6 @@ static int nlmeans_init(hb_filter_object_t *filter,
     {
         nlmeans_init_x86(functions);
     }
-    else
-    {
-        hb_log("NLMeans using scalar implementation");
-    }
 
     // Mark parameters unset
     for (int c = 0; c < 3; c++)
