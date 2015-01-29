@@ -138,7 +138,7 @@ namespace HandBrake.ApplicationServices.Services.Encode
 
                 ServiceLogMessage("Scanning title for encoding ... ");
 
-                this.instance.StartScan(job.ScannedSourcePath, job.Configuration.PreviewScanCount, job.Task.Title);
+                this.instance.StartScan(job.ScannedSourcePath, job.Configuration.PreviewScanCount, TimeSpan.FromSeconds(job.Configuration.MinScanDuration), job.Task.Title);
             }
             catch (Exception exc)
             {
@@ -234,7 +234,7 @@ namespace HandBrake.ApplicationServices.Services.Encode
             try
             {
                 ServiceLogMessage("Starting Encode ...");
-                instance.StartEncode(encodeJob, scannedTitle, job.Configuration.PreviewScanCount);
+                instance.StartEncode(encodeJob, scannedTitle);
             }
             catch (Exception exc)
             {
@@ -343,15 +343,21 @@ namespace HandBrake.ApplicationServices.Services.Encode
             this.IsEncoding = false;
             ServiceLogMessage("Encode Completed ...");
 
+            // Stop Logging.
+            HandBrakeUtils.MessageLogged -= this.HandBrakeInstanceMessageLogged;
+            HandBrakeUtils.ErrorLogged -= this.HandBrakeInstanceErrorLogged;
+            
+            // Handling Log Data 
+            this.ProcessLogs(this.currentTask.Task.Destination, this.currentTask.Configuration);
+
+            // Cleanup
+            this.ShutdownFileWriter();
+
+            // Raise the Encode Completed EVent.
             this.InvokeEncodeCompleted(
                 e.Error
                     ? new EventArgs.EncodeCompletedEventArgs(false, null, string.Empty, this.currentTask.Task.Destination)
                     : new EventArgs.EncodeCompletedEventArgs(true, null, string.Empty, this.currentTask.Task.Destination));
-
-            HandBrakeUtils.MessageLogged -= this.HandBrakeInstanceMessageLogged;
-            HandBrakeUtils.ErrorLogged -= this.HandBrakeInstanceErrorLogged;
-
-            this.ShutdownFileWriter();
         }
         #endregion
     }

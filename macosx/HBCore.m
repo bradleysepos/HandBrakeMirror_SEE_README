@@ -246,7 +246,6 @@ static void hb_error_handler(const char *errmsg)
 {
     if (self.isCancelled)
     {
-        self.cancelled = NO;
         return NO;
     }
 
@@ -385,15 +384,7 @@ static void hb_error_handler(const char *errmsg)
 
     [HBUtilities writeToActivityLog:"%s work done", self.name.UTF8String];
 
-    if (self.isCancelled)
-    {
-        self.cancelled = NO;
-        return NO;
-    }
-    else
-    {
-        return YES;
-    }
+    return self.isCancelled || (_hb_state->param.workdone.error == 0);
 }
 
 - (void)cancelEncode
@@ -403,17 +394,18 @@ static void hb_error_handler(const char *errmsg)
     [HBUtilities writeToActivityLog:"%s encode cancelled", self.name.UTF8String];
 }
 
-
 - (void)pause
 {
     hb_pause(_hb_handle);
     hb_system_sleep_allow(_hb_handle);
+    self.state = HBStatePaused;
 }
 
 - (void)resume
 {
     hb_resume(_hb_handle);
     hb_system_sleep_prevent(_hb_handle);
+    self.state = HBStateWorking;
 }
 
 #pragma mark - State updates
@@ -519,6 +511,9 @@ static void hb_error_handler(const char *errmsg)
     {
         [self handleScanCompletion];
     }
+
+    // Reset the cancelled state.
+    self.cancelled = NO;
 }
 
 /**
