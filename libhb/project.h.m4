@@ -21,9 +21,11 @@ dnl
 <<#>>define HB_PROJECT_VERSION_HEX     0x<<>>__HB_version_hex<<>>LL
 <<#>>define HB_PROJECT_BUILD           __HB_build
 <<#>>define HB_PROJECT_REPO_URL        "__HB_repo_url"
-<<#>>define HB_PROJECT_REPO_ROOT       "__HB_repo_root"
-<<#>>define HB_PROJECT_REPO_UUID       "__HB_repo_uuid"
+<<#>>define HB_PROJECT_REPO_TAG        "__HB_repo_tag"
+<<#>>define HB_PROJECT_REPO_BRANCH     "__HB_repo_branch"
+<<#>>define HB_PROJECT_REPO_REMOTE     "__HB_repo_remote"
 <<#>>define HB_PROJECT_REPO_REV        __HB_repo_rev
+<<#>>define HB_PROJECT_REPO_GITHASH    "__HB_repo_githash"
 <<#>>define HB_PROJECT_REPO_DATE       "__HB_repo_date"
 <<#>>define HB_PROJECT_REPO_OFFICIAL   __HB_repo_official
 <<#>>define HB_PROJECT_REPO_TYPE       "__HB_repo_type"
