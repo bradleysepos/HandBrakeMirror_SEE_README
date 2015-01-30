@@ -3,10 +3,15 @@ PKG.rpm.machine = `rpm -E "%_target_cpu"`
 PKG.release = $(HB.repo.rev)
 PKG.rpm.dist = `rpm -E "%dist"`
 
+ifeq ($(HB.repo.tag),)
+    tag = 0.0.0
+endif
 ifeq ($(HB.repo.type),release)
-    PKG.rpm.hb.version = $(HB.repo.tag)
+    PKG.rpm.hb.version = $(tag)
+else ifeq ($(HB.repo.branch),)
+    PKG.rpm.hb.version = $(tab).$(HB.repo.shorthash)
 else
-    PKG.rpm.hb.version = $(HB.repo.tag).$(HB.repo.hash).$(HB.repo.branch)
+    PKG.rpm.hb.version = $(tag).$(HB.repo.shorthash).$(HB.repo.branch)
 endif
 
 

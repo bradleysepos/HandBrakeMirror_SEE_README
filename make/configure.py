@@ -813,10 +813,12 @@ class Project( Action ):
             self.build = time.strftime('%Y%m%d') + '00'
             self.title = '%s %s (%s)' % (self.name,self.version,self.build)
         else:
-            self.version = '%d.%d.%d-%d-%s' % (self.vmajor, self.vminor, self.vpoint,
-                                               repo.rev, repo.shorthash)
             if repo.branch != '':
-                self.version = '%s-%s' % (self.version, repo.branch)
+                self.version = '%d.%d.%d-%d-%s-%s' % (self.vmajor, self.vminor,
+                    self.vpoint, repo.rev, repo.shorthash, repo.branch)
+            else:
+                self.version = '%d.%d.%d-%d-%s' % (self.vmajor, self.vminor,
+                    self.vpoint, repo.rev, repo.shorthash)
             url_ctype = '_unstable'
             url_ntype = 'unstable'
             self.build = time.strftime('%Y%m%d') + '01'

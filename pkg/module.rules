@@ -18,7 +18,7 @@ $(PKG.src.tar.bz2): | $(STAGE.out.src/)
 
 $(STAGE.out.src/):
 	$(MKDIR.exe) -p $@
-	$(GIT.exe) -C $(SRC/) archive --format=tar --prefix=$(PKG.basename)/ $(HB.repo.hash) | $(TAR.exe) -xC $@
+	$(GIT.exe) -C $(SRC/) archive --format=tar --prefix=$(PKG.basename)/ $(HB.repo.shorthash) | $(TAR.exe) -xC $@
 	$(SRC/)scripts/repo-info.sh $(SRC/) $(GIT.exe) > $@/$(PKG.basename)/version.txt
 
 $(PKG.src-contrib.tar.bz2):

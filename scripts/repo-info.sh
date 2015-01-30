@@ -28,6 +28,7 @@ fi
 HASH=$(${GIT_EXE} rev-parse HEAD)
 ERR=$?
 if [[ ${ERR} -ne 0 ]]; then
+    echo "Not a valid repository." 1>&2
     exit ${ERR}
 elif [[ -z ${HASH} ]]; then
     echo "Not a valid repository." 1>&2
