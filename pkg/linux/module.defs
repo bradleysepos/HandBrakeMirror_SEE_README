@@ -6,7 +6,7 @@ PKG.rpm.dist = `rpm -E "%dist"`
 ifeq ($(HB.repo.type),release)
     PKG.rpm.hb.version = $(HB.repo.tag)
 else
-    PKG.rpm.hb.version = $(HB.repo.tag).$(HB.repo.githash).$(HB.repo.branch)
+    PKG.rpm.hb.version = $(HB.repo.tag).$(HB.repo.hash).$(HB.repo.branch)
 endif
 
 

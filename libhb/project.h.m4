@@ -22,13 +22,13 @@ dnl
 <<#>>define HB_PROJECT_BUILD           __HB_build
 <<#>>define HB_PROJECT_REPO_URL        "__HB_repo_url"
 <<#>>define HB_PROJECT_REPO_TAG        "__HB_repo_tag"
+<<#>>define HB_PROJECT_REPO_REV        __HB_repo_rev
+<<#>>define HB_PROJECT_REPO_HASH       "__HB_repo_hash"
 <<#>>define HB_PROJECT_REPO_BRANCH     "__HB_repo_branch"
 <<#>>define HB_PROJECT_REPO_REMOTE     "__HB_repo_remote"
-<<#>>define HB_PROJECT_REPO_REV        __HB_repo_rev
-<<#>>define HB_PROJECT_REPO_GITHASH    "__HB_repo_githash"
-<<#>>define HB_PROJECT_REPO_DATE       "__HB_repo_date"
-<<#>>define HB_PROJECT_REPO_OFFICIAL   __HB_repo_official
 <<#>>define HB_PROJECT_REPO_TYPE       "__HB_repo_type"
+<<#>>define HB_PROJECT_REPO_OFFICIAL   __HB_repo_official
+<<#>>define HB_PROJECT_REPO_DATE       "__HB_repo_date"
 
 <<#>>define HB_PROJECT_BUILD_SPEC      "__BUILD_spec"
 <<#>>define HB_PROJECT_BUILD_MACHINE   "__BUILD_machine"

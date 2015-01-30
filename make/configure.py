@@ -673,9 +673,9 @@ class SelectMode( dict ):
 ## Builds are classed into one of the following types:
 ##
 ##  release
-##      must be built from official svn with '/tags/' in the url
+##      must be built from official git at version tag
 ##  developer
-##      must be built from official svn but is not a release
+##      must be built from official git but is not a release
 ##
 class RepoProbe( ShellProbe ):
     def __init__( self ):
@@ -696,7 +696,8 @@ class RepoProbe( ShellProbe ):
         self.branch    = 'unknown'
         self.remote    = 'unknown'
         self.rev       = 0
-        self.githash   = 'deadbeaf'
+        self.hash      = 'deadbeaf'
+        self.shorthash = 'deadbea'
         self.date      = '0000-00-00 00:00:00 -0000'
         self.official  = 0
         self.type      = 'developer'
@@ -722,10 +723,15 @@ class RepoProbe( ShellProbe ):
             elif name == 'DATE':
                 self.date = value
             elif name == 'HASH':
-                self.githash = value
+                self.hash = value
+                self.shorthash = value[:7]
 
         # type-classification via repository URL
-        if self.url == 'https://github.com/HandBrake/HandBrake.git':
+        official_url = 'https://github.com/HandBrake/HandBrake.git' # HTTPS
+        if self.url == 'git@github.com:HandBrake/HandBrake.git':    # SSH
+            self.url = official_url
+
+        if self.url == official_url:
             self.official = 1
             if self.branch == '' and self.rev == 0:
                 self.type = 'release'
@@ -735,12 +741,12 @@ class RepoProbe( ShellProbe ):
         self.msg_end = self.url
 
     def _failSession( self ):
-        # Look for svn info in version file.
+        # Look for repo info in version file.
         #
         # Version file would be created manually by source packager.
         # e.g.
-        # $ svn info HandBrake > HandBrake/version.txt
-        # $ tar -czf handbrake-source.tgz --exclude .svn HandBrake
+        # $ HandBrake/scripts/repo-info.sh HandBrake > HandBrake/version.txt
+        # $ tar -czf handbrake-source.tgz --exclude .git HandBrake
         cfg.infof( 'probe: version.txt...' )
         try:
             hvp = os.path.join( cfg.src_dir, 'version.txt' )
@@ -807,12 +813,9 @@ class Project( Action ):
             self.build = time.strftime('%Y%m%d') + '00'
             self.title = '%s %s (%s)' % (self.name,self.version,self.build)
         else:
+            self.version = 'local-%d-%s' % (repo.rev, repo.shorthash)
             if repo.branch != '':
-                self.version = '%d.%d.%d-%d-%s-%s' % (self.vmajor, self.vminor,
-                    self.vpoint, repo.rev, repo.githash, repo.branch)
-            else:
-                self.version = '%d.%d.%d-%d-%s' % (self.vmajor, self.vminor,
-                    self.vpoint, repo.rev, repo.githash)
+                self.version = '%s-%s' % (self.version, repo.branch)
             url_ctype = '_unstable'
             url_ntype = 'unstable'
             self.build = time.strftime('%Y%m%d') + '01'
@@ -1651,13 +1654,14 @@ int main()
 
     doc.add( 'HB.repo.url',       repo.url )
     doc.add( 'HB.repo.tag',       repo.tag )
+    doc.add( 'HB.repo.rev',       repo.rev )
+    doc.add( 'HB.repo.hash',      repo.hash )
+    doc.add( 'HB.repo.shorthash', repo.shorthash )
     doc.add( 'HB.repo.branch',    repo.branch )
     doc.add( 'HB.repo.remote',    repo.remote )
-    doc.add( 'HB.repo.rev',       repo.rev )
-    doc.add( 'HB.repo.githash',   repo.githash )
-    doc.add( 'HB.repo.date',      repo.date )
-    doc.add( 'HB.repo.official',  repo.official )
     doc.add( 'HB.repo.type',      repo.type )
+    doc.add( 'HB.repo.official',  repo.official )
+    doc.add( 'HB.repo.date',      repo.date )
 
     doc.addBlank()
     doc.add( 'HOST.spec',    host.spec )

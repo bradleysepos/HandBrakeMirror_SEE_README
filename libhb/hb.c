@@ -500,20 +500,20 @@ hb_handle_t * hb_init_dl( int verbose, int update_check )
 
 // Make sure these strings at least exist in the executable even though
 // they may not all be visible in the frontend.
-static const char* hb_title        = HB_PROJECT_TITLE;
-static const char* hb_name         = HB_PROJECT_NAME;
-static const char* hb_website      = HB_PROJECT_URL_WEBSITE;
-static const char* hb_community    = HB_PROJECT_URL_COMMUNITY;
-static const char* hb_irc          = HB_PROJECT_URL_IRC;
-static const char* hb_version      = HB_PROJECT_VERSION;
-static const int   hb_build        = HB_PROJECT_BUILD;
-static const char* hb_repo_url     = HB_PROJECT_REPO_URL;
-static const char* hb_repo_tag     = HB_PROJECT_REPO_TAG;
-static const char* hb_repo_branch  = HB_PROJECT_REPO_BRANCH;
-static const char* hb_repo_remote  = HB_PROJECT_REPO_REMOTE;
-static const int   hb_repo_rev     = HB_PROJECT_REPO_REV;
-static const char* hb_repo_githash = HB_PROJECT_REPO_GITHASH;
-static const char* hb_repo_type    = HB_PROJECT_REPO_TYPE;
+static const char* hb_title          = HB_PROJECT_TITLE;
+static const char* hb_name           = HB_PROJECT_NAME;
+static const char* hb_website        = HB_PROJECT_URL_WEBSITE;
+static const char* hb_community      = HB_PROJECT_URL_COMMUNITY;
+static const char* hb_irc            = HB_PROJECT_URL_IRC;
+static const char* hb_version        = HB_PROJECT_VERSION;
+static const int   hb_build          = HB_PROJECT_BUILD;
+static const char* hb_repo_url       = HB_PROJECT_REPO_URL;
+static const char* hb_repo_tag       = HB_PROJECT_REPO_TAG;
+static const int   hb_repo_rev       = HB_PROJECT_REPO_REV;
+static const char* hb_repo_hash      = HB_PROJECT_REPO_HASH;
+static const char* hb_repo_branch    = HB_PROJECT_REPO_BRANCH;
+static const char* hb_repo_remote    = HB_PROJECT_REPO_REMOTE;
+static const char* hb_repo_type      = HB_PROJECT_REPO_TYPE;
 
 const char * hb_get_full_description()
 {
@@ -524,15 +524,16 @@ const char * hb_get_full_description()
                                 "\tWebsite:     %s\n"
                                 "\tForum:       %s\n"
                                 "\tIRC:         %s\n"
-                                "\tRepo:        %s\n"
+                                "\tBuild Type:  %s\n"
+                                "\tRepository:  %s\n"
                                 "\tRelease Tag: %s\n"
                                 "\tRevision:    %d\n"
+                                "\tCommit Hash: %s\n"
                                 "\tBranch:      %s\n"
-                                "\tRemote:      %s\n"
-                                "\tType:        %s",
+                                "\tRemote:      %s",
                                 hb_title, hb_website, hb_community, hb_irc,
-                                hb_repo_url, hb_repo_tag, hb_repo_rev,
-                                hb_repo_branch, hb_repo_remote, hb_repo_type);
+                                hb_repo_type, hb_repo_url, hb_repo_tag, hb_repo_rev,
+                                hb_repo_hash, hb_repo_branch, hb_repo_remote);
     }
     return desc;
 }
@@ -553,10 +554,10 @@ const char * hb_get_version( hb_handle_t * h )
     ((void)(hb_version));
     ((void)(hb_repo_url));
     ((void)(hb_repo_tag));
+    ((void)(hb_repo_rev));
+    ((void)(hb_repo_hash));
     ((void)(hb_repo_branch));
     ((void)(hb_repo_remote));
-    ((void)(hb_repo_rev));
-    ((void)(hb_repo_githash));
     ((void)(hb_repo_type));
     return hb_version;
 }
