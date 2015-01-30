@@ -25,7 +25,7 @@ if ! hash ${GIT_EXE} 2>/dev/null; then
 fi
 
 # Check if there is a valid git repo here
-HASH=$(git rev-parse HEAD)
+HASH=$(${GIT_EXE} rev-parse HEAD)
 ERR=$?
 if [[ ${ERR} -ne 0 ]]; then
     exit ${ERR}
@@ -35,18 +35,18 @@ elif [[ -z ${HASH} ]]; then
 fi
 
 # Retrieve info
-URL=$(git config remote.origin.url)
-TAG=$(git describe --abbrev=0)
+URL=$(${GIT_EXE} config remote.origin.url)
+TAG=$(${GIT_EXE} describe --abbrev=0)
 if [[ ${TAG} ]]; then
-    REV=$(git rev-list ${TAG}.. --count)
+    REV=$(${GIT_EXE} rev-list ${TAG}.. --count)
 fi
-BRANCH=$(git symbolic-ref -q --short HEAD)
+BRANCH=$(${GIT_EXE} symbolic-ref -q --short HEAD)
 REMOTE="${URL}"
-UPSTREAM=$(git config branch.${BRANCH}.remote)
+UPSTREAM=$(${GIT_EXE} config branch.${BRANCH}.remote)
 if [[ ${UPSTREAM} ]]; then
     REMOTE="${UPSTREAM}"
 fi
-DATE=$(git log -1 --format="format:%ai")
+DATE=$(${GIT_EXE} log -1 --format="format:%ai")
 
 # Output
 # Only write tag and rev if they exist. A fresh clone currently has no tags.
