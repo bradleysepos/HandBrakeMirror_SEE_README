@@ -584,14 +584,11 @@ static void build_integral_scalar(uint32_t *integral,
                                   int       dx,
                                   int       dy)
 {
-    memset(integral-1 - integral_stride, 0, (w+1) * sizeof(uint32_t));
     for (int y = 0; y < h; y++)
     {
         const uint8_t *p1 = src_pre + y*src_w;
         const uint8_t *p2 = compare_pre + (y+dy)*compare_w + dx;
-        uint32_t *out = integral + (y*integral_stride) - 1;
-
-        *out++ = 0;
+        uint32_t *out = integral + (y*integral_stride);
 
         for (int x = 0; x < w; x++)
         {
@@ -641,7 +638,7 @@ static void nlmeans_plane(NLMeansFunctions *functions,
 
     // Allocate integral image
     int integral_stride = w + 2 * 16;
-    uint32_t *integral_mem = malloc(integral_stride * (h+1) * sizeof(uint32_t));
+    uint32_t *integral_mem = calloc(integral_stride * (h+1), sizeof(uint32_t));
     uint32_t *integral     = integral_mem + integral_stride + 16;
 
     // Precompute exponential table

@@ -29,17 +29,13 @@ static void build_integral_sse2(uint32_t *integral,
 {
     const __m128i zero = _mm_set1_epi8(0);
 
-    memset(integral-1 - integral_stride, 0, (w+1) * sizeof(uint32_t));
-
     for (int y = 0; y < h; y++)
     {
         __m128i prevadd = _mm_set1_epi32(0);
 
         const uint8_t *p1 = src_pre + y*src_w;
         const uint8_t *p2 = compare_pre + (y+dy)*compare_w + dx;
-        uint32_t *out = integral + (y*integral_stride) - 1;
-
-        *out++ = 0;
+        uint32_t *out = integral + (y*integral_stride);
 
         const int pixels_step = 16;
 
