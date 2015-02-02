@@ -14,8 +14,14 @@
 
 #include "hb.h"
 
-NSString *HBMixdownChangedNotification         = @"HBMixdownChangedNotification";
-NSString *HBContainerChangedNotification       = @"HBContainerChangedNotification";
+NSString *HBContainerChangedNotification = @"HBContainerChangedNotification";
+NSString *HBChaptersChangedNotification  = @"HBChaptersChangedNotification";
+
+@interface HBJob ()
+
+@property (nonatomic, readwrite, getter=areNotificationsEnabled) BOOL notificationsEnabled;
+
+@end
 
 @implementation HBJob
 
@@ -47,6 +53,8 @@ NSString *HBContainerChangedNotification       = @"HBContainerChangedNotificatio
         _uuid = [[[NSUUID UUID] UUIDString] retain];
 
         [self applyPreset:preset];
+
+        _notificationsEnabled = YES;
     }
 
     return self;
@@ -54,6 +62,8 @@ NSString *HBContainerChangedNotification       = @"HBContainerChangedNotificatio
 
 - (void)applyPreset:(HBPreset *)preset
 {
+    self.notificationsEnabled = NO;
+
     if (preset.isDefault)
     {
         self.presetName = [NSString stringWithFormat:@"%@ (Default)", preset.name];
@@ -76,6 +86,8 @@ NSString *HBContainerChangedNotification       = @"HBContainerChangedNotificatio
 
     [@[self.audio, self.subtitles, self.filters, self.picture, self.video] makeObjectsPerformSelector:@selector(applyPreset:)
                                                                                                            withObject:content];
+
+    self.notificationsEnabled = YES;
 }
 
 - (void)applyCurrentSettingsToPreset:(NSMutableDictionary *)dict
@@ -98,11 +110,11 @@ NSString *HBContainerChangedNotification       = @"HBContainerChangedNotificatio
     [self.subtitles containerChanged:container];
     [self.video containerChanged];
 
-    /* post a notification for any interested observers to indicate that our video container has changed */
-    [[NSNotificationCenter defaultCenter] postNotification:
-     [NSNotification notificationWithName:HBContainerChangedNotification
-                                   object:self
-                                 userInfo:nil]];
+    if (self.notificationsEnabled)
+    {
+        // post a notification for any interested observers to indicate that our video container has changed
+        [[NSNotificationCenter defaultCenter] postNotificationName:HBContainerChangedNotification object:self];
+    }
 }
 
 - (void)setTitle:(HBTitle *)title
@@ -110,6 +122,15 @@ NSString *HBContainerChangedNotification       = @"HBContainerChangedNotificatio
     _title = title;
     self.range.title = title;
     self.picture.title = title;
+}
+
+- (void)setChaptersEnabled:(BOOL)chaptersEnabled
+{
+    _chaptersEnabled = chaptersEnabled;
+    if (self.notificationsEnabled)
+    {
+        [[NSNotificationCenter defaultCenter] postNotificationName:HBChaptersChangedNotification object:self];
+    }
 }
 
 + (NSSet *)keyPathsForValuesAffectingValueForKey:(NSString *)key
@@ -183,6 +204,8 @@ NSString *HBContainerChangedNotification       = @"HBContainerChangedNotificatio
 
         copy->_chaptersEnabled = _chaptersEnabled;
         copy->_chapterTitles = [[NSMutableArray alloc] initWithArray:_chapterTitles copyItems:YES];
+
+        copy->_notificationsEnabled = _notificationsEnabled;
     }
 
     return copy;

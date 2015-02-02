@@ -1,6 +1,6 @@
 /* qsv_common.c
  *
- * Copyright (c) 2003-2014 HandBrake Team
+ * Copyright (c) 2003-2015 HandBrake Team
  * This file is part of the HandBrake source code.
  * Homepage: <http://handbrake.fr/>.
  * It may be used under the terms of the GNU General Public License v2.
@@ -10,6 +10,7 @@
 #ifdef USE_QSV
 
 #include <stdio.h>
+#include <string.h>
 
 #include "hb.h"
 #include "ports.h"
@@ -28,7 +29,6 @@ static mfxVersion qsv_hardware_version      = { .Version   = 0, };
 static hb_qsv_info_t qsv_software_info_avc  = { .available = 0, .codec_id = MFX_CODEC_AVC,  .implementation = MFX_IMPL_SOFTWARE, };
 static hb_qsv_info_t qsv_hardware_info_avc  = { .available = 0, .codec_id = MFX_CODEC_AVC,  .implementation = MFX_IMPL_HARDWARE_ANY|MFX_IMPL_VIA_ANY, };
 // HEVC implementations
-static mfxPluginUID  qsv_encode_plugin_hevc = { .Data      = { 0x2F, 0xCA, 0x99, 0x74, 0x9F, 0xDB, 0x49, 0xAE, 0xB1, 0x21, 0xA5, 0xB6, 0x3E, 0xF5, 0x68, 0xF7 } };
 static hb_qsv_info_t qsv_software_info_hevc = { .available = 0, .codec_id = MFX_CODEC_HEVC, .implementation = MFX_IMPL_SOFTWARE, };
 static hb_qsv_info_t qsv_hardware_info_hevc = { .available = 0, .codec_id = MFX_CODEC_HEVC, .implementation = MFX_IMPL_HARDWARE_ANY|MFX_IMPL_VIA_ANY, };
 
@@ -166,8 +166,8 @@ static int query_capabilities(mfxSession session, mfxVersion version, hb_qsv_inf
      * - out->mfx.CodecId field has to be set (mandatory)
      * - MFXVideoENCODE_Query should sanitize all unsupported parameters
      */
-    mfxStatus status;
-    mfxPluginUID *pluginUID;
+    mfxStatus     status;
+    hb_list_t    *mfxPluginList;
     mfxExtBuffer *videoExtParam[1];
     mfxVideoParam videoParam, inputParam;
     mfxExtCodingOption2 extCodingOption2;
@@ -176,20 +176,25 @@ static int query_capabilities(mfxSession session, mfxVersion version, hb_qsv_inf
     info->capabilities = 0;
 
     /* Load optional codec plug-ins */
-    switch (info->codec_id)
+    if (HB_CHECK_MFX_VERSION(version, 1, 8))
     {
-        case MFX_CODEC_HEVC:
-            pluginUID = &qsv_encode_plugin_hevc;
-            break;
-        default:
-            pluginUID = NULL;
-            break;
-    }
-    if (pluginUID != NULL && HB_CHECK_MFX_VERSION(version, 1, 8) &&
-        MFXVideoUSER_Load(session, pluginUID, 0) < MFX_ERR_NONE)
-    {
-        // couldn't load plugin successfully
-        return 0;
+        if ((mfxPluginList = hb_list_init()) == NULL)
+        {
+            hb_log("query_capabilities: hb_list_init() failed");
+            return 0;
+        }
+
+        if (!qsv_implementation_is_hardware(info->implementation))
+        {
+            if (info->codec_id == MFX_CODEC_HEVC)
+            {
+                if (MFXVideoUSER_Load(session, &MFX_PLUGINID_HEVCE_SW, 0) < MFX_ERR_NONE)
+                {
+                    return 0; // mandatory plugin, this encoder is unavailable
+                }
+                hb_list_add(mfxPluginList, &MFX_PLUGINID_HEVCE_SW);
+            }
+        }
     }
 
     /*
@@ -416,7 +421,7 @@ static int query_capabilities(mfxSession session, mfxVersion version, hb_qsv_inf
                     }
                     if (extCodingOption2.NumMbPerSlice)
                     {
-                        info->capabilities |= HB_QSV_CAP_OPTION2_NMBSLICE;
+                        info->capabilities |= HB_QSV_CAP_OPTION2_NMPSLICE;
                     }
                 }
             }
@@ -430,9 +435,19 @@ static int query_capabilities(mfxSession session, mfxVersion version, hb_qsv_inf
     }
 
     /* Unload optional codec plug-ins */
-    if (pluginUID != NULL && HB_CHECK_MFX_VERSION(version, 1, 8))
+    if (HB_CHECK_MFX_VERSION(version, 1, 8))
     {
-        MFXVideoUSER_UnLoad(session, pluginUID);
+        mfxPluginUID *pluginUID;
+
+        for (int i = 0; i < hb_list_count(mfxPluginList); i++)
+        {
+            if ((pluginUID = hb_list_item(mfxPluginList, i)) != NULL)
+            {
+                MFXVideoUSER_UnLoad(session, pluginUID);
+            }
+        }
+
+        hb_list_close(&mfxPluginList);
     }
 
     return 0;
@@ -500,26 +515,70 @@ int hb_qsv_info_init()
 
 static void log_capabilities(int log_level, uint64_t caps, const char *prefix)
 {
-    if (!caps)
+    /*
+     * Note: keep the string short, as it may be logged by default.
+     */
+    char buffer[128] = "";
+
+    /* B-Pyramid, with or without direct control (BRefType) */
+    if (caps & HB_QSV_CAP_B_REF_PYRAMID)
     {
-        hb_deep_log(log_level, "%s none (standard feature set)", prefix);
+        if (caps & HB_QSV_CAP_OPTION2_BREFTYPE)
+        {
+            strcat(buffer, " breftype");
+        }
+        else
+        {
+            strcat(buffer, " bpyramid");
+        }
     }
-    else
+    /* Rate control: ICQ, lookahead (options: interlaced, downsampling) */
+    if (caps & HB_QSV_CAP_RATECONTROL_LA)
     {
-        hb_deep_log(log_level, "%s%s%s%s%s%s%s%s%s%s%s%s%s", prefix,
-                    !(caps & HB_QSV_CAP_MSDK_API_1_6)     ? "" : " api1.6",
-                    !(caps & HB_QSV_CAP_B_REF_PYRAMID)    ? "" : " bpyramid",
-                    !(caps & HB_QSV_CAP_OPTION2_BREFTYPE) ? "" : " breftype",
-                    !(caps & HB_QSV_CAP_RATECONTROL_LA)   ? "" : " lookahead",
-                    !(caps & HB_QSV_CAP_RATECONTROL_LAi)  ? "" : " lookaheadi",
-                    !(caps & HB_QSV_CAP_OPTION2_LA_DOWNS) ? "" : " lookaheadds",
-                    !(caps & HB_QSV_CAP_RATECONTROL_ICQ)  ? "" : " icq",
-                    !(caps & HB_QSV_CAP_OPTION2_MBBRC)    ? "" : " mbbrc",
-                    !(caps & HB_QSV_CAP_OPTION2_EXTBRC)   ? "" : " extbrc",
-                    !(caps & HB_QSV_CAP_OPTION2_TRELLIS)  ? "" : " trellis",
-                    !(caps & HB_QSV_CAP_OPTION2_IB_ADAPT) ? "" : " adaptivei adaptiveb",
-                    !(caps & HB_QSV_CAP_OPTION2_NMBSLICE) ? "" : " nummbperslice");
+        if (caps & HB_QSV_CAP_RATECONTROL_ICQ)
+        {
+            strcat(buffer, " icq+la");
+        }
+        else
+        {
+            strcat(buffer, " la");
+        }
+        if (caps & HB_QSV_CAP_RATECONTROL_LAi)
+        {
+            strcat(buffer, "+i");
+        }
+        if (caps & HB_QSV_CAP_OPTION2_LA_DOWNS)
+        {
+            strcat(buffer, "+downs");
+        }
     }
+    else if (caps & HB_QSV_CAP_RATECONTROL_ICQ)
+    {
+        strcat(buffer, " icq");
+    }
+    if (caps & HB_QSV_CAP_OPTION2_MBBRC)
+    {
+            strcat(buffer, " mbbrc");
+    }
+    if (caps & HB_QSV_CAP_OPTION2_EXTBRC)
+    {
+        strcat(buffer, " extbrc");
+    }
+    if (caps & HB_QSV_CAP_OPTION2_TRELLIS)
+    {
+        strcat(buffer, " trellis");
+    }
+    if (caps & HB_QSV_CAP_OPTION2_IB_ADAPT)
+    {
+        strcat(buffer, " ib_adapt");
+    }
+    if (caps & HB_QSV_CAP_OPTION2_NMPSLICE)
+    {
+        strcat(buffer, " nmpslice");
+    }
+
+    hb_deep_log(log_level, "%s%s", prefix,
+                strnlen(buffer, 1) ? buffer : " standard feature set");
 }
 
 void hb_qsv_info_print()
@@ -550,12 +609,12 @@ void hb_qsv_info_print()
                    hb_qsv_impl_get_name(hb_qsv_info_avc->implementation));
             if (qsv_hardware_info_avc.available)
             {
-                log_capabilities(2, qsv_hardware_info_avc.capabilities,
+                log_capabilities(1, qsv_hardware_info_avc.capabilities,
                                  "    - capabilities (hardware): ");
             }
             if (qsv_software_info_avc.available)
             {
-                log_capabilities(2, qsv_software_info_avc.capabilities,
+                log_capabilities(1, qsv_software_info_avc.capabilities,
                                  "    - capabilities (software): ");
             }
         }
@@ -565,9 +624,9 @@ void hb_qsv_info_print()
         }
         if (hb_qsv_info_hevc != NULL && hb_qsv_info_hevc->available)
         {
-            hb_log(" - H.265 encoder: yes (unsupported)");
-            hb_log("    - preferred implementation: %s",
-                   hb_qsv_impl_get_name(hb_qsv_info_hevc->implementation));
+            hb_deep_log(2, " - H.265 encoder: yes (unsupported)");
+            hb_deep_log(2, "    - preferred implementation: %s",
+                        hb_qsv_impl_get_name(hb_qsv_info_hevc->implementation));
             if (qsv_hardware_info_hevc.available)
             {
                 log_capabilities(2, qsv_hardware_info_hevc.capabilities,
@@ -581,7 +640,7 @@ void hb_qsv_info_print()
         }
         else
         {
-            hb_log(" - H.265 encoder: no");
+            hb_deep_log(2, " - H.265 encoder: no");
         }
     }
 }
@@ -1606,10 +1665,12 @@ const char* hb_qsv_impl_get_name(int impl)
 
 void hb_qsv_force_workarounds()
 {
-    qsv_software_info_avc.capabilities  &= ~HB_QSV_CAP_MSDK_API_1_6;
-    qsv_hardware_info_avc.capabilities  &= ~HB_QSV_CAP_MSDK_API_1_6;
-    qsv_software_info_hevc.capabilities &= ~HB_QSV_CAP_MSDK_API_1_6;
-    qsv_hardware_info_hevc.capabilities &= ~HB_QSV_CAP_MSDK_API_1_6;
+#define FORCE_WORKAROUNDS ~(HB_QSV_CAP_OPTION2_BREFTYPE)
+    qsv_software_info_avc.capabilities  &= FORCE_WORKAROUNDS;
+    qsv_hardware_info_avc.capabilities  &= FORCE_WORKAROUNDS;
+    qsv_software_info_hevc.capabilities &= FORCE_WORKAROUNDS;
+    qsv_hardware_info_hevc.capabilities &= FORCE_WORKAROUNDS;
+#undef FORCE_WORKAROUNDS
 }
 
 #endif // USE_QSV

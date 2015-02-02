@@ -1,6 +1,6 @@
 /* common.h
 
-   Copyright (c) 2003-2014 HandBrake Team
+   Copyright (c) 2003-2015 HandBrake Team
    This file is part of the HandBrake source code
    Homepage: <http://handbrake.fr/>.
    It may be used under the terms of the GNU General Public License v2.
@@ -855,7 +855,7 @@ struct hb_subtitle_s
  */
 struct hb_attachment_s
 {
-    enum attachtype { FONT_TTF_ATTACH, HB_ART_ATTACH } type;
+    enum attachtype { FONT_TTF_ATTACH, FONT_OTF_ATTACH, HB_ART_ATTACH } type;
     char *  name;
     char *  data;
     int     size;
@@ -1148,13 +1148,14 @@ struct hb_filter_object_s
     char                  * settings;
 
 #ifdef __LIBHB__
-    int         (* init)  ( hb_filter_object_t *, hb_filter_init_t * );
+    int         (* init)      ( hb_filter_object_t *, hb_filter_init_t * );
+    int         (* post_init) ( hb_filter_object_t *, hb_job_t * );
 
-    int         (* work)  ( hb_filter_object_t *,
-                            hb_buffer_t **, hb_buffer_t ** );
+    int         (* work)      ( hb_filter_object_t *,
+                                hb_buffer_t **, hb_buffer_t ** );
 
-    void        (* close) ( hb_filter_object_t * );
-    int         (* info)  ( hb_filter_object_t *, hb_filter_info_t * );
+    void        (* close)     ( hb_filter_object_t * );
+    int         (* info)      ( hb_filter_object_t *, hb_filter_info_t * );
 
     hb_fifo_t   * fifo_in;
     hb_fifo_t   * fifo_out;

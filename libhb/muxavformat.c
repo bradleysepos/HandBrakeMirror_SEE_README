@@ -1,6 +1,6 @@
 /* muxavformat.c
 
-   Copyright (c) 2003-2014 HandBrake Team
+   Copyright (c) 2003-2015 HandBrake Team
    This file is part of the HandBrake source code
    Homepage: <http://handbrake.fr/>.
    It may be used under the terms of the GNU General Public License v2.
@@ -393,6 +393,8 @@ static int avformatInit( hb_mux_object_t * m )
         track->st->codec->time_base.num = vrate.den;
         track->st->codec->time_base.den = vrate.num;
     }
+    track->st->avg_frame_rate.num = vrate.num;
+    track->st->avg_frame_rate.den = vrate.den;
 
     /* add the audio tracks */
     for(ii = 0; ii < hb_list_count( job->list_audio ); ii++ )
@@ -423,6 +425,7 @@ static int avformatInit( hb_mux_object_t * m )
         else
         {
             track->st->codec->time_base = m->time_base;
+            track->st->time_base = m->time_base;
         }
 
         priv_data = NULL;
@@ -779,7 +782,7 @@ static int avformatInit( hb_mux_object_t * m )
         {
             hb_attachment_t * attachment = hb_list_item( list_attachment, i );
 
-            if (attachment->type == FONT_TTF_ATTACH &&
+            if ((attachment->type == FONT_TTF_ATTACH || attachment->type == FONT_OTF_ATTACH) &&
                 attachment->size > 0)
             {
                 AVStream *st = avformat_new_stream(m->oc, NULL);
@@ -791,7 +794,15 @@ static int avformatInit( hb_mux_object_t * m )
                 avcodec_get_context_defaults3(st->codec, NULL);
 
                 st->codec->codec_type = AVMEDIA_TYPE_ATTACHMENT;
-                st->codec->codec_id = AV_CODEC_ID_TTF;
+                if (attachment->type == FONT_TTF_ATTACH)
+                {
+                    st->codec->codec_id = AV_CODEC_ID_TTF;
+                }
+                else if (attachment->type == FONT_OTF_ATTACH)
+                {
+                    st->codec->codec_id = MKBETAG( 0 ,'O','T','F');
+                    av_dict_set(&st->metadata, "mimetype", "application/vnd.ms-opentype", 0);
+                }
 
                 priv_size = attachment->size;
                 priv_data = av_malloc(priv_size);

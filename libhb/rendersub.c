@@ -1,6 +1,6 @@
 /* rendersub.c
 
-   Copyright (c) 2003-2014 HandBrake Team
+   Copyright (c) 2003-2015 HandBrake Team
    This file is part of the HandBrake source code
    Homepage: <http://handbrake.fr/>.
    It may be used under the terms of the GNU General Public License v2.
@@ -75,6 +75,8 @@ static void pgssub_close( hb_filter_object_t * filter );
 static int hb_rendersub_init( hb_filter_object_t * filter,
                                  hb_filter_init_t * init );
 
+static int hb_rendersub_post_init( hb_filter_object_t * filter, hb_job_t *job );
+
 static int hb_rendersub_work( hb_filter_object_t * filter,
                                  hb_buffer_t ** buf_in,
                                  hb_buffer_t ** buf_out );
@@ -88,6 +90,7 @@ hb_filter_object_t hb_filter_render_sub =
     .name          = "Subtitle renderer",
     .settings      = NULL,
     .init          = hb_rendersub_init,
+    .post_init     = hb_rendersub_post_init,
     .work          = hb_rendersub_work,
     .close         = hb_rendersub_close,
 };
@@ -469,7 +472,8 @@ static int ssa_init( hb_filter_object_t * filter,
     {
         hb_attachment_t * attachment = hb_list_item( list_attachment, i );
 
-        if ( attachment->type == FONT_TTF_ATTACH )
+        if ( attachment->type == FONT_TTF_ATTACH ||
+             attachment->type == FONT_OTF_ATTACH )
         {
             ass_add_font(
                 pv->ssa,
@@ -826,13 +830,14 @@ static int pgssub_work( hb_filter_object_t * filter,
 }
 
 static int hb_rendersub_init( hb_filter_object_t * filter,
-                                 hb_filter_init_t * init )
+                              hb_filter_init_t * init )
 {
     filter->private_data = calloc( 1, sizeof(struct hb_filter_private_s) );
     hb_filter_private_t * pv = filter->private_data;
     hb_subtitle_t *subtitle;
     int ii;
 
+    pv->crop[0] = pv->crop[1] = pv->crop[2] = pv->crop[3] = -1;
     if( filter->settings )
     {
         sscanf( filter->settings, "%d:%d:%d:%d",
@@ -891,6 +896,22 @@ static int hb_rendersub_init( hb_filter_object_t * filter,
             return 1;
         } break;
     }
+}
+
+static int hb_rendersub_post_init( hb_filter_object_t * filter, hb_job_t *job )
+{
+    hb_filter_private_t * pv = filter->private_data;
+
+    if (pv->crop[0] == -1)
+        pv->crop[0] = job->crop[0];
+    if (pv->crop[1] == -1)
+        pv->crop[1] = job->crop[1];
+    if (pv->crop[2] == -1)
+        pv->crop[2] = job->crop[2];
+    if (pv->crop[3] == -1)
+        pv->crop[3] = job->crop[3];
+
+    return 0;
 }
 
 static int hb_rendersub_work( hb_filter_object_t * filter,

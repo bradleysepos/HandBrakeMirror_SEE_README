@@ -1,6 +1,6 @@
 /* qsv_common.h
  *
- * Copyright (c) 2003-2014 HandBrake Team
+ * Copyright (c) 2003-2015 HandBrake Team
  * This file is part of the HandBrake source code.
  * Homepage: <http://handbrake.fr/>.
  * It may be used under the terms of the GNU General Public License v2.
@@ -53,7 +53,7 @@ typedef struct hb_qsv_info_s
 #define HB_QSV_CAP_OPTION2_BREFTYPE  (1LL << 23)
 #define HB_QSV_CAP_OPTION2_IB_ADAPT  (1LL << 24)
 #define HB_QSV_CAP_OPTION2_LA_DOWNS  (1LL << 25)
-#define HB_QSV_CAP_OPTION2_NMBSLICE  (1LL << 26)
+#define HB_QSV_CAP_OPTION2_NMPSLICE  (1LL << 26)
 
     // TODO: add maximum encode resolution, etc.
 } hb_qsv_info_t;
