@@ -131,6 +131,10 @@ struct hb_filter_private_s
     int    nframes[3];     // temporal search depth in frames
     int    prefilter[3];   // prefilter mode, can improve weight analysis
 
+    float  exptable[3][NLMEANS_EXPSIZE];
+    float  weight_fact_table[3];
+    int    diff_max[3];
+
     NLMeansFunctions functions;
 
     Frame      *frame;
@@ -622,7 +626,10 @@ static void nlmeans_plane(NLMeansFunctions *functions,
                           double h_param,
                           double origin_tune,
                           int n,
-                          int r)
+                          int r,
+                    const float *exptable,
+                    const float  weight_fact_table,
+                    const int    diff_max)
 {
     int n_half = (n-1) /2;
     int r_half = (r-1) /2;
@@ -640,19 +647,6 @@ static void nlmeans_plane(NLMeansFunctions *functions,
     int integral_stride = w + 2 * 16;
     uint32_t *integral_mem = calloc(integral_stride * (h+1), sizeof(uint32_t));
     uint32_t *integral     = integral_mem + integral_stride + 16;
-
-    // Precompute exponential table
-    float exptable[NLMEANS_EXPSIZE];
-    const float weight_factor       = 1.0/n/n / (h_param * h_param);
-    const float min_weight_in_table = 0.0005;
-    const float stretch             = NLMEANS_EXPSIZE / (-log(min_weight_in_table));
-    const float weight_fact_table   = weight_factor * stretch;
-    const int   diff_max            = NLMEANS_EXPSIZE / weight_fact_table;
-    for (int i = 0; i < NLMEANS_EXPSIZE; i++)
-    {
-        exptable[i] = exp(-i/stretch);
-    }
-    exptable[NLMEANS_EXPSIZE-1] = 0;
 
     // Iterate through available frames
     for (int f = 0; f < nframes; f++)
@@ -834,6 +828,21 @@ static int nlmeans_init(hb_filter_object_t *filter,
         if (pv->prefilter[c] < 0)       { pv->prefilter[c] = 0; }
 
         if (pv->max_frames < pv->nframes[c]) pv->max_frames = pv->nframes[c];
+
+        // Precompute exponential table
+        float *exptable = &pv->exptable[c][0];
+        float *weight_fact_table = &pv->weight_fact_table[c];
+        int   *diff_max = &pv->diff_max[c];
+        const float weight_factor        = 1.0/pv->patch_size[c]/pv->patch_size[c] / (pv->strength[c] * pv->strength[c]);
+        const float min_weight_in_table  = 0.0005;
+        const float stretch              = NLMEANS_EXPSIZE / (-log(min_weight_in_table));
+        *(weight_fact_table)             = weight_factor * stretch;
+        *(diff_max)                      = NLMEANS_EXPSIZE / *(weight_fact_table);
+        for (int i = 0; i < NLMEANS_EXPSIZE; i++)
+        {
+            exptable[i] = exp(-i/stretch);
+        }
+        exptable[NLMEANS_EXPSIZE-1] = 0;
     }
 
     pv->thread_count = hb_get_cpu_count();
@@ -978,7 +987,10 @@ static void nlmeans_filter_thread(void *thread_args_v)
                           pv->strength[c],
                           pv->origin_tune[c],
                           pv->patch_size[c],
-                          pv->range[c]);
+                          pv->range[c],
+                          pv->exptable[c],
+                          pv->weight_fact_table[c],
+                          pv->diff_max[c]);
         }
         buf->s = pv->frame[segment].s;
         thread_data->out = buf;
@@ -1113,7 +1125,10 @@ static hb_buffer_t * nlmeans_filter_flush(hb_filter_private_t *pv)
                           pv->strength[c],
                           pv->origin_tune[c],
                           pv->patch_size[c],
-                          pv->range[c]);
+                          pv->range[c],
+                          pv->exptable[c],
+                          pv->weight_fact_table[c],
+                          pv->diff_max[c]);
         }
         buf->s = frame->s;
         if (out == NULL)
