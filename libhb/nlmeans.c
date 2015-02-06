@@ -170,7 +170,7 @@ static void nlmeans_border(uint8_t *src,
                            int h,
                            int border)
 {
-    int bw = w + 2 * border;
+    const int bw = w + 2 * border;
     uint8_t *image = src + border + bw * border;
 
     // Create faux borders using edge pixels
@@ -196,11 +196,14 @@ static void nlmeans_deborder(BorderedPlane *src,
                              int s,
                              int h)
 {
-    int bw = src->w + 2 * src->border;
+    const int bw = src->w + 2 * src->border;
     uint8_t *image = src->mem + src->border + bw * src->border;
+
     int width = w;
     if (src->w < width)
+    {
         width = src->w;
+    }
 
     // Copy main image
     for (int y = 0; y < h; y++)
@@ -217,8 +220,8 @@ static void nlmeans_alloc(uint8_t *src,
                           BorderedPlane *dst,
                           int border)
 {
-    int bw = src_w + 2 * border;
-    int bh = src_h + 2 * border;
+    const int bw = src_w + 2 * border;
+    const int bh = src_h + 2 * border;
 
     uint8_t *mem   = malloc(bw * bh * sizeof(uint8_t));
     uint8_t *image = mem + border + bw * border;
@@ -250,11 +253,11 @@ static void nlmeans_filter_mean(uint8_t *src,
 {
 
     // Mean filter
-    int bw = w + 2 * border;
-    int offset_min = -((size - 1) /2);
-    int offset_max =   (size + 1) /2;
+    const int bw = w + 2 * border;
+    const int offset_min = -((size - 1) /2);
+    const int offset_max =   (size + 1) /2;
+    const double pixel_weight = 1.0 / (size * size);
     uint16_t pixel_sum;
-    double pixel_weight = 1.0 / (size * size);
     for (int y = 0; y < h; y++)
     {
         for (int x = 0; x < w; x++)
@@ -345,9 +348,9 @@ static void nlmeans_filter_median(uint8_t *src,
                                   int size)
 {
     // Median filter
-    int bw = w + 2 * border;
-    int offset_min = -((size - 1) /2);
-    int offset_max =   (size + 1) /2;
+    const int bw = w + 2 * border;
+    const int offset_min = -((size - 1) /2);
+    const int offset_max =   (size + 1) /2;
     int index;
     uint8_t pixels[size * size];
     for (int y = 0; y < h; y++)
@@ -375,19 +378,19 @@ static void nlmeans_filter_edgeboost(uint8_t *src,
                                      int h,
                                      int border)
 {
-    int bw = w + 2 * border;
-    int bh = h + 2 * border;
+    const int bw = w + 2 * border;
+    const int bh = h + 2 * border;
 
     // Custom kernel
-    int kernel_size = 3;
-    int kernel[3][3] = {{-31, 0, 31},
-                        {-44, 0, 44},
-                        {-31, 0, 31}};
-    double kernel_coef = 1.0 / 126.42;
+    const int kernel_size = 3;
+    const int kernel[3][3] = {{-31, 0, 31},
+                              {-44, 0, 44},
+                              {-31, 0, 31}};
+    const double kernel_coef = 1.0 / 126.42;
 
     // Detect edges
-    int offset_min = -((kernel_size - 1) /2);
-    int offset_max =   (kernel_size + 1) /2;
+    const int offset_min = -((kernel_size - 1) /2);
+    const int offset_max =   (kernel_size + 1) /2;
     uint16_t pixel1;
     uint16_t pixel2;
     uint8_t *mask_mem = calloc(bw * bh, sizeof(uint8_t));
@@ -491,11 +494,11 @@ static void nlmeans_prefilter(BorderedPlane *src,
         // Source image
         uint8_t *mem   = src->mem;
         uint8_t *image = src->image;
-        int border     = src->border;
-        int w          = src->w;
-        int h          = src->h;
-        int bw         = w + 2 * border;
-        int bh         = h + 2 * border;
+        const int border     = src->border;
+        const int w          = src->w;
+        const int h          = src->h;
+        const int bw         = w + 2 * border;
+        const int bh         = h + 2 * border;
 
         // Duplicate plane
         uint8_t *mem_pre = malloc(bw * bh * sizeof(uint8_t));
@@ -631,20 +634,20 @@ static void nlmeans_plane(NLMeansFunctions *functions,
                     const float  weight_fact_table,
                     const int    diff_max)
 {
-    int n_half = (n-1) /2;
-    int r_half = (r-1) /2;
+    const int n_half = (n-1) /2;
+    const int r_half = (r-1) /2;
 
     // Source image
     uint8_t *src     = frame[0].plane[plane].image;
     uint8_t *src_pre = frame[0].plane[plane].image_pre;
-    int border       = frame[0].plane[plane].border;
-    int src_w        = frame[0].plane[plane].w + 2 * border;
+    const int border = frame[0].plane[plane].border;
+    const int src_w  = frame[0].plane[plane].w + 2 * border;
 
     // Allocate temporary pixel sums
     struct PixelSum *tmp_data = calloc(w * h, sizeof(struct PixelSum));
 
     // Allocate integral image
-    int integral_stride = w + 2 * 16;
+    const int integral_stride = w + 2 * 16;
     uint32_t *integral_mem = calloc(integral_stride * (h+1), sizeof(uint32_t));
     uint32_t *integral     = integral_mem + integral_stride + 16;
 
@@ -656,8 +659,8 @@ static void nlmeans_plane(NLMeansFunctions *functions,
         // Compare image
         uint8_t *compare     = frame[f].plane[plane].image;
         uint8_t *compare_pre = frame[f].plane[plane].image_pre;
-        int border           = frame[f].plane[plane].border;
-        int compare_w        = frame[f].plane[plane].w + 2 * border;
+        const int border     = frame[f].plane[plane].border;
+        const int compare_w  = frame[f].plane[plane].w + 2 * border;
 
         // Iterate through all displacements
         for (int dy = -r_half; dy <= r_half; dy++)
@@ -703,19 +706,19 @@ static void nlmeans_plane(NLMeansFunctions *functions,
 
                     for (int x = 0; x <= w-n; x++)
                     {
-                        int xc = x + n_half;
-                        int yc = y + n_half;
+                        const int xc = x + n_half;
+                        const int yc = y + n_half;
 
                         // Difference between patches
-                        int diff = (uint32_t)(integral_ptr2[n] - integral_ptr2[0] - integral_ptr1[n] + integral_ptr1[0]);
+                        const int diff = (uint32_t)(integral_ptr2[n] - integral_ptr2[0] - integral_ptr1[n] + integral_ptr1[0]);
 
                         // Sum pixel with weight
                         if (diff < diff_max)
                         {
-                            int diffidx = diff * weight_fact_table;
+                            const int diffidx = diff * weight_fact_table;
 
                             //float weight = exp(-diff*weightFact);
-                            float weight = exptable[diffidx];
+                            const float weight = exptable[diffidx];
 
                             tmp_data[yc*w + xc].weight_sum += weight;
                             tmp_data[yc*w + xc].pixel_sum  += weight * compare[(yc+dy)*compare_w + xc + dx];
@@ -1024,7 +1027,9 @@ static void nlmeans_add_frame(hb_filter_private_t *pv, hb_buffer_t *buf)
 static hb_buffer_t * nlmeans_filter(hb_filter_private_t *pv)
 {
     if (pv->next_frame < pv->max_frames + pv->thread_count)
+    {
         return NULL;
+    }
 
     taskset_cycle(&pv->taskset);
 
@@ -1111,7 +1116,9 @@ static hb_buffer_t * nlmeans_filter_flush(hb_filter_private_t *pv)
 
             int nframes = pv->next_frame - f;
             if (pv->nframes[c] < nframes)
+            {
                 nframes = pv->nframes[c];
+            }
             // Process current plane
             nlmeans_plane(functions,
                           frame,
