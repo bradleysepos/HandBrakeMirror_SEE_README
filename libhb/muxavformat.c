@@ -32,6 +32,8 @@ struct hb_mux_data_s
 
     int64_t  prev_chapter_tc;
     int16_t  current_chapter;
+
+    AVBitStreamFilterContext* bitstream_filter;
 };
 
 struct hb_mux_object_s
@@ -46,7 +48,7 @@ struct hb_mux_object_s
     int                 ntracks;
     hb_mux_data_t    ** tracks;
 
-    int64_t             delay;
+    int64_t             chapter_delay;
 };
 
 enum
@@ -128,7 +130,6 @@ static int avformatInit( hb_mux_object_t * m )
     char *lang;
 
 
-    m->delay = AV_NOPTS_VALUE;
     max_tracks = 1 + hb_list_count( job->list_audio ) +
                      hb_list_count( job->list_subtitle );
 
@@ -195,6 +196,7 @@ static int avformatInit( hb_mux_object_t * m )
     job->mux_data = track;
 
     track->type = MUX_TYPE_VIDEO;
+    track->prev_chapter_tc = AV_NOPTS_VALUE;
     track->st = avformat_new_stream(m->oc, NULL);
     if (track->st == NULL)
     {
@@ -499,11 +501,6 @@ static int avformatInit( hb_mux_object_t * m )
             case HB_ACODEC_FDK_HAAC:
                 track->st->codec->codec_id = AV_CODEC_ID_AAC;
 
-                // TODO: fix AAC in TS parsing.  We need to fill
-                // extradata with AAC config. Some players will play
-                // an AAC stream that is missing extradata and some
-                // will not.
-                //
                 // libav mkv muxer expects there to be extradata for
                 // AAC and will crash if it is NULL.  So allocate extra
                 // byte so that av_malloc does not return NULL when length
@@ -518,6 +515,15 @@ static int avformatInit( hb_mux_object_t * m )
                 memcpy(priv_data,
                        audio->priv.config.extradata.bytes,
                        audio->priv.config.extradata.length);
+
+                // AAC from pass-through source may be ADTS.
+                // Therefore inserting "aac_adtstoasc" bitstream filter is
+                // preferred.
+                // The filter does nothing for non-ADTS bitstream.
+                if (audio->config.out.codec == HB_ACODEC_AAC_PASS)
+                {
+                    track->bitstream_filter = av_bitstream_filter_init("aac_adtstoasc");
+                }
                 break;
             default:
                 hb_error("muxavformat: Unknown audio codec: %x",
@@ -951,30 +957,15 @@ static int add_chapter(hb_mux_object_t *m, int64_t start, int64_t end, char * ti
 
     chap->id = nchap;
     chap->time_base = m->time_base;
-    chap->start = start;
+    // libav does not currently have a good way to deal with chapters and
+    // delayed stream timestamps.  It makes no corrections to the chapter 
+    // track.  A patch to libav would touch a lot of things, so for now,
+    // work around the issue here.
+    chap->start = start + m->chapter_delay;
     chap->end = end;
     av_dict_set(&chap->metadata, "title", title, 0);
 
     return 0;
-}
-
-// Video with b-frames and certain audio types require a lead-in delay.
-// Compute the max delay and offset all timestamps by this amount.
-//
-// For mp4, avformat will automatically put entries in the edts atom
-// to account for the offset of the first dts in each track.
-static void computeDelay(hb_mux_object_t *m)
-{
-    int ii;
-    hb_audio_t    * audio;
-
-    m->delay = m->job->config.h264.init_delay;
-    for(ii = 0; ii < hb_list_count( m->job->list_audio ); ii++ )
-    {
-        audio = hb_list_item( m->job->list_audio, ii );
-        if (audio->config.out.delay > m->delay)
-            m->delay = audio->config.out.delay;
-    }
 }
 
 static int avformatMux(hb_mux_object_t *m, hb_mux_data_t *track, hb_buffer_t *buf)
@@ -984,19 +975,20 @@ static int avformatMux(hb_mux_object_t *m, hb_mux_data_t *track, hb_buffer_t *bu
     hb_job_t *job     = m->job;
     uint8_t sub_out[2048];
 
-    if (m->delay == AV_NOPTS_VALUE)
+    if (track->type == MUX_TYPE_VIDEO &&
+        track->prev_chapter_tc == AV_NOPTS_VALUE)
     {
-        computeDelay(m);
+        // Chapter timestamps are biased the same as video timestamps.
+        // This needs to be reflected in the initial chapter timestamp.
+        //
+        // TODO: Don't assume the first chapter is at 0.  Pass the first
+        // chapter through the pipeline instead of dropping it as we
+        // currently do.
+        m->chapter_delay = av_rescale_q(m->job->config.h264.init_delay,
+                                        (AVRational){1,90000},
+                                        track->st->time_base);
+        track->prev_chapter_tc = -m->chapter_delay;
     }
-
-    if (buf != NULL)
-    {
-        if (buf->s.start != AV_NOPTS_VALUE)
-            buf->s.start += m->delay;
-        if (buf->s.renderOffset != AV_NOPTS_VALUE)
-            buf->s.renderOffset += m->delay;
-    }
-
     // We only compute dts duration for MP4 files
     if (track->type == MUX_TYPE_VIDEO && (job->mux & HB_MUX_MASK_MP4))
     {
@@ -1208,6 +1200,11 @@ static int avformatMux(hb_mux_object_t *m, hb_mux_data_t *track, hb_buffer_t *bu
     }
     track->duration = pts + pkt.duration;
 
+    if (track->bitstream_filter)
+    {
+        av_bitstream_filter_filter(track->bitstream_filter, track->st->codec, NULL, &pkt.data, &pkt.size, pkt.data, pkt.size, 0);
+    }
+
     pkt.stream_index = track->st->index;
     int ret = av_interleaved_write_frame(m->oc, &pkt);
     // Many avformat muxer functions do not check the error status
@@ -1246,6 +1243,11 @@ static int avformatEnd(hb_mux_object_t *m)
     for (ii = 0; ii < m->ntracks; ii++)
     {
         avformatMux(m, m->tracks[ii], NULL);
+
+        if (m->tracks[ii]->bitstream_filter)
+        {
+            av_bitstream_filter_close(m->tracks[ii]->bitstream_filter);
+        }
     }
 
     if (job->chapter_markers)
