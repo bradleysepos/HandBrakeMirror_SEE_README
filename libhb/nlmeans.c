@@ -600,9 +600,11 @@ static void build_integral_scalar(uint32_t *integral,
 
         for (int x = 0; x < dst_w; x++)
         {
-            int diff = *p1++ - *p2++;
+            int diff = *p1 - *p2;
             *out = *(out-1) + diff * diff;
             out++;
+            p1++;
+            p2++;
         }
 
         if (y > 0)
