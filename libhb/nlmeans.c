@@ -492,8 +492,8 @@ static void nlmeans_prefilter(BorderedPlane *src,
     {
 
         // Source image
-        uint8_t *mem   = src->mem;
-        uint8_t *image = src->image;
+        const uint8_t *mem   = src->mem;
+        const uint8_t *image = src->image;
         const int border     = src->border;
         const int w          = src->w;
         const int h          = src->h;
@@ -641,8 +641,8 @@ static void nlmeans_plane(NLMeansFunctions *functions,
     const int r_half = (r-1) /2;
 
     // Source image
-    uint8_t *src     = frame[0].plane[plane].image;
-    uint8_t *src_pre = frame[0].plane[plane].image_pre;
+    const uint8_t *src     = frame[0].plane[plane].image;
+    const uint8_t *src_pre = frame[0].plane[plane].image_pre;
     const int w      = frame[0].plane[plane].w;
     const int border = frame[0].plane[plane].border;
     const int bw     = w + 2 * border;
@@ -651,9 +651,9 @@ static void nlmeans_plane(NLMeansFunctions *functions,
     struct PixelSum *tmp_data = calloc(dst_w * dst_h, sizeof(struct PixelSum));
 
     // Allocate integral image
-    const int integral_stride = dst_w + 2 * 16;
-    uint32_t *integral_mem = calloc(integral_stride * (dst_h+1), sizeof(uint32_t));
-    uint32_t *integral     = integral_mem + integral_stride + 16;
+    const int integral_stride    = dst_w + 2 * 16;
+    uint32_t* const integral_mem = calloc(integral_stride * (dst_h+1), sizeof(uint32_t));
+    uint32_t* const integral     = integral_mem + integral_stride + 16;
 
     // Iterate through available frames
     for (int f = 0; f < nframes; f++)
@@ -661,8 +661,8 @@ static void nlmeans_plane(NLMeansFunctions *functions,
         nlmeans_prefilter(&frame[f].plane[plane], prefilter);
 
         // Compare image
-        uint8_t *compare     = frame[f].plane[plane].image;
-        uint8_t *compare_pre = frame[f].plane[plane].image_pre;
+        const uint8_t *compare     = frame[f].plane[plane].image;
+        const uint8_t *compare_pre = frame[f].plane[plane].image_pre;
 
         // Iterate through all displacements
         for (int dy = -r_half; dy <= r_half; dy++)
