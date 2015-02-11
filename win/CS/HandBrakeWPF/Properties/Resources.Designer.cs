@@ -430,7 +430,7 @@ namespace HandBrakeWPF.Properties {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to ,  Pending Jobs {5}.
+        ///   Looks up a localized string similar to    Pending Jobs {5}.
         /// </summary>
         public static string Main_JobsPending_addon {
             get {
@@ -690,6 +690,16 @@ namespace HandBrakeWPF.Properties {
         public static string Main_SetDestination {
             get {
                 return ResourceManager.GetString("Main_SetDestination", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to You cannot overwrite the source file you want to convert.
+        ///Please choose a different filename..
+        /// </summary>
+        public static string Main_SourceDestinationMatchError {
+            get {
+                return ResourceManager.GetString("Main_SourceDestinationMatchError", resourceCulture);
             }
         }
         
