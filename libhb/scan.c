@@ -497,6 +497,7 @@ static int DecodePreviews( hb_scan_t * data, hb_title_t * title, int flush )
     int interlaced_preview_count = 0;
     int frame_wait = 0;
     int cc_wait = 10;
+    int frames;
     hb_stream_t  * stream = NULL;
     info_list_t * info_list = calloc( data->preview_count+1, sizeof(*info_list) );
     crop_record_t *crops = crop_record_init( data->preview_count );
@@ -611,6 +612,14 @@ static int DecodePreviews( hb_scan_t * data, hb_title_t * title, int flush )
                 frame_wait = 10;
             }
         }
+        else
+        {
+            // For certain mpeg-2 streams, libav is delivering a
+            // dummy first frame that is all black.  So always skip
+            // one frame
+            frame_wait = 1;
+        }
+        frames = 0;
 
         hb_buffer_t * vid_buf = NULL;
 
@@ -693,7 +702,7 @@ static int DecodePreviews( hb_scan_t * data, hb_title_t * title, int flush )
                     //    additional frames to find the CCs.
                     if (vid_buf != NULL && (frame_wait || cc_wait))
                     {
-                        if (vid_buf->s.frametype == HB_FRAME_I)
+                        if (frames > 0 && vid_buf->s.frametype == HB_FRAME_I)
                             frame_wait = 0;
                         if (frame_wait || cc_wait)
                         {
@@ -701,6 +710,7 @@ static int DecodePreviews( hb_scan_t * data, hb_title_t * title, int flush )
                             if (frame_wait) frame_wait--;
                             if (cc_wait) cc_wait--;
                         }
+                        frames++;
                     }
                 }
                 else if( ! AllAudioOK( title ) ) 
@@ -1111,6 +1121,7 @@ static void LookForAudio( hb_title_t * title, hb_buffer_t * b )
     hb_fifo_close( &audio->priv.scan_cache );
 
     audio->config.in.samplerate = info.rate.num;
+    audio->config.in.sample_bit_depth = info.sample_bit_depth;
     audio->config.in.samples_per_frame = info.samples_per_frame;
     audio->config.in.bitrate = info.bitrate;
     audio->config.in.matrix_encoding = info.matrix_encoding;
@@ -1179,6 +1190,15 @@ static void LookForAudio( hb_title_t * title, hb_buffer_t * b )
         {
             switch (audio->config.in.codec)
             {
+                case HB_ACODEC_AC3:
+                    codec_name = "AC3";
+                    break;
+                case HB_ACODEC_FFEAC3:
+                    codec_name = "E-AC3";
+                    break;
+                case HB_ACODEC_FFTRUEHD:
+                    codec_name = "TrueHD";
+                    break;
                 case HB_ACODEC_DCA:
                     codec_name = "DTS";
                     break;
@@ -1187,6 +1207,9 @@ static void LookForAudio( hb_title_t * title, hb_buffer_t * b )
                     break;
                 case HB_ACODEC_FFAAC:
                     codec_name = "AAC";
+                    break;
+                case HB_ACODEC_FFFLAC:
+                    codec_name = "FLAC";
                     break;
                 case HB_ACODEC_MP3:
                     codec_name = "MP3";
