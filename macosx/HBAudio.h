@@ -13,7 +13,7 @@
 
 extern NSString *HBAudioChangedNotification;
 
-@interface HBAudio : NSObject <NSCoding, NSCopying, HBPresetCoding>
+@interface HBAudio : NSObject <NSSecureCoding, NSCopying, HBPresetCoding>
 
 - (instancetype)initWithTitle:(HBTitle *)title;
 
@@ -34,7 +34,7 @@ extern NSString *HBAudioChangedNotification;
 
 @interface HBAudio (KVC)
 
-- (NSUInteger)countOfTracks;
+@property (nonatomic, readonly) NSUInteger countOfTracks;
 - (HBAudioTrack *)objectInTracksAtIndex:(NSUInteger)index;
 - (void)insertObject:(HBAudioTrack *)track inTracksAtIndex:(NSUInteger)index;
 - (void)removeObjectFromTracksAtIndex:(NSUInteger)index;

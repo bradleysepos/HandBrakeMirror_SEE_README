@@ -7,6 +7,10 @@
    For full terms see the file COPYING file or visit http://www.gnu.org/licenses/gpl-2.0.html
  */
 
+#ifdef SYS_MINGW
+#define _WIN32_WINNT 0x600
+#endif
+
 #ifdef USE_PTHREAD
 #ifdef SYS_LINUX
 #define _GNU_SOURCE
@@ -50,6 +54,7 @@
 #include <wchar.h>
 #include <mbctype.h>
 #include <locale.h>
+#include <shlobj.h>
 #endif
 
 #ifdef SYS_SunOS
@@ -490,6 +495,92 @@ int hb_platform_init()
     init_cpu_info();
 
     return result;
+}
+
+/************************************************************************
+ * Get app data config directory
+ ***********************************************************************/
+void hb_get_user_config_directory( char path[512] )
+{
+    /* Create the base */
+#if defined( SYS_CYGWIN ) || defined( SYS_MINGW )
+#ifndef CSIDL_FLAG_DONT_UNEXPAND
+    /*
+     * XXX: some old MinGW toolchains don't have SHGetKnownFolderPath.
+     *
+     * SHGetFolderPath is deprecated, but this should be no problem in practice.
+     *
+     * Note: explicitly call the Unicode/WCHAR function SHGetFolderPathW.
+     */
+    WCHAR wide_path[MAX_PATH];
+
+    if (SHGetFolderPathW(NULL, CSIDL_APPDATA, NULL, SHGFP_TYPE_CURRENT, wide_path) == S_OK &&
+        WideCharToMultiByte(CP_UTF8, 0, wide_path, -1, path, 512, NULL, NULL) != 0)
+    {
+        path[511] = 0;
+        return;
+    }
+#else
+    WCHAR *wide_path;
+
+    if (SHGetKnownFolderPath(&FOLDERID_RoamingAppData, 0, NULL, &wide_path) == S_OK &&
+        WideCharToMultiByte(CP_UTF8, 0, wide_path, -1, path, 512, NULL, NULL) != 0)
+    {
+        CoTaskMemFree(wide_path);
+        path[511] = 0;
+        return;
+    }
+    else if (wide_path != NULL)
+    {
+        CoTaskMemFree(wide_path);
+    }
+#endif // !defined CSIDL_FLAG_DONT_UNEXPAND
+#elif defined( SYS_LINUX )
+    char *p;
+
+    if ((p = getenv("XDG_CONFIG_HOME")) != NULL)
+    {
+        strncpy(path, p, 511);
+        path[511] = 0;
+        return;
+    }
+    else if ((p = getenv("HOME")) != NULL)
+    {
+        strncpy(path, p, 511);
+        path[511] = 0;
+        int len = strlen(path);
+        strncpy(path + len, "/.config", 511 - len - 1);
+        path[511] = 0;
+        return;
+    }
+#elif defined( __APPLE__ )
+    if (osx_get_user_config_directory(path) == 0)
+    {
+        return;
+    }
+#endif
+
+    hb_error("Failed to lookup user config directory!");
+    path[0] = 0;
+}
+
+/************************************************************************
+ * Get a user config filename for HB
+ ***********************************************************************/
+void hb_get_user_config_filename( char name[1024], char *fmt, ... )
+{
+    va_list args;
+
+    hb_get_user_config_directory( name );
+#if defined( SYS_CYGWIN ) || defined( SYS_MINGW )
+    strcat( name, "\\" );
+#else
+    strcat( name, "/" );
+#endif
+
+    va_start( args, fmt );
+    vsnprintf( &name[strlen(name)], 1024 - strlen(name), fmt, args );
+    va_end( args );
 }
 
 /************************************************************************
@@ -1015,6 +1106,11 @@ void hb_clock_gettime( struct timespec *tp )
     tp->tv_nsec = tv.tv_usec * 1000;
 }
 
+void hb_yield(void)
+{
+    sched_yield();
+}
+
 void hb_cond_timedwait( hb_cond_t * c, hb_lock_t * lock, int msec )
 {
 #if defined( SYS_BEOS )
@@ -1146,33 +1242,6 @@ void hb_net_close( hb_net_t ** _n )
     free( n );
     *_n = NULL;
 }
-
-#ifdef SYS_MINGW
-char *strtok_r(char *s, const char *delim, char **save_ptr) 
-{
-    char *token;
-
-    if (s == NULL) s = *save_ptr;
-
-    /* Scan leading delimiters.  */
-    s += strspn(s, delim);
-    if (*s == '\0') return NULL;
-
-    /* Find the end of the token.  */
-    token = s;
-    s = strpbrk(token, delim);
-    if (s == NULL)
-        /* This token finishes the string.  */
-        *save_ptr = strchr(token, '\0');
-    else {
-        /* Terminate the token and make *SAVE_PTR point past it.  */
-        *s = '\0';
-        *save_ptr = s + 1;
-    }
-
-    return token;
-}
-#endif
 
 /************************************************************************
 * OS Sleep Allow / Prevent

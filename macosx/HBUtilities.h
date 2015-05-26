@@ -9,10 +9,14 @@
 @interface HBUtilities : NSObject
 
 /**
- *  Returns the path of the current <user>/Library/Application Support/HandBrake folder.
+ *  Returns a formatted string that contains the application version.
  */
-+ (NSString *)appSupportPath;
++ (NSString *)handBrakeVersion;
 
+/**
+ *  Returns the url of the current <user>/Library/Application Support/HandBrake folder.
+ */
++ (NSURL *)appSupportURL;
 /**
  *  Writes a message to standard error.
  *  The message will show up in the output panel and in the activity log.

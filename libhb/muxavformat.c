@@ -352,7 +352,7 @@ static int avformatInit( hb_mux_object_t * m )
     track->st->disposition |= AV_DISPOSITION_DEFAULT;
 
     hb_rational_t vrate;
-    if( job->pass == 2 )
+    if( job->pass_id == HB_PASS_ENCODE_2ND )
     {
         hb_interjob_t * interjob = hb_interjob_get( job->h );
         vrate = interjob->vrate;
@@ -774,9 +774,13 @@ static int avformatInit( hb_mux_object_t * m )
         track->st->codec->extradata = priv_data;
         track->st->codec->extradata_size = priv_size;
 
-        if ( ii == subtitle_default )
+        if (ii == subtitle_default)
         {
             track->st->disposition |= AV_DISPOSITION_DEFAULT;
+        }
+        if (subtitle->config.default_track)
+        {
+            track->st->disposition |= AV_DISPOSITION_FORCED;
         }
 
         lang = lookup_lang_code(job->mux, subtitle->iso639_2 );
@@ -909,6 +913,11 @@ static int avformatInit( hb_mux_object_t * m )
     snprintf(tool_string, sizeof(tool_string), "HandBrake %s %i",
              HB_PROJECT_VERSION, HB_PROJECT_BUILD);
     av_dict_set(&m->oc->metadata, "encoding_tool", tool_string, 0);
+    time_t now = time(NULL);
+    struct tm * now_utc = gmtime(&now);
+    char now_8601[24];
+    strftime(now_8601, sizeof(now_8601), "%Y-%m-%dT%H:%M:%SZ", now_utc);
+    av_dict_set(&m->oc->metadata, "creation_time", now_8601, 0);
 
     ret = avformat_write_header(m->oc, &av_opts);
     if( ret < 0 )

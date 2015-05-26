@@ -18,9 +18,8 @@
 /// The HBCore used for encoding.
 @property (nonatomic, readonly) HBCore *core;
 
-@property (nonatomic, assign) HBController *controller;
-@property (nonatomic, assign) HBAppDelegate *delegate;
-@property (nonatomic, assign) HBOutputPanelController *outputPanel;
+@property (nonatomic, unsafe_unretained) HBController *controller;
+@property (nonatomic, unsafe_unretained) HBAppDelegate *delegate;
 
 @property (nonatomic, readonly) NSUInteger count;
 @property (nonatomic, readonly) NSUInteger pendingItemsCount;
@@ -32,6 +31,8 @@
 - (BOOL)jobExistAtURL:(NSURL *)url;
 
 - (void)removeAllJobs;
+- (void)removeCompletedJobs;
+
 - (void)setEncodingJobsAsPending;
 
 - (IBAction)rip:(id)sender;

@@ -9,17 +9,26 @@
 
 @implementation HBUtilities
 
-+ (NSString *)appSupportPath
++ (NSString *)handBrakeVersion
 {
-    NSString *appSupportPath = [[NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory,
-                                                                     NSUserDomainMask,
-                                                                     YES) firstObject] stringByAppendingPathComponent:@"HandBrake"];
+    NSDictionary *infoDictionary = [[NSBundle mainBundle] infoDictionary];
+    return [NSString stringWithFormat:@"Handbrake Version: %@ (%@)",
+            infoDictionary[@"CFBundleShortVersionString"],
+            infoDictionary[@"CFBundleVersion"]];
+}
 
++ (NSURL *)appSupportURL
+{
     NSFileManager *fileManager = [NSFileManager defaultManager];
-    if (![fileManager fileExistsAtPath:appSupportPath])
-        [fileManager createDirectoryAtPath:appSupportPath withIntermediateDirectories:YES attributes:nil error:NULL];
+    NSURL *appSupportURL = [[[fileManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask]
+                             firstObject] URLByAppendingPathComponent:@"HandBrake"];
 
-    return appSupportPath;
+    if (![fileManager fileExistsAtPath:appSupportURL.path])
+    {
+        [fileManager createDirectoryAtPath:appSupportURL.path withIntermediateDirectories:YES attributes:nil error:NULL];
+    }
+
+    return appSupportURL;
 }
 
 + (void)writeToActivityLog:(const char *)format, ...
@@ -45,7 +54,7 @@
                              bitrate:(int)bitrate
                           videoCodec:(uint32_t)codec
 {
-    NSMutableString *name = [[[NSMutableString alloc] init] autorelease];
+    NSMutableString *name = [[NSMutableString alloc] init];
     // The format array contains the tokens as NSString
     NSArray *format = [[NSUserDefaults standardUserDefaults] objectForKey:@"HBAutoNamingFormat"];
 
@@ -113,7 +122,7 @@
             else
             {
                 // Append the right quality suffix for the selected codec (rf/qp)
-                [name appendString:[[NSString stringWithUTF8String:hb_video_quality_get_name(codec)] lowercaseString]];
+                [name appendString:[@(hb_video_quality_get_name(codec)) lowercaseString]];
                 [name appendString:[NSString stringWithFormat:@"%0.2f", quality]];
             }
         }
@@ -123,7 +132,7 @@
         }
     }
 
-    return [[name copy] autorelease];
+    return [name copy];
 }
 
 

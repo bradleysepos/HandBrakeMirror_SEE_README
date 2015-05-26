@@ -394,7 +394,7 @@ namespace HandBrakeWPF.Properties {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Please choose a destination for the file..
+        ///   Looks up a localized string similar to Please choose a destination for where you would like the encoded file to be saved..
         /// </summary>
         public static string Main_ChooseDestination {
             get {
@@ -439,7 +439,7 @@ namespace HandBrakeWPF.Properties {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to You cannot encode to a file with the same path and name as the source file. Please update the destination filename so that it does not match the source file..
+        ///   Looks up a localized string similar to You cannot encode to a file with the same path and filename as the source file. Please update the destination filename so that it does not match the source file..
         /// </summary>
         public static string Main_MatchingFileOverwriteWarning {
             get {
@@ -586,6 +586,15 @@ namespace HandBrakeWPF.Properties {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Show Queue{0}.
+        /// </summary>
+        public static string Main_QueueLabel {
+            get {
+                return ResourceManager.GetString("Main_QueueLabel", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Scan Cancelled..
         /// </summary>
         public static string Main_ScanCancelled {
@@ -613,7 +622,7 @@ namespace HandBrakeWPF.Properties {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Scan Failed... See Activity Log for details..
+        ///   Looks up a localized string similar to Scan Failed... Please See Activity Log for details..
         /// </summary>
         public static string Main_ScanFailled_CheckLog {
             get {
@@ -640,20 +649,34 @@ namespace HandBrakeWPF.Properties {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to You must first scan a source and setup your job before starting an encode..
+        ///   Looks up a localized string similar to No valid source or titles found..
         /// </summary>
-        public static string Main_ScanSource {
+        public static string Main_ScanNoTitlesFound {
             get {
-                return ResourceManager.GetString("Main_ScanSource", resourceCulture);
+                return ResourceManager.GetString("Main_ScanNoTitlesFound", resourceCulture);
             }
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to You must first scan a source and setup your job before adding to the queue..
+        ///   Looks up a localized string similar to HandBrake will not be able to encode the seleteced source as it did not find a valid source with titles to encode. 
+        ///This could be due to one of the following reasons:
+        ///- The source file is not a valid video file or is in a format that HandBrake does not support.
+        ///- The source may be copy protected or include DRM. Please note that HandBrake does not support the removal of copy protections.
+        ///
+        ///The Activity log may have further information..
         /// </summary>
-        public static string Main_ScanSourceFirst {
+        public static string Main_ScanNoTitlesFoundMessage {
             get {
-                return ResourceManager.GetString("Main_ScanSourceFirst", resourceCulture);
+                return ResourceManager.GetString("Main_ScanNoTitlesFoundMessage", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to You must first scan a source and setup your job before starting an encode. Click the &apos;Source&apos; button on the toolbar to continue..
+        /// </summary>
+        public static string Main_ScanSource {
+            get {
+                return ResourceManager.GetString("Main_ScanSource", resourceCulture);
             }
         }
         
@@ -700,6 +723,24 @@ namespace HandBrakeWPF.Properties {
         public static string Main_SourceDestinationMatchError {
             get {
                 return ResourceManager.GetString("Main_SourceDestinationMatchError", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Start.
+        /// </summary>
+        public static string Main_Start {
+            get {
+                return ResourceManager.GetString("Main_Start", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Start Queue.
+        /// </summary>
+        public static string Main_StartQueue {
+            get {
+                return ResourceManager.GetString("Main_StartQueue", resourceCulture);
             }
         }
         
@@ -901,6 +942,18 @@ namespace HandBrakeWPF.Properties {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to None - Only tracks where the container does not support the format will be burned in.
+        ///Foreign Audio Track - The Foreign Audio track will be burned in if available. 
+        ///First Track - The first track will be burned in.
+        ///Foreign Audio Preferred, else First - If the foreign audio track exists, it will be burned in, otherwise the first track will be chosen..
+        /// </summary>
+        public static string Subtitles_BurnInBehaviourModes {
+            get {
+                return ResourceManager.GetString("Subtitles_BurnInBehaviourModes", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Updated.
         /// </summary>
         public static string Updated {
@@ -910,8 +963,7 @@ namespace HandBrakeWPF.Properties {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to WARNING: This feature is experimental and has known issues. Suitable for testing only!
-        ///Accelerates H.264, MPEG-4, VC1 and WMV3 only and can provide a small improvement on low end hardware..
+        ///   Looks up a localized string similar to Accelerates H.264, MPEG-4, VC1 and WMV3  and can provide a small speed improvement on lower end hardware..
         /// </summary>
         public static string Video_DxvaDecode {
             get {
@@ -1040,7 +1092,7 @@ namespace HandBrakeWPF.Properties {
         ///So small changes in value will result in progressively larger increases or decreases in the resulting file size. 
         ///A value of 0 means lossless and will result in a file size that is larger than the original source, 
         ///unless the source was also lossless. 
-        ///Suggested values are: 18 to 20 for Standard Definiti [rest of string was truncated]&quot;;.
+        ///Suggested values are: 18 to 20 for standard definiti [rest of string was truncated]&quot;;.
         /// </summary>
         public static string Video_QualitySlider {
             get {
@@ -1049,13 +1101,13 @@ namespace HandBrakeWPF.Properties {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to QuickSync hardware not detected! 
+        ///   Looks up a localized string similar to QuickSync hardware not detected or enabled! 
         ///
         ///In order to use the QuickSync encoder, you must:
         ///
         ///- Have a Intel CPU with HD Graphics and QuickSync support. 4th Generation Haswell or newer parts are recommended for best quality.
-        ///- Have the HD Graphics enabled. 
-        ///- On older versions of windows before 8.x, a monitor connected to the HD Graphics or GPU Virtualisation software installed is also required..
+        ///- Have the HD Graphics enabled.
+        ///- On older versions of windows before 8, a monitor connected to the HD Graphics or GPU Virtualisation software installed is also required..
         /// </summary>
         public static string Video_QuickSyncNotAvailable {
             get {
@@ -1064,7 +1116,7 @@ namespace HandBrakeWPF.Properties {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to WARNING: OpenCL scaling is still in beta.  It is only available for modern graphics cards that support OpenCL 1.1 or later. It will fallback to Lanczos software scaling when it is not available for use.  Performance gain up to 5%. Minor decrease in quality in some cases..
+        ///   Looks up a localized string similar to Requires a graphics card that supports OpenCL 1.1 or later. It will fallback to Lanczos software scaling when it is not available for use. Performance gain up to 5%. Minor decrease in quality in some cases..
         /// </summary>
         public static string Video_ScalingModes {
             get {

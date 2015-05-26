@@ -270,7 +270,7 @@ x264's scale is logarithmic and lower values correspond to higher quality.
 So small changes in value will result in progressively larger increases or decreases in the resulting file size. 
 A value of 0 means lossless and will result in a file size that is larger than the original source, 
 unless the source was also lossless. 
-Suggested values are: 18 to 20 for Standard Definition and 20 to 23 for High Definition.
+Suggested values are: 18 to 20 for standard definition sources and 20 to 23 for high definition sources.
 
 x265 is a new encoder, so there are no recommended values yet. You'll have to experiment.
 
@@ -347,29 +347,25 @@ If you do not use this tab, it can be hidden from: Tools Menu &gt; Options &gt; 
     <value>Placebo Quality |</value>
   </data>
   <data name="Video_DxvaDecode" xml:space="preserve">
-    <value>WARNING: This feature is experimental and has known issues. Suitable for testing only!
-Accelerates H.264, MPEG-4, VC1 and WMV3 only and can provide a small improvement on low end hardware.</value>
+    <value>Accelerates H.264, MPEG-4, VC1 and WMV3  and can provide a small speed improvement on lower end hardware.</value>
   </data>
   <data name="Video_QuickSyncNotAvailable" xml:space="preserve">
-    <value>QuickSync hardware not detected! 
+    <value>QuickSync hardware not detected or enabled! 
 
 In order to use the QuickSync encoder, you must:
 
 - Have a Intel CPU with HD Graphics and QuickSync support. 4th Generation Haswell or newer parts are recommended for best quality.
-- Have the HD Graphics enabled. 
-- On older versions of windows before 8.x, a monitor connected to the HD Graphics or GPU Virtualisation software installed is also required.</value>
+- Have the HD Graphics enabled.
+- On older versions of windows before 8, a monitor connected to the HD Graphics or GPU Virtualisation software installed is also required.</value>
   </data>
   <data name="Video_ScalingModes" xml:space="preserve">
-    <value>WARNING: OpenCL scaling is still in beta.  It is only available for modern graphics cards that support OpenCL 1.1 or later. It will fallback to Lanczos software scaling when it is not available for use.  Performance gain up to 5%. Minor decrease in quality in some cases.</value>
+    <value>Requires a graphics card that supports OpenCL 1.1 or later. It will fallback to Lanczos software scaling when it is not available for use. Performance gain up to 5%. Minor decrease in quality in some cases.</value>
   </data>
   <data name="Error" xml:space="preserve">
     <value>Error</value>
   </data>
   <data name="Main_AutoAdd_AudioAndSubWarning" xml:space="preserve">
     <value>Warning: It is not currently possible to use this feature if you require specific subtitle or audio tracks that the automatic selection feature (see options) doesn't support! Tracks are reset with every new source / title selected.</value>
-  </data>
-  <data name="Main_ScanSourceFirst" xml:space="preserve">
-    <value>You must first scan a source and setup your job before adding to the queue.</value>
   </data>
   <data name="Main_TurnOnAutoFileNaming" xml:space="preserve">
     <value>You must turn on automatic file naming AND set a default path in preferences before you can add to the queue.</value>
@@ -387,7 +383,7 @@ In order to use the QuickSync encoder, you must:
     <value>HandBrake is already encoding.</value>
   </data>
   <data name="Main_ChooseDestination" xml:space="preserve">
-    <value>Please choose a destination for the file.</value>
+    <value>Please choose a destination for where you would like the encoded file to be saved.</value>
   </data>
   <data name="Main_DestinationOverwrite" xml:space="preserve">
     <value>The current file already exists, do you wish to overwrite it?</value>
@@ -449,7 +445,7 @@ The previous user_presets.xml file was backed up.</value>
     <value>Scan failed: </value>
   </data>
   <data name="Main_ScanFailled_CheckLog" xml:space="preserve">
-    <value>Scan Failed... See Activity Log for details.</value>
+    <value>Scan Failed... Please See Activity Log for details.</value>
   </data>
   <data name="Main_ScanningPleaseWait" xml:space="preserve">
     <value>Scanning source, please wait...</value>
@@ -458,7 +454,7 @@ The previous user_presets.xml file was backed up.</value>
     <value>Scanning Title {0} of {1} ({2}%)</value>
   </data>
   <data name="Main_ScanSource" xml:space="preserve">
-    <value>You must first scan a source and setup your job before starting an encode.</value>
+    <value>You must first scan a source and setup your job before starting an encode. Click the 'Source' button on the toolbar to continue.</value>
   </data>
   <data name="Main_SelectPreset" xml:space="preserve">
     <value>Please select a preset.</value>
@@ -529,7 +525,7 @@ Non-Live Options: {date} {time} {quality} {bitrate}  (These only change if you s
 Not both at the same time!</value>
   </data>
   <data name="Main_MatchingFileOverwriteWarning" xml:space="preserve">
-    <value>You cannot encode to a file with the same path and name as the source file. Please update the destination filename so that it does not match the source file.</value>
+    <value>You cannot encode to a file with the same path and filename as the source file. Please update the destination filename so that it does not match the source file.</value>
   </data>
   <data name="Main_UnableToLoadHelpMessage" xml:space="preserve">
     <value>Your system prevented HandBrake from launching a web browser.</value>
@@ -555,5 +551,31 @@ Please use the 'Extra Options' box on the 'Video' tab to input any additional en
   <data name="Main_SourceDestinationMatchError" xml:space="preserve">
     <value>You cannot overwrite the source file you want to convert.
 Please choose a different filename.</value>
+  </data>
+  <data name="Subtitles_BurnInBehaviourModes" xml:space="preserve">
+    <value>None - Only tracks where the container does not support the format will be burned in.
+Foreign Audio Track - The Foreign Audio track will be burned in if available. 
+First Track - The first track will be burned in.
+Foreign Audio Preferred, else First - If the foreign audio track exists, it will be burned in, otherwise the first track will be chosen.</value>
+  </data>
+  <data name="Main_ScanNoTitlesFound" xml:space="preserve">
+    <value>No valid source or titles found.</value>
+  </data>
+  <data name="Main_ScanNoTitlesFoundMessage" xml:space="preserve">
+    <value>HandBrake will not be able to encode the seleteced source as it did not find a valid source with titles to encode. 
+This could be due to one of the following reasons:
+- The source file is not a valid video file or is in a format that HandBrake does not support.
+- The source may be copy protected or include DRM. Please note that HandBrake does not support the removal of copy protections.
+
+The Activity log may have further information.</value>
+  </data>
+  <data name="Main_QueueLabel" xml:space="preserve">
+    <value>Show Queue{0}</value>
+  </data>
+  <data name="Main_Start" xml:space="preserve">
+    <value>Start</value>
+  </data>
+  <data name="Main_StartQueue" xml:space="preserve">
+    <value>Start Queue</value>
   </data>
 </root>

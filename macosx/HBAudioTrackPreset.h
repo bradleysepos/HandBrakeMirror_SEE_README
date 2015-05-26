@@ -11,7 +11,7 @@
  *  a KVO enabled class used in the Audio Defaults panels,
  *  automatically validates the values.
  */
-@interface HBAudioTrackPreset : NSObject <NSCoding, NSCopying>
+@interface HBAudioTrackPreset : NSObject <NSSecureCoding, NSCopying>
 
 - (instancetype)initWithContainer:(int)container;
 - (void)containerChanged:(int)container;
@@ -24,7 +24,7 @@
 @property (nonatomic, readwrite) int sampleRate;
 @property (nonatomic, readwrite) int bitRate;
 
-@property (nonatomic, readwrite) int gain;
+@property (nonatomic, readwrite) double gain;
 @property (nonatomic, readwrite) double drc;
 
 /**

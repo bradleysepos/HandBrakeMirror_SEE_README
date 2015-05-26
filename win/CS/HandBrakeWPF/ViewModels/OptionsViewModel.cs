@@ -28,6 +28,8 @@ namespace HandBrakeWPF.ViewModels
 
     using Ookii.Dialogs.Wpf;
 
+    using Execute = Caliburn.Micro.Execute;
+
     /// <summary>
     /// The Options View Model
     /// </summary>
@@ -261,16 +263,6 @@ namespace HandBrakeWPF.ViewModels
         private UpdateCheckInformation updateInfo;
 
         /// <summary>
-        /// The enable process isolation.
-        /// </summary>
-        private bool enableProcessIsolation;
-
-        /// <summary>
-        /// The server port.
-        /// </summary>
-        private int serverPort;
-
-        /// <summary>
         /// The show advanced tab backing field.
         /// </summary>
         private bool showAdvancedTab;
@@ -279,11 +271,6 @@ namespace HandBrakeWPF.ViewModels
         /// The remove punctuation.
         /// </summary>
         private bool removePunctuation;
-
-        /// <summary>
-        /// The use system colours for styles.
-        /// </summary>
-        private bool useSystemColoursForStyles;
 
         /// <summary>
         /// The reset when done action.
@@ -574,21 +561,6 @@ namespace HandBrakeWPF.ViewModels
             }
         }
 
-        /// <summary>
-        /// Gets or sets a value indicating whether use system colours.
-        /// </summary>
-        public bool UseSystemColoursForStylesForStyles
-        {
-            get
-            {
-                return this.useSystemColoursForStyles;
-            }
-            set
-            {
-                this.useSystemColoursForStyles = value;
-                this.NotifyOfPropertyChange(() => UseSystemColoursForStylesForStyles);
-            }
-        }
 
         #endregion
 
@@ -1061,38 +1033,6 @@ namespace HandBrakeWPF.ViewModels
         }
 
         /// <summary>
-        /// Gets or sets a value indicating whether ClearQueueOnEncodeCompleted.
-        /// </summary>
-        public bool EnableProcessIsolation
-        {
-            get
-            {
-                return this.enableProcessIsolation;
-            }
-            set
-            {
-                this.enableProcessIsolation = value;
-                this.NotifyOfPropertyChange(() => this.EnableProcessIsolation);
-            }
-        }
-
-        /// <summary>
-        /// Gets or sets the server port.
-        /// </summary>
-        public int ServerPort
-        {
-            get
-            {
-                return this.serverPort;
-            }
-            set
-            {
-                this.serverPort = value;
-                this.NotifyOfPropertyChange(() => this.ServerPort);
-            }
-        }
-
-        /// <summary>
         /// Gets or sets a value indicating whether enable lib hb.
         /// </summary>
         public bool ShowAdvancedTab
@@ -1427,7 +1367,6 @@ namespace HandBrakeWPF.ViewModels
             this.SendFileTo = Path.GetFileNameWithoutExtension(this.userSettingService.GetUserSetting<string>(UserSettingConstants.SendFileTo)) ?? string.Empty;
             this.SendFileToPath = this.userSettingService.GetUserSetting<string>(UserSettingConstants.SendFileTo) ?? string.Empty;
             this.Arguments = this.userSettingService.GetUserSetting<string>(UserSettingConstants.SendFileToArgs) ?? string.Empty;
-            this.UseSystemColoursForStylesForStyles = this.userSettingService.GetUserSetting<bool>(UserSettingConstants.UseSystemColours);
             this.ResetWhenDoneAction = this.userSettingService.GetUserSetting<bool>(UserSettingConstants.ResetWhenDoneAction);
 
             // #############################
@@ -1541,11 +1480,6 @@ namespace HandBrakeWPF.ViewModels
 
             // Use dvdnav
             this.DisableLibdvdNav = userSettingService.GetUserSetting<bool>(UserSettingConstants.DisableLibDvdNav);  
-
-            int port;
-            int.TryParse(userSettingService.GetUserSetting<string>(UserSettingConstants.ServerPort), out port);
-            this.ServerPort = port;
-            this.EnableProcessIsolation = userSettingService.GetUserSetting<bool>(UserSettingConstants.EnableProcessIsolation);
         }
 
         /// <summary>
@@ -1562,7 +1496,6 @@ namespace HandBrakeWPF.ViewModels
             this.userSettingService.SetUserSetting(UserSettingConstants.SendFileTo, this.SendFileToPath);
             this.userSettingService.SetUserSetting(UserSettingConstants.SendFile, this.SendFileAfterEncode);
             this.userSettingService.SetUserSetting(UserSettingConstants.SendFileToArgs, this.Arguments);
-            this.userSettingService.SetUserSetting(UserSettingConstants.UseSystemColours, this.UseSystemColoursForStylesForStyles);
             this.userSettingService.SetUserSetting(UserSettingConstants.ResetWhenDoneAction, this.ResetWhenDoneAction);
 
             /* Output Files */
@@ -1606,8 +1539,6 @@ namespace HandBrakeWPF.ViewModels
             }
 
             userSettingService.SetUserSetting(UserSettingConstants.DisableLibDvdNav, this.DisableLibdvdNav);
-            userSettingService.SetUserSetting(UserSettingConstants.EnableProcessIsolation, this.EnableProcessIsolation);
-            userSettingService.SetUserSetting(UserSettingConstants.ServerPort, this.ServerPort.ToString(CultureInfo.InvariantCulture));
         }
 
         /// <summary>

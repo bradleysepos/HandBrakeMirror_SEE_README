@@ -1745,7 +1745,7 @@ static void yadif_decomb_filter_thread( void *thread_args_v )
             int yy;
             int width = dst->plane[pp].width;
             int stride = dst->plane[pp].stride;
-            int height = dst->plane[pp].height;
+            int height = dst->plane[pp].height_stride;
             int penultimate = height - 2;
 
             segment_start = thread_args->segment_start[pp];
@@ -2093,8 +2093,8 @@ static int hb_decomb_init( hb_filter_object_t * filter,
                  * Final segment
                  */
                 thread_args->segment_height[pp] =
-                    hb_image_height(init->pix_fmt, init->geometry.height, pp) -
-                    thread_args->segment_start[pp];
+                    (hb_image_height(init->pix_fmt, init->geometry.height, pp) -
+                    thread_args->segment_start[pp] + 3) & ~3;
             } else {
                 thread_args->segment_height[pp] = pv->segment_height[pp];
             }
@@ -2432,6 +2432,8 @@ static int hb_decomb_init( hb_filter_object_t * filter,
         }
     }
 
+    init->job->use_decomb = 1;
+
     return 0;
 }
 
@@ -2521,7 +2523,7 @@ static int hb_decomb_work( hb_filter_object_t * filter,
     hb_buffer_t * in = *buf_in;
     hb_buffer_t * last = NULL, * out = NULL;
 
-    if ( in->size <= 0 )
+    if (in->s.flags & HB_BUF_FLAG_EOF)
     {
         *buf_out = in;
         *buf_in = NULL;
@@ -2665,7 +2667,7 @@ void hb_deinterlace(hb_buffer_t *dst, hb_buffer_t *src)
         int yy;
         int width  = src->plane[pp].width;
         int stride = src->plane[pp].stride;
-        int height = src->plane[pp].height;
+        int height = src->plane[pp].height_stride;
 
         // Filter parity lines
         uint8_t *pdst = &dst->plane[pp].data[0];

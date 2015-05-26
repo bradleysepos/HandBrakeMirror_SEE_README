@@ -13,20 +13,20 @@
 
 @interface HBPresetsViewController () <NSOutlineViewDelegate>
 
-@property (nonatomic, retain) HBPresetsManager *presets;
-@property (nonatomic, assign) IBOutlet NSTreeController *treeController;
+@property (nonatomic, strong) HBPresetsManager *presets;
+@property (nonatomic, unsafe_unretained) IBOutlet NSTreeController *treeController;
 
 /**
  *  Helper var for drag & drop
  */
-@property (nonatomic, retain) NSArray *dragNodesArray;
+@property (nonatomic, strong) NSArray *dragNodesArray;
 
 /**
  *  The status (expanded or not) of the folders.
  */
-@property (nonatomic, retain) NSMutableArray *expandedNodes;
+@property (nonatomic, strong) NSMutableArray *expandedNodes;
 
-@property (assign) IBOutlet NSOutlineView *outlineView;
+@property (unsafe_unretained) IBOutlet NSOutlineView *outlineView;
 
 @end
 
@@ -39,20 +39,11 @@
     self = [super initWithNibName:@"Presets" bundle:nil];
     if (self)
     {
-        _presets = [presetManager retain];
+        _presets = presetManager;
         _expandedNodes = [[NSArray arrayWithArray:[[NSUserDefaults standardUserDefaults]
                                                    objectForKey:@"HBPreviewViewExpandedStatus"]] mutableCopy];
     }
     return self;
-}
-
-- (void)dealloc
-{
-    self.presets = nil;
-    self.dragNodesArray = nil;
-    self.expandedNodes = nil;
-    
-    [super dealloc];
 }
 
 - (void)loadView
@@ -72,6 +63,13 @@
 {
     SEL action = anItem.action;
 
+    if (action == @selector(exportPreset:))
+    {
+        if (![[self.treeController selectedObjects] firstObject])
+        {
+            return NO;
+        }
+    }
     if (action == @selector(setDefault:))
     {
         if (![[[self.treeController selectedObjects] firstObject] isLeaf])
@@ -80,7 +78,70 @@
         }
     }
 
+
     return YES;
+}
+
+#pragma mark -
+#pragma mark Import Export Preset(s)
+
+- (IBAction)exportPreset:(id)sender
+{
+    // Find the current selection, it can be a folder too.
+    HBPreset *selectedPreset = [[[self.treeController selectedObjects] firstObject] copy];
+
+    // Open a panel to let the user choose where and how to save the export file
+    NSSavePanel *panel = [NSSavePanel savePanel];
+    panel.title = NSLocalizedString(@"Export presets", nil);
+
+    // We get the current file name and path from the destination field here
+    NSURL *defaultExportDirectory = [[NSURL fileURLWithPath:NSHomeDirectory()] URLByAppendingPathComponent:@"Desktop"];
+    panel.directoryURL = defaultExportDirectory;
+    panel.nameFieldStringValue = [NSString stringWithFormat:@"%@.json", selectedPreset.name];
+
+    [panel beginWithCompletionHandler:^(NSInteger result)
+     {
+         if (result == NSOKButton)
+         {
+             NSURL *presetExportDirectory = [panel.URL URLByDeletingLastPathComponent];
+             [[NSUserDefaults standardUserDefaults] setURL:presetExportDirectory forKey:@"LastPresetExportDirectoryURL"];
+
+             [selectedPreset writeToURL:panel.URL atomically:YES format:HBPresetFormatJson removeRoot:NO];
+         }
+     }];
+}
+
+- (IBAction)importPreset:(id)sender
+{
+    NSOpenPanel *panel = [NSOpenPanel openPanel];
+    panel.title = NSLocalizedString(@"Import presets", nil);
+    panel.allowsMultipleSelection = YES;
+    panel.canChooseFiles = YES;
+    panel.canChooseDirectories = NO;
+    panel.allowedFileTypes = @[@"plist", @"xml", @"json"];
+
+    if ([[NSUserDefaults standardUserDefaults] URLForKey:@"LastPresetImportDirectoryURL"])
+    {
+        panel.directoryURL = [[NSUserDefaults standardUserDefaults] URLForKey:@"LastPresetImportDirectoryURL"];
+    }
+    else
+    {
+        panel.directoryURL = [[NSURL fileURLWithPath:NSHomeDirectory()] URLByAppendingPathComponent:@"Desktop"];
+    }
+
+    [panel beginWithCompletionHandler:^(NSInteger result)
+     {
+         [[NSUserDefaults standardUserDefaults] setURL:panel.directoryURL forKey:@"LastPresetImportDirectoryURL"];
+
+         for (NSURL *url in panel.URLs)
+         {
+             HBPreset *import = [[HBPreset alloc] initWithContentsOfURL:url];
+             for (HBPreset *child in import.children)
+             {
+                 [self.presets addPreset:child];
+             }
+         }
+     }];
 }
 
 #pragma mark - UI Methods
@@ -135,7 +196,6 @@
 
     HBPreset *node = [[HBPreset alloc] initWithFolderName:@"New Folder" builtIn:NO];
     [self.treeController insertObject:node atArrangedObjectIndexPath:selectionIndexPath];
-    [node autorelease];
 }
 
 - (IBAction)setDefault:(id)sender
@@ -254,9 +314,9 @@
 /**
  *  draggingSourceOperationMaskForLocal <NSDraggingSource override>
  */
-- (NSDragOperation)draggingSourceOperationMaskForLocal:(BOOL)isLocal
+- (NSDragOperation)draggingSession:(NSDraggingSession *)session sourceOperationMaskForDraggingContext:(NSDraggingContext)context
 {
-	return NSDragOperationMove;
+    return NSDragOperationMove;
 }
 
 /**
@@ -340,7 +400,7 @@
         // the KVC accessors method for the root node.
         if (indexPath.length == 1)
         {
-            [self.presets performSelector:@selector(nodeDidChange)];
+            [self.presets performSelector:@selector(nodeDidChange:) withObject:nil];
         }
 	}
 

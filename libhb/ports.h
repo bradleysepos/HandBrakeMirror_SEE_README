@@ -11,9 +11,7 @@
 #define HB_PORTS_H
 
 #if ARCH_X86_64 || ARCH_X86_32
-#define ARCH_X86 1
-#else
-#define ARCH_X86 0
+#define ARCH_X86
 #endif
 
 #if defined(_WIN32)
@@ -59,17 +57,6 @@ void     hb_snooze( int delay );
 int      hb_platform_init();
 
 #ifdef SYS_MINGW
-/*
- * Some MinGW distributions #define strtok_r in pthread.h,
- * but their so-called "implementation" isn't thread-safe.
- */
-#ifdef strtok_r
-#undef strtok_r
-#endif
-char *strtok_r(char *s, const char *delim, char **save_ptr);
-#endif
-
-#ifdef SYS_MINGW
 typedef struct
 {
     _WDIR *wdir;
@@ -113,6 +100,11 @@ void hb_get_temporary_directory( char path[512] );
 void hb_get_tempory_filename( hb_handle_t *, char name[1024],
                               char * fmt, ... );
 
+#if defined( SYS_DARWIN )
+int osx_get_user_config_directory( char path[512] );
+#endif
+void hb_get_user_config_directory( char path[512] );
+void hb_get_user_config_filename( char name[1024], char *fmt, ... );
 /************************************************************************
  * Threads
  ***********************************************************************/
@@ -140,6 +132,8 @@ hb_thread_t * hb_thread_init( const char * name, thread_func_t *function,
                               void * arg, int priority );
 void          hb_thread_close( hb_thread_t ** );
 int           hb_thread_has_exited( hb_thread_t * );
+
+void          hb_yield(void);
 
 /************************************************************************
  * Mutexes

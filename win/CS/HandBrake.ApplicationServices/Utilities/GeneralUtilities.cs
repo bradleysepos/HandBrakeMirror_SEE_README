@@ -17,8 +17,6 @@ namespace HandBrake.ApplicationServices.Utilities
     using System.Text;
     using System.Windows.Forms;
 
-    using HandBrake.ApplicationServices.Model;
-
     /// <summary>
     /// A Set of Static Utilites
     /// </summary>
@@ -30,11 +28,6 @@ namespace HandBrake.ApplicationServices.Utilities
         /// The Default Log Directory
         /// </summary>
         private static readonly string LogDir = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData) + "\\HandBrake\\logs";
-
-        /// <summary>
-        /// The is lib hb present.
-        /// </summary>
-        private static bool? isLibHbPresent;
 
         #endregion
 
@@ -48,22 +41,6 @@ namespace HandBrake.ApplicationServices.Utilities
             get
             {
                 return Process.GetCurrentProcess().Id;
-            }
-        }
-
-        /// <summary>
-        /// Gets a value indicating whether is lib hb present.
-        /// </summary>
-        public static bool IsLibHbPresent
-        {
-            get
-            {
-                if (isLibHbPresent == null)
-                {
-                    isLibHbPresent = File.Exists(Path.Combine(Application.StartupPath, "hb.dll"));
-                }
-
-                return isLibHbPresent.Value;
             }
         }
 
@@ -141,37 +118,6 @@ namespace HandBrake.ApplicationServices.Utilities
             logHeader.AppendLine("-------------------------------------------");
 
             return logHeader;
-        }
-
-        /// <summary>
-        /// Get a list of available DVD drives which are ready and contain DVD content.
-        /// </summary>
-        /// <returns>A List of Drives with their details</returns>
-        public static List<DriveInformation> GetDrives()
-        {
-            var drives = new List<DriveInformation>();
-            DriveInfo[] theCollectionOfDrives = DriveInfo.GetDrives();
-            int id = 0;
-            foreach (DriveInfo curDrive in theCollectionOfDrives)
-            {
-                if (curDrive.DriveType == DriveType.CDRom && curDrive.IsReady)
-                {
-                    if (Directory.Exists(curDrive.RootDirectory + "VIDEO_TS") ||
-                        Directory.Exists(curDrive.RootDirectory + "BDMV"))
-                    {
-                        drives.Add(
-                            new DriveInformation
-                                {
-                                    Id = id,
-                                    VolumeLabel = curDrive.VolumeLabel,
-                                    RootDirectory = curDrive.RootDirectory.ToString()
-                                });
-                        id++;
-                    }
-                }
-            }
-
-            return drives;
         }
 
         /// <summary>

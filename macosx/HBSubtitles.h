@@ -27,7 +27,7 @@ extern NSString *keySubTrackLanguageIndex;
 @class HBTitle;
 @class HBSubtitlesDefaults;
 
-@interface HBSubtitles : NSObject <NSCoding, NSCopying, HBPresetCoding>
+@interface HBSubtitles : NSObject <NSSecureCoding, NSCopying, HBPresetCoding>
 
 - (instancetype)initWithTitle:(HBTitle *)title;
 
@@ -42,13 +42,13 @@ extern NSString *keySubTrackLanguageIndex;
 @property (nonatomic, readonly) NSMutableArray *masterTrackArray;  // the master list of audio tracks from the title
 @property (nonatomic, readonly) NSMutableArray *tracks;
 
-@property (nonatomic, readwrite, retain) NSString *foreignAudioSearchTrackName;
+@property (nonatomic, readwrite, strong) NSString *foreignAudioSearchTrackName;
 @property (nonatomic, readonly) NSArray *charCodeArray;
 
 @property (nonatomic, readonly) NSArray *languagesArray;
 @property (nonatomic, readonly) NSInteger languagesArrayDefIndex;
 
-@property (nonatomic, readwrite, retain) HBSubtitlesDefaults *defaults;
+@property (nonatomic, readwrite, strong) HBSubtitlesDefaults *defaults;
 
 /**
  *  For internal use
@@ -61,7 +61,7 @@ extern NSString *keySubTrackLanguageIndex;
 
 @interface HBSubtitles (KVC)
 
-- (NSUInteger)countOfTracks;
+@property (nonatomic, readonly) NSUInteger countOfTracks;
 - (id)objectInTracksAtIndex:(NSUInteger)index;
 - (void)insertObject:(id)audioObject inTracksAtIndex:(NSUInteger)index;
 - (void)removeObjectFromTracksAtIndex:(NSUInteger)index;

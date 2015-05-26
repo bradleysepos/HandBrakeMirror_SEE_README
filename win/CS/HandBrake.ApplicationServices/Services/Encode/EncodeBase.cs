@@ -11,15 +11,14 @@ namespace HandBrake.ApplicationServices.Services.Encode
 {
     using System;
     using System.Diagnostics;
-    using System.Globalization;
     using System.IO;
     using System.Text;
-    using System.Text.RegularExpressions;
 
     using HandBrake.ApplicationServices.Exceptions;
     using HandBrake.ApplicationServices.Model;
     using HandBrake.ApplicationServices.Services.Encode.EventArgs;
     using HandBrake.ApplicationServices.Services.Encode.Interfaces;
+    using HandBrake.ApplicationServices.Services.Encode.Model;
     using HandBrake.ApplicationServices.Utilities;
 
     /// <summary>
@@ -176,14 +175,6 @@ namespace HandBrake.ApplicationServices.Services.Encode
         #region Methods
 
         /// <summary>
-        /// A Stop Method to be implemeneted.
-        /// </summary>
-        public virtual void Stop()
-        {
-            // Do Nothing
-        }
-
-        /// <summary>
         /// Save a copy of the log to the users desired location or a default location
         /// if this feature is enabled in options.
         /// </summary>
@@ -235,81 +226,9 @@ namespace HandBrake.ApplicationServices.Services.Encode
         }
 
         /// <summary>
-        /// Pase the status output (from standard output)
-        /// </summary>
-        /// <param name="encodeStatus">
-        /// The encode Status.
-        /// </param>
-        /// <param name="startTime">
-        /// The start Time.
-        /// </param>
-        /// <returns>
-        /// The <see cref="EncodeProgressEventArgs"/>.
-        /// </returns>
-        public EncodeProgressEventArgs ReadEncodeStatus(string encodeStatus, DateTime startTime)
-        {
-            try
-            {
-                Match m = Regex.Match(
-                    encodeStatus, 
-                    @"^Encoding: task ([0-9]*) of ([0-9]*), ([0-9]*\.[0-9]*) %( \(([0-9]*\.[0-9]*) fps, avg ([0-9]*\.[0-9]*) fps, ETA ([0-9]{2})h([0-9]{2})m([0-9]{2})s\))?");
-
-                if (m.Success)
-                {
-                    int currentTask = int.Parse(m.Groups[1].Value);
-                    int totalTasks = int.Parse(m.Groups[2].Value);
-                    float percent = float.Parse(m.Groups[3].Value, CultureInfo.InvariantCulture);
-                    float currentFps = m.Groups[5].Value == string.Empty
-                                           ? 0.0F
-                                           : float.Parse(m.Groups[5].Value, CultureInfo.InvariantCulture);
-                    float avgFps = m.Groups[6].Value == string.Empty
-                                       ? 0.0F
-                                       : float.Parse(m.Groups[6].Value, CultureInfo.InvariantCulture);
-                    string remaining = string.Empty;
-                    if (m.Groups[7].Value != string.Empty)
-                    {
-                        remaining = m.Groups[7].Value + ":" + m.Groups[8].Value + ":" + m.Groups[9].Value;
-                    }
-                    if (string.IsNullOrEmpty(remaining))
-                    {
-                        remaining = "Calculating ...";
-                    }
-
-                    EncodeProgressEventArgs eventArgs = new EncodeProgressEventArgs
-                                                            {
-                                                                AverageFrameRate = avgFps, 
-                                                                CurrentFrameRate = currentFps, 
-                                                                EstimatedTimeLeft =
-                                                                    Converters.EncodeToTimespan(
-                                                                        remaining), 
-                                                                PercentComplete = percent, 
-                                                                Task = currentTask, 
-                                                                TaskCount = totalTasks, 
-                                                                ElapsedTime =
-                                                                    DateTime.Now - startTime, 
-                                                            };
-
-                    return eventArgs;
-                }
-
-                return null;
-            }
-            catch (Exception)
-            {
-                return null;
-            }
-        }
-
-        /// <summary>
         /// Setup the logging.
         /// </summary>
-        /// <param name="encodeQueueTask">
-        /// The encode QueueTask.
-        /// </param>
-        /// <param name="isLibhb">
-        /// Indicates if this is libhb that is encoding or not.
-        /// </param>
-        protected void SetupLogging(QueueTask encodeQueueTask, bool isLibhb)
+        protected void SetupLogging()
         {
             this.ShutdownFileWriter();
             string logDir = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData) + "\\HandBrake\\logs";
@@ -435,12 +354,12 @@ namespace HandBrake.ApplicationServices.Services.Encode
         /// <exception cref="Exception">
         /// If the creation fails, an exception is thrown.
         /// </exception>
-        protected void VerifyEncodeDestinationPath(QueueTask task)
+        protected void VerifyEncodeDestinationPath(EncodeTask task)
         {
             // Make sure the path exists, attempt to create it if it doesn't
             try
             {
-                string path = Directory.GetParent(task.Task.Destination).ToString();
+                string path = Directory.GetParent(task.Destination).ToString();
                 if (!Directory.Exists(path))
                 {
                     Directory.CreateDirectory(path);

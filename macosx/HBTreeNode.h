@@ -13,20 +13,23 @@
  */
 @protocol HBTreeNodeDelegate <NSObject>
 
-- (void)nodeDidChange;
+- (void)nodeDidChange:(id)node;
+
+@optional
+- (void)treeDidRemoveNode:(id)node;
 
 @end
 
 /**
  *  HBTreeNode
  */
-@interface HBTreeNode : NSObject
+@interface HBTreeNode : NSObject <NSCopying>
 
 // NSTreeController required properties
 @property (nonatomic, readonly) NSMutableArray *children;
 @property (nonatomic) BOOL isLeaf;
 
-@property (nonatomic, assign) id<HBTreeNodeDelegate> delegate;
+@property (nonatomic, unsafe_unretained) id<HBTreeNodeDelegate> delegate;
 
 /**
  *  Executes a given block using each object in the tree, starting with the root object and continuing through the tree to the last object.
@@ -35,8 +38,25 @@
  */
 - (void)enumerateObjectsUsingBlock:(void (^)(id obj, NSIndexPath *idx, BOOL *stop))block;
 
+/**
+ *  Returns the index path of an object in the tree.
+ *
+ *  @param obj the object of the wanted NSIndexPath
+ *
+ *  @return The index path whose corresponding value is equal to the preset. Returns nil if not found.
+ */
+- (NSIndexPath *)indexPathOfObject:(id)obj;
+
+/**
+ *  Removes the object at the specified index path.
+ *
+ *  @param idx the NSIndexPath of the object to delete.
+ */
+- (void)removeObjectAtIndexPath:(NSIndexPath *)idx;
+
 // KVC Accessor Methods
-- (NSUInteger)countOfChildren;
+
+@property (nonatomic, readonly) NSUInteger countOfChildren;
 - (id)objectInChildrenAtIndex:(NSUInteger)index;
 - (void)insertObject:(HBTreeNode *)presetObject inChildrenAtIndex:(NSUInteger)index;
 - (void)removeObjectFromChildrenAtIndex:(NSUInteger)index;

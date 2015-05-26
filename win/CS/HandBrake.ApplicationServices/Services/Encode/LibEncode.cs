@@ -11,17 +11,14 @@ namespace HandBrake.ApplicationServices.Services.Encode
 {
     using System;
     using System.Diagnostics;
-    using System.Linq;
 
+    using HandBrake.ApplicationServices.Interop;
+    using HandBrake.ApplicationServices.Interop.EventArgs;
+    using HandBrake.ApplicationServices.Interop.Interfaces;
     using HandBrake.ApplicationServices.Model;
+    using HandBrake.ApplicationServices.Services.Encode.Factories;
     using HandBrake.ApplicationServices.Services.Encode.Interfaces;
-    using HandBrake.ApplicationServices.Services.Scan;
-    using HandBrake.ApplicationServices.Services.Scan.Model;
-    using HandBrake.ApplicationServices.Utilities;
-    using HandBrake.Interop;
-    using HandBrake.Interop.EventArgs;
-    using HandBrake.Interop.Interfaces;
-    using HandBrake.Interop.Model;
+    using HandBrake.ApplicationServices.Services.Encode.Model;
 
     /// <summary>
     /// LibHB Implementation of IEncode
@@ -30,50 +27,13 @@ namespace HandBrake.ApplicationServices.Services.Encode
     {
         #region Private Variables
 
-        /// <summary>
-        /// Lock for the log file
-        /// </summary>
         private static readonly object LogLock = new object();
-
-        /// <summary>
-        /// The instance.
-        /// </summary>
         private IHandBrakeInstance instance;
-
-        /// <summary>
-        /// The Start time of the current Encode;
-        /// </summary>
         private DateTime startTime;
-
-        /// <summary>
-        /// The Current Task
-        /// </summary>
-        private QueueTask currentTask;
-
-        /// <summary>
-        /// A local instance of the scanned source.
-        /// </summary>
-        private Source scannedSource;
+        private EncodeTask currentTask;
+        private HBConfiguration currentConfiguration;
 
         #endregion
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="LibEncode"/> class.
-        /// </summary>
-        public LibEncode()
-        {
-        }
-
-        /// <summary>
-        /// Gets a value indicating whether can pause.
-        /// </summary>
-        public bool CanPause
-        {
-            get
-            {
-                return true;
-            }
-        }
 
         /// <summary>
         /// Gets a value indicating whether is pasued.
@@ -83,67 +43,78 @@ namespace HandBrake.ApplicationServices.Services.Encode
         /// <summary>
         /// Start with a LibHb EncodeJob Object
         /// </summary>
-        /// <param name="job">
-        /// The job.
+        /// <param name="task">
+        /// The task.
         /// </param>
-        public void Start(QueueTask job)
+        /// <param name="configuration">
+        /// The configuration.
+        /// </param>
+        public void Start(EncodeTask task, HBConfiguration configuration)
         {
-            // Setup
-            this.startTime = DateTime.Now;
-            this.currentTask = job;
-
-            // Create a new HandBrake instance
-            // Setup the HandBrake Instance
-            HandBrakeUtils.MessageLogged += this.HandBrakeInstanceMessageLogged;
-            HandBrakeUtils.ErrorLogged += this.HandBrakeInstanceErrorLogged;
-            this.instance = HandBrakeInstanceManager.GetEncodeInstance(job.Configuration.Verbosity);
-            this.instance.EncodeCompleted += this.InstanceEncodeCompleted;
-            this.instance.EncodeProgress += this.InstanceEncodeProgress;
-            
             try
             {
+                // Setup
+                this.startTime = DateTime.Now;
+                this.currentTask = task;
+                this.currentConfiguration = configuration;
+
+                // Create a new HandBrake instance
+                // Setup the HandBrake Instance
+                HandBrakeUtils.MessageLogged += this.HandBrakeInstanceMessageLogged;
+                HandBrakeUtils.ErrorLogged += this.HandBrakeInstanceErrorLogged;
+                this.instance = HandBrakeInstanceManager.GetEncodeInstance(configuration.Verbosity);
+                this.instance.EncodeCompleted += this.InstanceEncodeCompleted;
+                this.instance.EncodeProgress += this.InstanceEncodeProgress;
+
                 // Sanity Checking and Setup
                 if (this.IsEncoding)
                 {
                     throw new Exception("HandBrake is already encoding.");
                 }
-
+     
                 this.IsEncoding = true;
-
-                // Enable logging if required.
-                try
-                {
-                    this.SetupLogging(job, true);
-                }
-                catch (Exception)
-                {
-                    this.IsEncoding = false;
-                    throw;
-                }
+                this.SetupLogging();
 
                 // Verify the Destination Path Exists, and if not, create it.
-                this.VerifyEncodeDestinationPath(job);
+                this.VerifyEncodeDestinationPath(task);
 
-                // We have to scan the source again but only the title so the HandBrake instance is initialised correctly. 
-                // Since the UI sends the crop params down, we don't have to do all the previews.
+                ServiceLogMessage("Starting Encode ...");
 
-                this.instance.ScanCompleted += delegate
+                // Get an EncodeJob object for the Interop Library
+                instance.StartEncode(EncodeFactory.Create(task, configuration));
+
+                // Fire the Encode Started Event
+                this.InvokeEncodeStarted(System.EventArgs.Empty);
+
+                // Set the Process Priority
+                switch (configuration.ProcessPriority)
                 {
-                    // Process into internal structures.
-                    this.scannedSource = new Source { Titles = LibScan.ConvertTitles(this.instance.Titles, this.instance.FeatureTitle) }; // TODO work around the bad Internal API.
-                    this.ScanCompleted(job, this.instance);
-                };
-
-                HandBrakeUtils.SetDvdNav(!job.Configuration.IsDvdNavDisabled);
-
-                ServiceLogMessage("Scanning title for encoding ... ");
-
-                this.instance.StartScan(job.ScannedSourcePath, job.Configuration.PreviewScanCount, TimeSpan.FromSeconds(job.Configuration.MinScanDuration), job.Task.Title);
+                    case "Realtime":
+                        Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.RealTime;
+                        break;
+                    case "High":
+                        Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.High;
+                        break;
+                    case "Above Normal":
+                        Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.AboveNormal;
+                        break;
+                    case "Normal":
+                        Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.Normal;
+                        break;
+                    case "Low":
+                        Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.Idle;
+                        break;
+                    default:
+                        Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.BelowNormal;
+                        break;
+                }
             }
             catch (Exception exc)
             {
-                ServiceLogMessage("Scan Failed ... " + Environment.NewLine + exc);
-                this.InvokeEncodeCompleted(new EventArgs.EncodeCompletedEventArgs(false, exc, "An Error has occured.", this.currentTask.Task.Destination));
+                this.IsEncoding = false;
+
+                ServiceLogMessage("Failed to start encoding ..." + Environment.NewLine + exc);
+                this.InvokeEncodeCompleted(new EventArgs.EncodeCompletedEventArgs(false, exc, "Unable to start encoding", task.Source));
             }
         }
 
@@ -176,7 +147,7 @@ namespace HandBrake.ApplicationServices.Services.Encode
         /// <summary>
         /// Kill the process
         /// </summary>
-        public override void Stop()
+        public void Stop()
         {
             try
             {
@@ -190,78 +161,6 @@ namespace HandBrake.ApplicationServices.Services.Encode
             catch (Exception exc)
             {
                 Debug.WriteLine(exc);
-            }
-        }
-
-        /// <summary>
-        /// The scan completed.
-        /// </summary>
-        /// <param name="job">
-        /// The job.
-        /// </param>
-        /// <param name="instance">
-        /// The instance.
-        /// </param>
-        private void ScanCompleted(QueueTask job, IHandBrakeInstance instance)
-        {
-            ServiceLogMessage("Scan Completed. Setting up the job for encoding ...");
-
-            // Get an EncodeJob object for the Interop Library
-            EncodeJob encodeJob = InteropModelCreator.GetEncodeJob(job);
-
-            // Start the Encode
-            Title title = this.scannedSource.Titles.FirstOrDefault(t => t.TitleNumber == job.Task.Title);
-            if (title == null)
-            {
-                ServiceLogMessage("Title not found.");
-                throw new Exception("Unable to get title for encoding. Encode Failed.");
-            }
-
-            Interop.Model.Scan.Title scannedTitle = new Interop.Model.Scan.Title
-                                                        {
-                                                            Resolution = new Size(title.Resolution.Width, title.Resolution.Height), 
-                                                            ParVal = new Size(title.ParVal.Width, title.ParVal.Height), 
-                                                            FramerateDenominator = title.FramerateDenominator, 
-                                                            FramerateNumerator = title.FramerateNumerator, 
-                                                        };
-            
-            try
-            {
-                ServiceLogMessage("Starting Encode ...");
-                instance.StartEncode(encodeJob, scannedTitle);
-
-                // Fire the Encode Started Event
-                this.InvokeEncodeStarted(System.EventArgs.Empty);
-
-                // Set the Process Priority
-                switch (job.Configuration.ProcessPriority)
-                {
-                    case "Realtime":
-                        Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.RealTime;
-                        break;
-                    case "High":
-                        Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.High;
-                        break;
-                    case "Above Normal":
-                        Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.AboveNormal;
-                        break;
-                    case "Normal":
-                        Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.Normal;
-                        break;
-                    case "Low":
-                        Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.Idle;
-                        break;
-                    default:
-                        Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.BelowNormal;
-                        break;
-                }
-            }
-            catch (Exception exc)
-            {
-                this.IsEncoding = false;
-
-                ServiceLogMessage("Failed to start encoding ..." + Environment.NewLine + exc);
-                this.InvokeEncodeCompleted(new EventArgs.EncodeCompletedEventArgs(false, exc, "Unable to start encoding", job.Task.Source));
             }
         }
 
@@ -319,6 +218,7 @@ namespace HandBrake.ApplicationServices.Services.Encode
                 EstimatedTimeLeft = e.EstimatedTimeLeft, 
                 PercentComplete = e.FractionComplete * 100, 
                 Task = e.Pass, 
+                TaskCount = e.PassCount,
                 ElapsedTime = DateTime.Now - this.startTime, 
             };
 
@@ -344,7 +244,7 @@ namespace HandBrake.ApplicationServices.Services.Encode
             HandBrakeUtils.ErrorLogged -= this.HandBrakeInstanceErrorLogged;
             
             // Handling Log Data 
-            this.ProcessLogs(this.currentTask.Task.Destination, this.currentTask.Configuration);
+            this.ProcessLogs(this.currentTask.Destination, this.currentConfiguration);
 
             // Cleanup
             this.ShutdownFileWriter();
@@ -352,8 +252,8 @@ namespace HandBrake.ApplicationServices.Services.Encode
             // Raise the Encode Completed EVent.
             this.InvokeEncodeCompleted(
                 e.Error
-                    ? new EventArgs.EncodeCompletedEventArgs(false, null, string.Empty, this.currentTask.Task.Destination)
-                    : new EventArgs.EncodeCompletedEventArgs(true, null, string.Empty, this.currentTask.Task.Destination));
+                    ? new EventArgs.EncodeCompletedEventArgs(false, null, string.Empty, this.currentTask.Destination)
+                    : new EventArgs.EncodeCompletedEventArgs(true, null, string.Empty, this.currentTask.Destination));
         }
         #endregion
     }

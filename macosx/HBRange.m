@@ -6,7 +6,7 @@
 
 #import "HBRange.h"
 #import "HBTitle.h"
-#import "NSCodingMacro.h"
+#import "HBCodingUtilities.h"
 
 NSString *HBRangeChangedNotification = @"HBRangeChangedNotification";
 
@@ -88,7 +88,7 @@ NSString *HBRangeChangedNotification = @"HBRangeChangedNotification";
     else if (self.type == HBRangeTypeFrames)
     {
         hb_title_t *title = self.title.hb_title;
-        int duration = (self.frameStop - self.frameStart) / (title->vrate.num / title->vrate.den);
+        int duration = (int) ((self.frameStop - self.frameStart) / (title->vrate.num / (double)title->vrate.den));
         return [NSString stringWithFormat: @"%02d:%02d:%02d", duration / 3600, ( duration / 60 ) % 60, duration % 60];
     }
 
@@ -143,6 +143,11 @@ NSString *HBRangeChangedNotification = @"HBRangeChangedNotification";
 
 #pragma mark - NSCoding
 
++ (BOOL)supportsSecureCoding
+{
+    return YES;
+}
+
 - (void)encodeWithCoder:(NSCoder *)coder
 {
     [coder encodeInt:1 forKey:@"HBRangeVersion"];
@@ -159,7 +164,7 @@ NSString *HBRangeChangedNotification = @"HBRangeChangedNotification";
     encodeInt(_frameStop);
 }
 
-- (id)initWithCoder:(NSCoder *)decoder
+- (instancetype)initWithCoder:(NSCoder *)decoder
 {
     self = [super init];
 

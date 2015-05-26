@@ -53,6 +53,12 @@ ghb_SOURCES = \
 	presets.c \
 	presets.h \
 	preview.c \
+	data_res.c \
+	data_res.h \
+	ui_res.c \
+	ui_res.h \
+	icon_res.c \
+	icon_res.h \
 	icons.c \
 	icons.h \
 	values.c \
@@ -86,30 +92,48 @@ ghb_LDADD = $(HB_LIBS) $(GHB_LIBS)
 
 ghb_DEPENDENCIES = $(HB_DIR)/libhb/libhandbrake.a
 
-resources.o: resource_data.h
+icon_res.c : icon_res.gresource.xml $(icons_dep)
+	glib-compile-resources --generate --target=$@ --c-name ghb_icons --manual-register --sourcedir=$(srcdir) $<
 
-resource_data.h: resources.plist
-	python2 $(srcdir)/quotestring.py resources.plist resource_data.h
+icon_res.h : icon_res.gresource.xml $(icons_dep)
+	glib-compile-resources --generate --target=$@ --c-name ghb_icons --manual-register --sourcedir=$(srcdir) $<
+
+icon_res.o: icon_res.c icon_res.h
+
+data_res.c : data_res.gresource.xml $(srcdir)/internal_defaults.json widget.deps widget_reverse.deps
+	cp $(srcdir)/internal_defaults.json .
+	glib-compile-resources --generate --target=$@ --c-name ghb_data --manual-register $<
+
+data_res.h : data_res.gresource.xml $(srcdir)/internal_defaults.json widget.deps widget_reverse.deps
+	cp $(srcdir)/internal_defaults.json .
+	glib-compile-resources --generate --target=$@ --c-name ghb_data --manual-register $<
+
+if GHB_GTK_3_14
+UI=ghb-3.14.ui
+else
+if GHB_GTK_3_12
+UI=ghb-3.12.ui
+else
+UI=ghb.ui
+endif
+endif
+
+ui_res.c : ui_res.gresource.xml ui_res.h $(srcdir)/$(UI)
+	glib-compile-resources --generate --target=$@ --c-name ghb_ui --manual-register $<
+
+ui_res.h : ui_res.gresource.xml $(srcdir)/$(UI)
+	cp $(srcdir)/$(UI) ghb.ui
+	glib-compile-resources --generate --target=$@ --c-name ghb_ui --manual-register $<
+
+ui_res.o: ui_res.h ui_res.c
+
+main.o : ui_res.o
+
+resources.o: data_res.h
 
 widget_reverse.deps: makedeps.py
 widget.deps: makedeps.py
 	python2 $(srcdir)/makedeps.py
-
-resources.plist: create_resources resources.list $(icons_dep) internal_defaults.xml standard_presets.xml ghb.ui ghb-3.14.ui widget.deps widget_reverse.deps
-	./create_resources -I$(srcdir) $(srcdir)/resources.list resources.plist
-
-CREATE_RES.c = \
-	create_resources.c \
-	plist.c \
-	values.c
-
-CREATE_RES.c.o = $(patsubst %.c,%-native.o,$(CREATE_RES.c))
-
-create_resources: $(CREATE_RES.c.o)
-	$(CC_FOR_BUILD) -g -o $@ $^ $(GHB_TOOLS_LIBS)
-
-$(CREATE_RES.c.o): %-native.o: %.c
-	$(CC_FOR_BUILD) $(GHB_TOOLS_CFLAGS) -g -c -o $@ $<
 
 ghbcellrenderertext.$(OBJEXT): marshalers.h
 

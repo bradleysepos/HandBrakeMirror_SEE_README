@@ -872,6 +872,8 @@ static int hb_detelecine_init( hb_filter_object_t * filter,
     pv->pullup_fakecount = 1;
     pv->pullup_skipflag = 0;
 
+    init->job->use_detelecine = 1;
+
     return 0;
 }
 
@@ -901,7 +903,7 @@ static int hb_detelecine_work( hb_filter_object_t * filter,
     hb_filter_private_t * pv = filter->private_data;
     hb_buffer_t * in = *buf_in, * out;
 
-    if ( in->size <= 0 )
+    if (in->s.flags & HB_BUF_FLAG_EOF)
     {
         *buf_out = in;
         *buf_in = NULL;

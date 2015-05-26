@@ -99,7 +99,7 @@ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
 
     // Set things in context that we will allow the user to 
     // override with advanced settings.
-    if( job->pass == 2 )
+    if( job->pass_id == HB_PASS_ENCODE_2ND )
     {
         hb_interjob_t * interjob = hb_interjob_get( job->h );
         fps.den = interjob->vrate.den;
@@ -170,11 +170,18 @@ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
     }
     /* iterate through lavc_opts and have avutil parse the options for us */
     AVDictionary * av_opts = NULL;
-    hb_dict_entry_t * entry = NULL;
-    while( ( entry = hb_dict_next( lavc_opts, entry ) ) )
+    hb_dict_iter_t iter;
+    for (iter  = hb_dict_iter_init(lavc_opts);
+         iter != HB_DICT_ITER_DONE;
+         iter  = hb_dict_iter_next(lavc_opts, iter))
     {
+        const char *key = hb_dict_iter_key(iter);
+        hb_value_t *value = hb_dict_iter_value(iter);
+        char *str = hb_value_get_string_xform(value);
+
         /* Here's where the strings are passed to avutil for parsing. */
-        av_dict_set( &av_opts, entry->key, entry->value, 0 );
+        av_dict_set( &av_opts, key, str, 0 );
+        free(str);
     }
     hb_dict_free( &lavc_opts );
 
@@ -237,12 +244,13 @@ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
         context->flags |= CODEC_FLAG_GRAY;
     }
 
-    if( job->pass != 0 && job->pass != -1 )
+    if( job->pass_id == HB_PASS_ENCODE_1ST ||
+        job->pass_id == HB_PASS_ENCODE_2ND )
     {
         char filename[1024]; memset( filename, 0, 1024 );
         hb_get_tempory_filename( job->h, filename, "ffmpeg.log" );
 
-        if( job->pass == 1 )
+        if( job->pass_id == HB_PASS_ENCODE_1ST )
         {
             pv->file = hb_fopen(filename, "wb");
             context->flags |= CODEC_FLAG_PASS1;
@@ -287,7 +295,7 @@ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
     {
         job->areBframes = 1;
     }
-    if( ( job->mux & HB_MUX_MASK_MP4 ) && job->pass != 1 )
+    if( ( job->mux & HB_MUX_MASK_MP4 ) && job->pass_id != HB_PASS_ENCODE_1ST )
     {
         w->config->mpeg4.length = context->extradata_size;
         memcpy( w->config->mpeg4.bytes, context->extradata,
@@ -510,7 +518,7 @@ int encavcodecWork( hb_work_object_t * w, hb_buffer_t ** buf_in,
     hb_job_t * job = pv->job;
     AVFrame  * frame;
     hb_buffer_t * in = *buf_in, * buf;
-    char final_flushing_call = (in->size <= 0);
+    char final_flushing_call = !!(in->s.flags & HB_BUF_FLAG_EOF);
     if ( final_flushing_call )
     {
         //make a flushing call to encode for codecs that can encode out of order
@@ -589,7 +597,8 @@ int encavcodecWork( hb_work_object_t * w, hb_buffer_t ** buf_in,
                 buf_last = buf;
             }
             /* Write stats */
-            if (job->pass == 1 && pv->context->stats_out != NULL)
+            if (job->pass_id == HB_PASS_ENCODE_1ST &&
+                pv->context->stats_out != NULL)
             {
                 fprintf( pv->file, "%s", pv->context->stats_out );
             }

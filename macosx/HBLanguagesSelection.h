@@ -21,7 +21,7 @@
 @property (nonatomic, readonly) NSString *language;
 @property (nonatomic, readonly) NSString *iso639_2;
 
-- (instancetype)initWithLanguage:(NSString *)value iso639_2code:(NSString *)code;
+- (instancetype)initWithLanguage:(NSString *)value iso639_2code:(NSString *)code NS_DESIGNATED_INITIALIZER;
 
 @end;
 
@@ -33,7 +33,7 @@
 @property (nonatomic, readonly) NSMutableArray *languagesArray;
 @property (nonatomic, readonly) NSArray *selectedLanguages;
 
-- (instancetype)initWithLanguages:(NSArray *)languages;
+- (instancetype)initWithLanguages:(NSArray *)languages NS_DESIGNATED_INITIALIZER;
 
 @end
 
@@ -52,6 +52,6 @@
  */
 @property (nonatomic, readwrite) BOOL isDragginEnabled;
 
-@property (assign) IBOutlet NSTableView *tableView;
+@property (unsafe_unretained) IBOutlet NSTableView *tableView;
 
 @end

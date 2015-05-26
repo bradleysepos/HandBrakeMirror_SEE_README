@@ -17,7 +17,7 @@ typedef NS_ENUM(NSUInteger, HBRangeType) {
     HBRangePreviewIndex,
 };
 
-@interface HBRange : NSObject <NSCoding, NSCopying>
+@interface HBRange : NSObject <NSSecureCoding, NSCopying>
 
 - (instancetype)initWithTitle:(HBTitle *)title;
 
@@ -42,6 +42,6 @@ typedef NS_ENUM(NSUInteger, HBRangeType) {
 
 @property (nonatomic, readonly) NSString *duration;
 
-@property (nonatomic, readwrite, assign) HBTitle *title;
+@property (nonatomic, readwrite, unsafe_unretained) HBTitle *title;
 
 @end

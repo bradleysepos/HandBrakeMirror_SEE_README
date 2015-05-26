@@ -15,6 +15,8 @@
   <object class="GtkFileFilter" id="SourceFilterVOB"/>
   <object class="GtkFileFilter" id="SourceFilterVideo"/>
   <object class="GtkFileFilter" id="SourceFilterWMV"/>
+  <object class="GtkFileFilter" id="QueueFilterAll"/>
+  <object class="GtkFileFilter" id="QueueFilterJSON"/>
   <object class="GtkLabel" id="SubBurnedLabel">
     <property name="visible">True</property>
     <property name="can_focus">False</property>
@@ -622,7 +624,7 @@ libx264 authors:
                       </object>
                     </child>
                     <child>
-                      <object class="GtkMenuItem" id="destination">
+                      <object class="GtkMenuItem" id="destination_menu_item">
                         <property name="label" translatable="yes">_Destination</property>
                         <property name="visible">True</property>
                         <property name="can_focus">False</property>
@@ -839,7 +841,7 @@ libx264 authors:
                     </child>
                     <child>
                       <object class="GtkMenuItem" id="presets_restore">
-                        <property name="label" translatable="yes">_Update Built-in Presets</property>
+                        <property name="label" translatable="yes">_Reload Built-in Presets</property>
                         <property name="visible">True</property>
                         <property name="can_focus">False</property>
                         <property name="use_underline">True</property>
@@ -983,7 +985,7 @@ libx264 authors:
                         <property name="tooltip_text" translatable="yes">Show Queue</property>
                         <property name="is_important">True</property>
                         <property name="label" translatable="yes">Queue</property>
-                        <property name="icon_name">hb-queue</property>
+                        <property name="icon_name">hb-showqueue</property>
                         <signal name="toggled" handler="show_queue_clicked_cb" swapped="no"/>
                       </object>
                       <packing>
@@ -2501,10 +2503,10 @@ This will be the resolution that most closely matches the source resolution afte
 &lt;small&gt;&lt;tt&gt;
 None   - Force pixel aspect ratio to 1:1.
 Loose  - Align dimensions to chosen 'Alignment' value
-     and pick pixel aspect ratio that preserves the
-     original display aspect ratio
+         and pick pixel aspect ratio that preserves the
+         original display aspect ratio
 Strict - Keep original source dimensions and pixel
-     aspect ratio&lt;/tt&gt;&lt;/small&gt;</property>
+         aspect ratio&lt;/tt&gt;&lt;/small&gt;</property>
                                             <signal name="changed" handler="scale_changed_cb" swapped="no"/>
                                           </object>
                                           <packing>
@@ -4260,6 +4262,69 @@ This permits DTS-HD passthru to be selected when automatic passthru selection is
                                         <property name="height">1</property>
                                       </packing>
                                     </child>
+                                    <child>
+                                      <object class="GtkCheckButton" id="AudioAllowEAC3Pass">
+                                        <property name="label" translatable="yes">EAC-3</property>
+                                        <property name="visible">True</property>
+                                        <property name="can_focus">True</property>
+                                        <property name="receives_default">False</property>
+                                        <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
+                                        <property name="tooltip_text" translatable="yes">Enable this if your playback device supports EAC-3.
+This permits EAC-3 passthru to be selected when automatic passthru selection is enabled.</property>
+                                        <property name="halign">start</property>
+                                        <property name="active">True</property>
+                                        <property name="draw_indicator">True</property>
+                                        <signal name="toggled" handler="audio_passthru_widget_changed_cb" swapped="no"/>
+                                      </object>
+                                      <packing>
+                                        <property name="left_attach">2</property>
+                                        <property name="top_attach">1</property>
+                                        <property name="width">1</property>
+                                        <property name="height">1</property>
+                                      </packing>
+                                    </child>
+                                    <child>
+                                      <object class="GtkCheckButton" id="AudioAllowTRUEHDPass">
+                                        <property name="label" translatable="yes">TrueHD</property>
+                                        <property name="visible">True</property>
+                                        <property name="can_focus">True</property>
+                                        <property name="receives_default">False</property>
+                                        <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
+                                        <property name="tooltip_text" translatable="yes">Enable this if your playback device supports TrueHD.
+This permits TrueHD passthru to be selected when automatic passthru selection is enabled.</property>
+                                        <property name="halign">start</property>
+                                        <property name="active">True</property>
+                                        <property name="draw_indicator">True</property>
+                                        <signal name="toggled" handler="audio_passthru_widget_changed_cb" swapped="no"/>
+                                      </object>
+                                      <packing>
+                                        <property name="left_attach">1</property>
+                                        <property name="top_attach">3</property>
+                                        <property name="width">1</property>
+                                        <property name="height">1</property>
+                                      </packing>
+                                    </child>
+                                    <child>
+                                      <object class="GtkCheckButton" id="AudioAllowFLACPass">
+                                        <property name="label" translatable="yes">FLAC</property>
+                                        <property name="visible">True</property>
+                                        <property name="can_focus">True</property>
+                                        <property name="receives_default">False</property>
+                                        <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
+                                        <property name="tooltip_text" translatable="yes">Enable this if your playback device supports FLAC.
+This permits FLAC passthru to be selected when automatic passthru selection is enabled.</property>
+                                        <property name="halign">start</property>
+                                        <property name="active">True</property>
+                                        <property name="draw_indicator">True</property>
+                                        <signal name="toggled" handler="audio_passthru_widget_changed_cb" swapped="no"/>
+                                      </object>
+                                      <packing>
+                                        <property name="left_attach">2</property>
+                                        <property name="top_attach">3</property>
+                                        <property name="width">1</property>
+                                        <property name="height">1</property>
+                                      </packing>
+                                    </child>
                                   </object>
                                   <packing>
                                     <property name="fill">True</property>
@@ -4534,7 +4599,7 @@ This permits DTS-HD passthru to be selected when automatic passthru selection is
                                 <property name="hscrollbar_policy">GTK_POLICY_NEVER</property>
                                 <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
                                 <child>
-                                  <object class="GtkTreeView" id="audio_list">
+                                  <object class="GtkTreeView" id="audio_list_view">
                                     <property name="visible">True</property>
                                     <property name="can_focus">True</property>
                                     <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
@@ -4997,6 +5062,23 @@ Only one subtitle track can be burned! Since conflicts can occur, the first chos
                                   </packing>
                                 </child>
                                 <child>
+                                  <object class="GtkToolButton" id="subtitle_add_fas">
+                                    <property name="visible">True</property>
+                                    <property name="sensitive">True</property>
+                                    <property name="can_focus">False</property>
+                                    <property name="is_important">True</property>
+                                    <property name="label" translatable="yes">Foreign Audio Search</property>
+                                    <property name="icon_name">list-add</property>
+                                    <property name="tooltip_text" translatable="yes">Add an extra pass to the encode which searches
+for subtitle candidates that provide subtitles for
+segments of the audio that are in a foreign language.</property>
+                                    <signal name="clicked" handler="subtitle_add_fas_clicked_cb" swapped="no"/>
+                                  </object>
+                                  <packing>
+                                    <property name="expand">False</property>
+                                  </packing>
+                                </child>
+                                <child>
                                   <object class="GtkToolButton" id="subtitle_reset">
                                     <property name="visible">True</property>
                                     <property name="sensitive">True</property>
@@ -5026,7 +5108,7 @@ Only one subtitle track can be burned! Since conflicts can occur, the first chos
                                 <property name="hscrollbar_policy">GTK_POLICY_NEVER</property>
                                 <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
                                 <child>
-                                  <object class="GtkTreeView" id="subtitle_list">
+                                  <object class="GtkTreeView" id="subtitle_list_view">
                                     <property name="visible">True</property>
                                     <property name="can_focus">True</property>
                                     <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
@@ -6497,6 +6579,58 @@ Resets all queue jobs to pending and ready to run again.</property>
                         <property name="homogeneous">True</property>
                       </packing>
                     </child>
+                    <child>
+                      <object class="GtkToolButton" id="queue_delete_all">
+                        <property name="visible">True</property>
+                        <property name="sensitive">True</property>
+                        <property name="can_focus">False</property>
+                        <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
+                        <property name="is_important">True</property>
+                        <property name="label" translatable="yes">Delete All</property>
+                        <property name="icon_name">edit-delete</property>
+                        <property name="tooltip_text" translatable="yes">Delete all items in the queue.</property>
+                        <signal name="clicked" handler="queue_delete_all_clicked_cb" swapped="no"/>
+                      </object>
+                      <packing>
+                        <property name="expand">False</property>
+                        <property name="homogeneous">True</property>
+                      </packing>
+                    </child>
+                    <child>
+                      <object class="GtkToolButton" id="queue_save">
+                        <property name="visible">True</property>
+                        <property name="sensitive">True</property>
+                        <property name="can_focus">False</property>
+                        <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
+                        <property name="is_important">True</property>
+                        <property name="label" translatable="yes">Save Queue</property>
+                        <property name="icon_name">document-save-as</property>
+                        <property name="tooltip_text" translatable="yes">Save the current queue of encode jobs to a file.
+This file may be reloaded at a later time to edit your jobs and re-encode.</property>
+                        <signal name="clicked" handler="queue_save_clicked_cb" swapped="no"/>
+                      </object>
+                      <packing>
+                        <property name="expand">False</property>
+                        <property name="homogeneous">True</property>
+                      </packing>
+                    </child>
+                    <child>
+                      <object class="GtkToolButton" id="queue_open">
+                        <property name="visible">True</property>
+                        <property name="sensitive">True</property>
+                        <property name="can_focus">False</property>
+                        <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
+                        <property name="is_important">True</property>
+                        <property name="label" translatable="yes">Load Queue File</property>
+                        <property name="icon_name">document-open</property>
+                        <property name="tooltip_text" translatable="yes">Load a previously saved queue file.</property>
+                        <signal name="clicked" handler="queue_open_clicked_cb" swapped="no"/>
+                      </object>
+                      <packing>
+                        <property name="expand">False</property>
+                        <property name="homogeneous">True</property>
+                      </packing>
+                    </child>
                   </object>
                   <packing>
                     <property name="expand">False</property>
@@ -7451,7 +7585,7 @@ on the Video tab instead.</property>
 Check this if you want the queue to clean itself up by deleting completed jobs.</property>
                             <property name="halign">start</property>
                             <property name="draw_indicator">True</property>
-                            <signal name="toggled" handler="advanced_video_changed_cb" swapped="no"/>
+                            <signal name="toggled" handler="pref_changed_cb" swapped="no"/>
                           </object>
                           <packing>
                             <property name="top_attach">6</property>
@@ -8534,6 +8668,7 @@ Setting this to 0 means there is no maximum height.</property>
     <property name="can_focus">False</property>
     <property name="border_width">5</property>
     <property name="modal">True</property>
+    <property name="resizable">False</property>
     <property name="window_position">center-on-parent</property>
     <property name="type_hint">dialog</property>
     <property name="skip_taskbar_hint">True</property>
@@ -8732,7 +8867,7 @@ SRTs come in all flavours of character sets.
 We translate the character set to UTF-8.
 The source's character code is needed in order to perform this translation.</property>
                     <property name="has_entry">True</property>
-                    <signal name="changed" handler="srt_changed_cb" swapped="no"/>
+                    <signal name="changed" handler="srt_codeset_changed_cb" swapped="no"/>
                     <child internal-child="entry">
                       <object class="GtkEntry" id="combobox-entry1">
                         <property name="can_focus">True</property>
@@ -8772,7 +8907,7 @@ The source's character code is needed in order to perform this translation.</pro
                     <property name="primary_icon_activatable">False</property>
                     <property name="secondary_icon_activatable">False</property>
                     <property name="adjustment">adjustment31</property>
-                    <signal name="value-changed" handler="srt_changed_cb" swapped="no"/>
+                    <signal name="value-changed" handler="srt_offset_changed_cb" swapped="no"/>
                   </object>
                   <packing>
                     <property name="top_attach">1</property>
@@ -8924,6 +9059,7 @@ in your output.</property>
     <property name="can_focus">False</property>
     <property name="border_width">5</property>
     <property name="modal">True</property>
+    <property name="resizable">False</property>
     <property name="window_position">center-on-parent</property>
     <property name="type_hint">dialog</property>
     <property name="skip_taskbar_hint">True</property>
@@ -9039,7 +9175,7 @@ Players may use this in the audio selection list.</property>
                 <property name="truncate_multiline">True</property>
                 <property name="primary_icon_activatable">False</property>
                 <property name="secondary_icon_activatable">False</property>
-                <signal name="changed" handler="audio_widget_changed_cb" swapped="no"/>
+                <signal name="changed" handler="audio_name_changed_cb" swapped="no"/>
               </object>
               <packing>
                 <property name="top_attach">1</property>
@@ -9188,7 +9324,6 @@ DRC allows you to 'compress' the range by making loud sounds softer and soft sou
                         <property name="tooltip_text" translatable="yes">Enable bitrate setting</property>
                         <property name="halign">start</property>
                         <property name="draw_indicator">True</property>
-                        <signal name="toggled" handler="audio_quality_radio_changed_cb" swapped="no"/>
                       </object>
                       <packing>
                         <property name="expand">False</property>
@@ -9229,7 +9364,7 @@ DRC allows you to 'compress' the range by making loud sounds softer and soft sou
                     <property name="valign">GTK_ALIGN_CENTER</property>
                     <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
                     <property name="tooltip_text" translatable="yes">Set the bitrate to encode this track with.</property>
-                    <signal name="changed" handler="audio_widget_changed_cb" swapped="no"/>
+                    <signal name="changed" handler="audio_bitrate_changed_cb" swapped="no"/>
                   </object>
                   <packing>
                     <property name="expand">False</property>
@@ -9244,7 +9379,7 @@ DRC allows you to 'compress' the range by making loud sounds softer and soft sou
                     <property name="can_focus">False</property>
                     <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
                     <child>
-                      <object class="GtkScaleButton" id="AudioTrackQuality">
+                      <object class="GtkScaleButton" id="AudioTrackQualityX">
                         <property name="visible">True</property>
                         <property name="can_focus">False</property>
                         <property name="valign">GTK_ALIGN_CENTER</property>
@@ -9322,7 +9457,7 @@ weather-clear</property>
                 <property name="valign">GTK_ALIGN_CENTER</property>
                 <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
                 <property name="tooltip_text" translatable="yes">Set the sample rate of the output audio track.</property>
-                <signal name="changed" handler="audio_widget_changed_cb" swapped="no"/>
+                <signal name="changed" handler="audio_samplerate_changed_cb" swapped="no"/>
               </object>
               <packing>
                 <property name="top_attach">1</property>

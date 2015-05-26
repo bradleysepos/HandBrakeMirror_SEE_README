@@ -81,11 +81,6 @@ static void *HBPictureControllerContext = &HBPictureControllerContext;
         }
 
     } @catch (NSException * __unused exception) {}
-
-    self.filters = nil;
-    self.picture = nil;
-
-    [super dealloc];
 }
 
 - (void)windowDidLoad
@@ -184,7 +179,7 @@ static void *HBPictureControllerContext = &HBPictureControllerContext;
         for (NSView *view in uiElements)
             [view setHidden:NO];
 
-        if ([self.filters.denoisePreset isEqualToString:@"none"])
+        if ([self.filters.denoisePreset isEqualToString:@"custom"])
         {
             [fDenoiseTuneLabel setHidden:YES];
             [fDenoiseTunePopUp setHidden:YES];
@@ -320,30 +315,24 @@ static void *HBPictureControllerContext = &HBPictureControllerContext;
 /**
  * Displays and brings the picture window to the front
  */
-- (void)showPictureWindow
+- (void)showWindow:(id)sender
 {
-    if ([[self window] isVisible])
+    if (self.window.isVisible)
     {
-        [[self window] close];
+        [self.window close];
     }
     else
     {
-        [self showWindow:self];
-        [[NSUserDefaults standardUserDefaults] setBool:YES forKey:@"PictureSizeWindowIsOpen"];
+        [super showWindow:self];
     }
 
     [self resizeInspectorForTab:nil];
     [self adjustSizingDisplay:nil];
 }
 
-- (IBAction) showPreviewWindow: (id) sender
+- (IBAction)showPreviewWindow:(id)sender
 {
-    [self.delegate showPreviewWindow:sender];
-}
-
-- (void) windowWillClose: (NSNotification *)aNotification
-{
-    [[NSUserDefaults standardUserDefaults] setBool:NO forKey:@"PictureSizeWindowIsOpen"];
+    [self.previewWindow showWindow:sender];
 }
 
 @end

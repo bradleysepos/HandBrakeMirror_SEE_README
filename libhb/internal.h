@@ -11,6 +11,14 @@
 #include "extras/cl.h"
 
 /***********************************************************************
+ * Hardware Decode Context
+ **********************************************************************/
+struct hb_hwd_s
+{
+    uint8_t enable;
+};
+
+/***********************************************************************
  * common.c
  **********************************************************************/
 void hb_log( char * log, ... ) HB_WPRINTF(1,2);
@@ -40,6 +48,7 @@ void         hb_title_close( hb_title_t ** );
  **********************************************************************/
 int  hb_get_pid( hb_handle_t * );
 void hb_set_state( hb_handle_t *, hb_state_t * );
+void hb_job_setup_passes(hb_handle_t *h, hb_job_t *job, hb_list_t *list_pass);
 
 /***********************************************************************
  * fifo.c
@@ -74,6 +83,19 @@ struct hb_buffer_settings_s
 #define HB_FRAME_KEY      0x0F
 #define HB_FRAME_REF      0xF0
     uint8_t       frametype;
+
+// Picture flags used by filters
+#ifndef PIC_FLAG_REPEAT_FIRST_FIELD
+#define PIC_FLAG_REPEAT_FIRST_FIELD 0x0100
+#endif
+#ifndef PIC_FLAG_TOP_FIELD_FIRST
+#define PIC_FLAG_TOP_FIELD_FIRST    0x0008
+#endif
+#ifndef PIC_FLAG_PROGRESSIVE_FRAME
+#define PIC_FLAG_PROGRESSIVE_FRAME  0x0010
+#endif
+#define PIC_FLAG_REPEAT_FRAME       0x0200
+#define HB_BUF_FLAG_EOF             0x0400
     uint16_t      flags;
 };
 
@@ -156,6 +178,7 @@ void hb_buffer_pool_init( void );
 void hb_buffer_pool_free( void );
 
 hb_buffer_t * hb_buffer_init( int size );
+hb_buffer_t * hb_buffer_eof_init( void );
 hb_buffer_t * hb_frame_buffer_init( int pix_fmt, int w, int h);
 void          hb_buffer_init_planes( hb_buffer_t * b );
 void          hb_buffer_realloc( hb_buffer_t *, int size );
@@ -170,6 +193,7 @@ hb_image_t  * hb_image_init(int pix_fmt, int width, int height);
 hb_image_t  * hb_buffer_to_image(hb_buffer_t *buf);
 
 hb_fifo_t   * hb_fifo_init( int capacity, int thresh );
+void          hb_fifo_register_full_cond( hb_fifo_t * f, hb_cond_t * c );
 int           hb_fifo_size( hb_fifo_t * );
 int           hb_fifo_size_bytes( hb_fifo_t * );
 int           hb_fifo_is_full( hb_fifo_t * );
@@ -258,9 +282,9 @@ hb_thread_t * hb_work_init( hb_list_t * jobs,
                             volatile int * die, hb_error_code * error, hb_job_t ** job );
 void ReadLoop( void * _w );
 hb_work_object_t * hb_muxer_init( hb_job_t * );
-hb_work_object_t * hb_get_work( int );
-hb_work_object_t * hb_codec_decoder( int );
-hb_work_object_t * hb_codec_encoder( int );
+hb_work_object_t * hb_get_work( hb_handle_t *, int );
+hb_work_object_t * hb_codec_decoder( hb_handle_t *, int );
+hb_work_object_t * hb_codec_encoder( hb_handle_t *, int );
 
 /***********************************************************************
  * sync.c
@@ -275,7 +299,6 @@ typedef struct {
     int64_t scr_delta;
     int64_t last_pts;       /* last pts we saw */
     int     scr_changes;    /* number of SCR discontinuities */
-    int     dts_drops;      /* number of drops because DTS too far from SCR */
     int     new_chap;
 } hb_psdemux_t;
 
@@ -292,7 +315,7 @@ extern const hb_muxer_t hb_demux[];
  **********************************************************************/
 typedef struct hb_batch_s hb_batch_t;
 
-hb_batch_t  * hb_batch_init( char * path );
+hb_batch_t  * hb_batch_init( hb_handle_t *h, char * path );
 void          hb_batch_close( hb_batch_t ** _d );
 int           hb_batch_title_count( hb_batch_t * d );
 hb_title_t  * hb_batch_title_scan( hb_batch_t * d, int t );
@@ -318,7 +341,7 @@ int          hb_dvd_angle_count( hb_dvd_t * d );
 void         hb_dvd_set_angle( hb_dvd_t * d, int angle );
 int          hb_dvd_main_feature( hb_dvd_t * d, hb_list_t * list_title );
 
-hb_bd_t     * hb_bd_init( char * path );
+hb_bd_t     * hb_bd_init( hb_handle_t *h, char * path );
 int           hb_bd_title_count( hb_bd_t * d );
 hb_title_t  * hb_bd_title_scan( hb_bd_t * d, int t, uint64_t min_duration );
 int           hb_bd_start( hb_bd_t * d, hb_title_t *title );
@@ -332,9 +355,10 @@ void          hb_bd_close( hb_bd_t ** _d );
 void          hb_bd_set_angle( hb_bd_t * d, int angle );
 int           hb_bd_main_feature( hb_bd_t * d, hb_list_t * list_title );
 
-hb_stream_t * hb_bd_stream_open( hb_title_t *title );
+hb_stream_t * hb_bd_stream_open( hb_handle_t *h, hb_title_t *title );
 void hb_ts_stream_reset(hb_stream_t *stream);
-hb_stream_t * hb_stream_open( char * path, hb_title_t *title, int scan );
+hb_stream_t * hb_stream_open(hb_handle_t *h, char * path,
+                             hb_title_t *title, int scan);
 void		 hb_stream_close( hb_stream_t ** );
 hb_title_t * hb_stream_title_scan( hb_stream_t *, hb_title_t *);
 hb_buffer_t * hb_stream_read( hb_stream_t * );
@@ -343,7 +367,8 @@ int          hb_stream_seek_ts( hb_stream_t * stream, int64_t ts );
 int          hb_stream_seek_chapter( hb_stream_t *, int );
 int          hb_stream_chapter( hb_stream_t * );
 
-hb_buffer_t * hb_ts_decode_pkt( hb_stream_t *stream, const uint8_t * pkt );
+hb_buffer_t * hb_ts_decode_pkt( hb_stream_t *stream, const uint8_t * pkt,
+                                int chapter, int discontinuity );
 void hb_stream_set_need_keyframe( hb_stream_t *stream, int need_keyframe );
 
 
@@ -446,19 +471,6 @@ extern hb_filter_object_t hb_filter_qsv;
 extern hb_filter_object_t hb_filter_qsv_pre;
 extern hb_filter_object_t hb_filter_qsv_post;
 #endif
-
-// Picture flags used by filters
-#ifndef PIC_FLAG_REPEAT_FIRST_FIELD
-#define PIC_FLAG_REPEAT_FIRST_FIELD 256
-#endif
-#ifndef PIC_FLAG_TOP_FIELD_FIRST
-#define PIC_FLAG_TOP_FIELD_FIRST 8
-#endif
-#ifndef PIC_FLAG_PROGRESSIVE_FRAME
-#define PIC_FLAG_PROGRESSIVE_FRAME 16
-#endif
-
-#define PIC_FLAG_REPEAT_FRAME 512
 
 extern hb_work_object_t * hb_objects;
 

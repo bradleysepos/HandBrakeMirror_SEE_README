@@ -10,7 +10,6 @@
 #import "HBCore.h"
 #import "HBController.h"
 #import "HBAppDelegate.h"
-#import "HBOutputPanelController.h"
 
 #import "HBQueueOutlineView.h"
 #import "HBUtilities.h"
@@ -18,9 +17,14 @@
 #import "HBJob.h"
 #import "HBJob+UIAdditions.h"
 
+#import "HBStateFormatter.h"
+
 #import "HBDistributedArray.h"
 
 #import "HBDockTile.h"
+
+#import "HBOutputRedirect.h"
+#import "HBJobOutputFileWriter.h"
 
 // Pasteboard type for or drag operations
 #define DragDropSimplePboardType    @"HBQueueCustomOutlineViewPboardType"
@@ -35,21 +39,22 @@
 @property (nonatomic, readonly) HBDockTile *dockTile;
 @property (nonatomic, readwrite) double dockIconProgress;
 
-@property (assign) IBOutlet NSTextField *progressTextField;
-@property (assign) IBOutlet NSTextField *countTextField;
-@property (assign) IBOutlet HBQueueOutlineView *outlineView;
+@property (unsafe_unretained) IBOutlet NSTextField *progressTextField;
+@property (unsafe_unretained) IBOutlet NSTextField *countTextField;
+@property (unsafe_unretained) IBOutlet HBQueueOutlineView *outlineView;
 
 @property (nonatomic, readonly) NSMutableDictionary *descriptions;
 
 @property (nonatomic, readonly) HBDistributedArray *jobs;
-@property (nonatomic, retain)   HBJob *currentJob;
+@property (nonatomic, strong)   HBJob *currentJob;
+@property (nonatomic, strong)   HBJobOutputFileWriter *currentLog;
 
 @property (nonatomic, readwrite) BOOL stop;
 
 @property (nonatomic, readwrite) NSUInteger pendingItemsCount;
 @property (nonatomic, readwrite) NSUInteger workingItemsCount;
 
-@property (nonatomic, retain) NSArray *dragNodesArray;
+@property (nonatomic, strong) NSArray *dragNodesArray;
 
 @end
 
@@ -59,30 +64,16 @@
 {
     if (self = [super initWithWindowNibName:@"Queue"])
     {
-        // NSWindowController likes to lazily load its window nib. Since this
-        // controller tries to touch the outlets before accessing the window, we
-        // need to force it to load immadiately by invoking its accessor.
-        //
-        // If/when we switch to using bindings, this can probably go away.
-        [self window];
-
         _descriptions = [[NSMutableDictionary alloc] init];
-
-        // Workaround to avoid a bug in Snow Leopard
-        // we can switch back to [[NSApplication sharedApplication] applicationIconImage]
-        // when we won't support it anymore.
-        NSImage *appIcon = [NSImage imageNamed:@"HandBrake"];
-        [appIcon setSize:NSMakeSize(1024, 1024)];
 
         // Load the dockTile and instiante initial text fields
         _dockTile = [[HBDockTile alloc] initWithDockTile:[[NSApplication sharedApplication] dockTile]
-                                                  image:appIcon];
+                                                  image:[[NSApplication sharedApplication] applicationIconImage]];
 
         int loggingLevel = [[[NSUserDefaults standardUserDefaults] objectForKey:@"LoggingLevel"] intValue];
 
         // Init a separate instance of libhb for the queue
-        _core = [[HBCore alloc] initWithLoggingLevel:loggingLevel];
-        _core.name = @"QueueCore";
+        _core = [[HBCore alloc] initWithLogLevel:loggingLevel name:@"QueueCore"];
 
         [self loadQueueFile];
     }
@@ -92,21 +83,7 @@
 
 - (void)dealloc
 {
-    // clear the delegate so that windowWillClose is not attempted
-    if ([[self window] delegate] == self)
-        [[self window] setDelegate:nil];
-
     [[NSNotificationCenter defaultCenter] removeObserver:self];
-
-    [_core release];
-    [_jobs release];
-    [_currentJob release];
-
-    [_dockTile release];
-    [_descriptions release];
-    [_dragNodesArray release];
-
-    [super dealloc];
 }
 
 - (void)windowDidLoad
@@ -119,20 +96,6 @@
     // Don't allow autoresizing of main column, else the "delete" column will get
     // pushed out of view.
     [self.outlineView setAutoresizesOutlineColumn: NO];
-}
-
-- (void)windowWillClose:(NSNotification *)aNotification
-{
-    [[NSUserDefaults standardUserDefaults] setBool:NO forKey:@"QueueWindowIsOpen"];
-}
-
-/**
- * Displays and brings the queue window to the front
- */
-- (IBAction)showWindow:(id)sender
-{
-    [super showWindow:sender];
-    [[NSUserDefaults standardUserDefaults] setBool:YES forKey:@"QueueWindowIsOpen"];
 }
 
 #pragma mark Toolbar
@@ -238,7 +201,7 @@
 
 - (void)loadQueueFile
 {
-    NSURL *queueURL = [NSURL fileURLWithPath:[[HBUtilities appSupportPath] stringByAppendingPathComponent:@"Queue/Queue.hbqueue"]];
+    NSURL *queueURL = [[HBUtilities appSupportURL] URLByAppendingPathComponent:@"Queue.hbqueue"];
     _jobs = [[HBDistributedArray alloc] initWithURL:queueURL];
 
     [self reloadQueue];
@@ -374,7 +337,7 @@
  * This method will clear the queue of any encodes that are not still pending
  * this includes both successfully completed encodes as well as cancelled encodes
  */
-- (void)clearEncodedJobs
+- (void)removeCompletedJobs
 {
     [self.jobs beginTransaction];
     [self removeItemsUsingBlock:^BOOL(HBJob *item) {
@@ -432,10 +395,9 @@
         insertIndex--;
     }
 
-    id object = [self.jobs[removeIndex] retain];
+    id object = self.jobs[removeIndex];
     [self.jobs removeObjectAtIndex:removeIndex];
     [self.jobs insertObject:object atIndex:insertIndex];
-    [object release];
 
     // We save all of the Queue data here
     // and it also gets sent back to the queue controller
@@ -462,7 +424,9 @@
         self.currentJob.state = HBJobStateWorking;
 
         // Tell HB to output a new activity log file for this encode
-        [self.outputPanel startEncodeLog:self.currentJob.destURL];
+        self.currentLog = [[HBJobOutputFileWriter alloc] initWithJob:self.currentJob];
+        [[HBOutputRedirect stderrRedirect] addListener:self.currentLog];
+        [[HBOutputRedirect stdoutRedirect] addListener:self.currentLog];
 
         // now we can go ahead and scan the new pending queue item
         [self performScan:self.currentJob.fileURL titleIdx:self.currentJob.titleIdx];
@@ -483,7 +447,9 @@
 {
     // Since we are done with this encode, tell output to stop writing to the
     // individual encode log.
-    [self.outputPanel endEncodeLog];
+    [[HBOutputRedirect stderrRedirect] removeListener:self.currentLog];
+    [[HBOutputRedirect stdoutRedirect] removeListener:self.currentLog];
+    self.currentLog = nil;
 
     // Check to see if the encode state has not been cancelled
     // to determine if we should check for encode done notifications.
@@ -526,6 +492,8 @@
  */
 - (void)performScan:(NSURL *)scanURL titleIdx:(NSInteger)index
 {
+    HBStateFormatter *formatter = [[HBStateFormatter alloc] init];
+
     // Only scan 10 previews before an encode - additional previews are
     // only useful for autocrop and static previews, which are already taken care of at this point
     [self.core scanURL:scanURL
@@ -533,13 +501,7 @@
               previews:10
            minDuration:0
        progressHandler:^(HBState state, hb_state_t hb_state) {
-           NSMutableString *status = [NSMutableString stringWithFormat:
-                                      NSLocalizedString( @"Queue Scanning title %d of %d…", @"" ),
-                                      hb_state.param.scanning.title_cur, hb_state.param.scanning.title_count];
-           if (hb_state.param.scanning.preview_cur)
-           {
-               [status appendFormat:@", preview %d…", hb_state.param.scanning.preview_cur];
-           }
+           NSString *status = [formatter stateToString:hb_state title:nil];
 
            self.progressTextField.stringValue = status;
            [self.controller setQueueInfo:status progress:0 hidden:NO];
@@ -572,122 +534,53 @@
     // Reset the title in the job.
     self.currentJob.title = self.core.titles[0];
 
+    HBStateFormatter *converter = [[HBStateFormatter alloc] init];
+    NSString *destinationName = self.currentJob.destURL.lastPathComponent;
+
     // We should be all setup so let 'er rip
     [self.core encodeJob:self.currentJob
          progressHandler:^(HBState state, hb_state_t hb_state) {
-             NSMutableString *string = nil;
-             CGFloat progress = 0;
-             #define p hb_state.param.working
-             switch (state)
+             NSString *string = [converter stateToString:hb_state title:destinationName];
+             CGFloat progress = [converter stateToPercentComplete:hb_state];
+
+             if (state == HBStateWorking)
              {
-                 case HBStateSearching:
+                 // Update dock icon
+                 if (self.dockIconProgress < 100.0 * progress)
                  {
-                     string = [NSMutableString stringWithFormat:
-                               NSLocalizedString(@"Searching for start point… :  %.2f %%", @""),
-                               100.0 * p.progress];
+                     // ETA format is [XX]X:XX:XX when ETA is greater than one hour
+                     // [X]X:XX when ETA is greater than 0 (minutes or seconds)
+                     // When these conditions doesn't applied (eg. when ETA is undefined)
+                     // we show just a tilde (~)
 
-                     if (p.seconds > -1)
-                     {
-                         [string appendFormat:NSLocalizedString(@" (ETA %02dh%02dm%02ds)", @"" ), p.hours, p.minutes, p.seconds];
-                     }
-
-                     break;
-                 }
-                 case HBStateWorking:
-                 {
-                     NSString *pass_desc = @"";
-                     if (p.job_cur == 1 && p.job_count > 1)
-                     {
-                         if ([self.currentJob.subtitles.tracks.firstObject[keySubTrackIndex] intValue] == -1)
-                         {
-                             pass_desc = NSLocalizedString(@"(subtitle scan)", @"");
-                         }
-                     }
-
-                     if (pass_desc.length)
-                     {
-                         string = [NSMutableString stringWithFormat:
-                                   NSLocalizedString(@"Encoding: %@ \nPass %d %@ of %d, %.2f %%", @""),
-                                   self.currentJob.destURL.lastPathComponent,
-                                   p.job_cur, pass_desc, p.job_count, 100.0 * p.progress];
-                     }
+                     #define p hb_state.param.working
+                     NSString *etaStr;
+                     if (p.hours > 0)
+                         etaStr = [NSString stringWithFormat:@"%d:%02d:%02d", p.hours, p.minutes, p.seconds];
+                     else if (p.minutes > 0 || p.seconds > 0)
+                         etaStr = [NSString stringWithFormat:@"%d:%02d", p.minutes, p.seconds];
                      else
-                     {
-                         string = [NSMutableString stringWithFormat:
-                                   NSLocalizedString(@"Encoding: %@ \nPass %d of %d, %.2f %%", @""),
-                                   self.currentJob.destURL.lastPathComponent,
-                                   p.job_cur, p.job_count, 100.0 * p.progress];
-                     }
+                         etaStr = @"~";
+                     #undef p
 
-                     if (p.seconds > -1)
-                     {
-                         if (p.rate_cur > 0.0)
-                         {
-                             [string appendFormat:
-                              NSLocalizedString(@" (%.2f fps, avg %.2f fps, ETA %02dh%02dm%02ds)", @""),
-                              p.rate_cur, p.rate_avg, p.hours, p.minutes, p.seconds];
-                         }
-                         else
-                         {
-                             [string appendFormat:
-                              NSLocalizedString(@" (ETA %02dh%02dm%02ds)", @""),
-                              p.hours, p.minutes, p.seconds];
-                         }
-                     }
-
-                     progress = (p.progress + p.job_cur - 1) / p.job_count;
-
-                     // Update dock icon
-                     if (self.dockIconProgress < 100.0 * progress)
-                     {
-                         // ETA format is [XX]X:XX:XX when ETA is greater than one hour
-                         // [X]X:XX when ETA is greater than 0 (minutes or seconds)
-                         // When these conditions doesn't applied (eg. when ETA is undefined)
-                         // we show just a tilde (~)
-
-                         NSString *etaStr = @"";
-                         if (p.hours > 0)
-                             etaStr = [NSString stringWithFormat:@"%d:%02d:%02d", p.hours, p.minutes, p.seconds];
-                         else if (p.minutes > 0 || p.seconds > 0)
-                             etaStr = [NSString stringWithFormat:@"%d:%02d", p.minutes, p.seconds];
-                         else
-                             etaStr = @"~";
-
-                         [self.dockTile updateDockIcon:progress withETA:etaStr];
-
-                         self.dockIconProgress += dockTileUpdateFrequency;
-                     }
-
-                     break;
+                     [self.dockTile updateDockIcon:progress withETA:etaStr];
+                     self.dockIconProgress += dockTileUpdateFrequency;
                  }
-                 case HBStateMuxing:
-                 {
-                     string = [NSMutableString stringWithString:NSLocalizedString(@"Muxing…", @"")];
-
-                     // Update dock icon
-                     [self.dockTile updateDockIcon:1.0 withETA:@""];
-
-                     break;
-                 }
-                 case HBStatePaused:
-                 {
-                     string = [NSMutableString stringWithString:NSLocalizedString(@"Paused", @"")];
-                     break;
-                 }
-                 default:
-                     break;
              }
-             #undef p
+             else if (state == HBStateMuxing)
+             {
+                 [self.dockTile updateDockIcon:1.0 withETA:@""];
+             }
 
              // Update text field
              self.progressTextField.stringValue = string;
-             [self.controller setQueueInfo:string progress:progress * 100.0 hidden:NO];
+             [self.controller setQueueInfo:string progress:progress hidden:NO];
          }
      completionHandler:^(BOOL success) {
          NSString *info = NSLocalizedString(@"Encode Finished.", @"");
 
          self.progressTextField.stringValue = info;
-         [self.controller setQueueInfo:info progress:100.0 hidden:YES];
+         [self.controller setQueueInfo:info progress:1.0 hidden:YES];
 
          // Restore dock icon
          [self.dockTile updateDockIcon:-1.0 withETA:@""];
@@ -788,7 +681,6 @@
             [HBUtilities writeToActivityLog: "trying to send encode to: %s", [sendToApp UTF8String]];
             NSAppleScript *myScript = [[NSAppleScript alloc] initWithSource: [NSString stringWithFormat: @"%@%@%@%@%@", @"tell application \"",sendToApp,@"\" to open (POSIX file \"", fileURL.path, @"\")"]];
             [myScript executeAndReturnError: nil];
-            [myScript release];
         }
     }
 }
@@ -811,7 +703,6 @@
         [alert setInformativeText:NSLocalizedString(@"Your HandBrake queue is done!", @"")];
         [NSApp requestUserAttention:NSCriticalRequest];
         [alert runModal];
-        [alert release];
     }
 
     // If sleep has been selected
@@ -822,7 +713,6 @@
         NSAppleScript *scriptObject = [[NSAppleScript alloc] initWithSource:
                                        @"tell application \"Finder\" to sleep"];
         [scriptObject executeAndReturnError: &errorDict];
-        [scriptObject release];
     }
     // If Shutdown has been selected
     if( [[[NSUserDefaults standardUserDefaults] stringForKey:@"AlertWhenDone"] isEqualToString: @"Shut Down Computer"] )
@@ -831,7 +721,6 @@
         NSDictionary *errorDict;
         NSAppleScript *scriptObject = [[NSAppleScript alloc] initWithSource:@"tell application \"Finder\" to shut down"];
         [scriptObject executeAndReturnError: &errorDict];
-        [scriptObject release];
     }
 }
 
@@ -883,8 +772,7 @@
         [alert beginSheetModalForWindow:targetWindow
                           modalDelegate:self
                          didEndSelector:@selector(didDimissCancelCurrentJob:returnCode:contextInfo:)
-                            contextInfo:self.jobs[row]];
-        [alert release];
+                            contextInfo:(__bridge void *)(self.jobs[row])];
     }
     else if ([self.jobs[row] state] != HBJobStateWorking)
     {
@@ -950,7 +838,6 @@
         {
             [self.delegate showPreferencesWindow:nil];
         }
-        [alert release];
     }
     else if ([[[NSUserDefaults standardUserDefaults] stringForKey:@"AlertWhenDone"] isEqualToString:@"Shut Down Computer"])
     {
@@ -969,7 +856,6 @@
         {
             [self.delegate showPreferencesWindow:nil];
         }
-        [alert release];
     }
 }
 
@@ -1031,7 +917,6 @@
                       modalDelegate:self
                      didEndSelector:@selector(didDimissCancel:returnCode:contextInfo:)
                         contextInfo:nil];
-    [alert release];
 }
 
 - (void)didDimissCancel:(NSAlert *)alert
@@ -1120,13 +1005,12 @@
         [alert beginSheetModalForWindow:docWindow
                           modalDelegate:self
                          didEndSelector:@selector(didDimissCancelCurrentJob:returnCode:contextInfo:)
-                            contextInfo:job];
-        [alert release];
+                            contextInfo:(__bridge void *)(job)];
     }
     else
     { 
         // since we are not a currently encoding item, we can just be cancelled
-        HBJob *item = [[[self.jobs[row] representedObject] copy] autorelease];
+        HBJob *item = [[self.jobs[row] representedObject] copy];
         [self.controller rescanJobToMainWindow:item];
 
         // Now that source is loaded and settings applied, delete the queue item from the queue
@@ -1382,7 +1266,7 @@
     // We do not let the user drop a pending job before or *above*
     // already finished or currently encoding jobs.
     NSInteger encodingIndex = [self.jobs indexOfObject:self.currentJob];
-    if (index <= encodingIndex)
+    if (encodingIndex != NSNotFound && index <= encodingIndex)
     {
         return NSDragOperationNone;
         index = MAX (index, encodingIndex);

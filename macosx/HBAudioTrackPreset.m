@@ -5,7 +5,7 @@
  It may be used under the terms of the GNU General Public License. */
 
 #import "HBAudioTrackPreset.h"
-#import "NSCodingMacro.h"
+#import "HBCodingUtilities.h"
 #include "hb.h"
 
 #define DEFAULT_SAMPLERATE 48000
@@ -56,6 +56,7 @@ static void *HBAudioEncoderContex = &HBAudioEncoderContex;
 {
     _encoder = encoder;
     [self validateMixdown];
+    [self validateSamplerate];
     [self validateBitrate];
 }
 
@@ -85,18 +86,33 @@ static void *HBAudioEncoderContex = &HBAudioEncoderContex;
     }
 }
 
+- (void)validateSamplerate
+{
+    if (self.encoder & HB_ACODEC_PASS_FLAG)
+    {
+        self.sampleRate = 0; // Auto (same as source)
+    }
+    else if (self.sampleRate)
+    {
+        self.sampleRate = hb_audio_samplerate_get_best(self.encoder, self.sampleRate, NULL);
+    }
+}
+
 - (void)validateBitrate
 {
-    int minBitRate = 0;
-    int maxBitRate = 0;
-
-    int sampleRate = self.sampleRate ? self.sampleRate : DEFAULT_SAMPLERATE;
-
-    hb_audio_bitrate_get_limits(self.encoder, sampleRate, self.mixdown, &minBitRate, &maxBitRate);
-
-    if (self.bitRate < minBitRate || self.bitRate > maxBitRate)
+    if (self.encoder & HB_ACODEC_PASS_FLAG)
     {
-        self.bitRate = maxBitRate;
+        self.bitRate = -1;
+    }
+    else if (self.bitRate == -1) // switching from passthru
+    {
+        self.bitRate = hb_audio_bitrate_get_default(self.encoder,
+                                                    self.sampleRate ? self.sampleRate : DEFAULT_SAMPLERATE,
+                                                    self.mixdown);
+    }
+    else
+    {
+        self.bitRate = hb_audio_bitrate_get_best(self.encoder, self.bitRate, self.sampleRate, self.mixdown);
     }
 }
 
@@ -139,7 +155,7 @@ static void *HBAudioEncoderContex = &HBAudioEncoderContex;
 
 // Because we have indicated that the binding for the gain validates immediately we can implement the
 // key value binding method to ensure the gain stays in our accepted range.
-- (BOOL)validateGain:(id *)ioValue error:(NSError *)outError
+- (BOOL)validateGain:(id *)ioValue error:(NSError * __autoreleasing *)outError
 {
     BOOL retval = YES;
 
@@ -169,7 +185,7 @@ static void *HBAudioEncoderContex = &HBAudioEncoderContex;
     {
         [encoders addObject:@(audio_encoder->name)];
     }
-    return [encoders autorelease];
+    return encoders;
 }
 
 - (NSArray *)mixdowns
@@ -184,7 +200,7 @@ static void *HBAudioEncoderContex = &HBAudioEncoderContex;
             [mixdowns addObject:@(mixdown->name)];
         }
     }
-    return [mixdowns autorelease];
+    return mixdowns;
 }
 
 - (NSArray *)samplerates
@@ -194,9 +210,13 @@ static void *HBAudioEncoderContex = &HBAudioEncoderContex;
          audio_samplerate != NULL;
          audio_samplerate  = hb_audio_samplerate_get_next(audio_samplerate))
     {
-        [samplerates addObject:@(audio_samplerate->name)];
+        int rate = audio_samplerate->rate;
+        if (rate == hb_audio_samplerate_get_best(self.encoder, rate, NULL))
+        {
+            [samplerates addObject:@(audio_samplerate->name)];
+        }
     }
-    return [samplerates autorelease];
+    return samplerates;
 }
 
 - (NSArray *)bitrates
@@ -204,10 +224,7 @@ static void *HBAudioEncoderContex = &HBAudioEncoderContex;
     int minBitRate = 0;
     int maxBitRate = 0;
 
-    // If the samplerate is "Auto" pass a fake sampleRate to get the bitrates
-    int sampleRate = self.sampleRate ? self.sampleRate : DEFAULT_SAMPLERATE;
-
-    hb_audio_bitrate_get_limits(self.encoder, sampleRate, self.mixdown, &minBitRate, &maxBitRate);
+    hb_audio_bitrate_get_limits(self.encoder, self.sampleRate, self.mixdown, &minBitRate, &maxBitRate);
 
     NSMutableArray *bitrates = [[NSMutableArray alloc] init];
     for (const hb_rate_t *audio_bitrate = hb_audio_bitrate_get_next(NULL);
@@ -219,7 +236,7 @@ static void *HBAudioEncoderContex = &HBAudioEncoderContex;
             [bitrates addObject:@(audio_bitrate->name)];
         }
     }
-    return [bitrates autorelease];
+    return bitrates;
 }
 
 + (NSSet *)keyPathsForValuesAffectingValueForKey:(NSString *)key
@@ -262,6 +279,11 @@ static void *HBAudioEncoderContex = &HBAudioEncoderContex;
 
 #pragma mark - NSCoding
 
++ (BOOL)supportsSecureCoding
+{
+    return YES;
+}
+
 - (void)encodeWithCoder:(NSCoder *)coder
 {
     [coder encodeInt:1 forKey:@"HBAudioTrackPresetVersion"];
@@ -271,13 +293,13 @@ static void *HBAudioEncoderContex = &HBAudioEncoderContex;
     encodeInt(_sampleRate);
     encodeInt(_bitRate);
 
-    encodeInt(_gain);
+    encodeDouble(_gain);
     encodeDouble(_drc);
 
     encodeInt(_container);
 }
 
-- (id)initWithCoder:(NSCoder *)decoder
+- (instancetype)initWithCoder:(NSCoder *)decoder
 {
     self = [super init];
 
@@ -286,7 +308,7 @@ static void *HBAudioEncoderContex = &HBAudioEncoderContex;
     decodeInt(_sampleRate);
     decodeInt(_bitRate);
 
-    decodeInt(_gain);
+    decodeDouble(_gain);
     decodeDouble(_drc);
 
     decodeInt(_container);
@@ -408,6 +430,12 @@ static void *HBAudioEncoderContex = &HBAudioEncoderContex;
 
 - (id)transformedValue:(id)value
 {
+    // treat -1 as a special invalid value
+    // e.g. passthru has no bitrate since we have no source
+    if ([value intValue] == -1)
+    {
+        return @"N/A";
+    }
     return [value stringValue];
 }
 

@@ -31,7 +31,7 @@
             [encoders addObject:@(video_encoder->name)];
         }
     }
-    return [[encoders copy] autorelease];
+    return [encoders copy];
 }
 
 - (NSArray *)frameRates
@@ -64,7 +64,7 @@
 
         [framerates addObject:itemTitle];
     }
-    return [[framerates copy] autorelease];
+    return [framerates copy];
 }
 
 - (BOOL)fastDecodeSupported
@@ -132,7 +132,7 @@
     // update the text field
     if (fX264PresetsUnparsedUTF8String != NULL)
     {
-        tmpString = [NSString stringWithUTF8String:fX264PresetsUnparsedUTF8String];
+        tmpString = @(fX264PresetsUnparsedUTF8String);
         free(fX264PresetsUnparsedUTF8String);
     }
     else

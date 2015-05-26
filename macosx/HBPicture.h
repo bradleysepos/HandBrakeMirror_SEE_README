@@ -14,14 +14,14 @@ extern NSString * const HBPictureChangedNotification;
 /**
  * HBPicture
  */
-@interface HBPicture : NSObject <NSCoding, NSCopying, HBPresetCoding>
+@interface HBPicture : NSObject <NSSecureCoding, NSCopying, HBPresetCoding>
 
 - (instancetype)initWithTitle:(HBTitle *)title;
 
 @property (nonatomic, readwrite) int width;
 @property (nonatomic, readwrite) int height;
 
-@property (nonatomic, readwrite) int keepDisplayAspect;
+@property (nonatomic, readwrite) BOOL keepDisplayAspect;
 @property (nonatomic, readwrite) int anamorphicMode;
 @property (nonatomic, readwrite) int modulus;
 
@@ -41,7 +41,11 @@ extern NSString * const HBPictureChangedNotification;
 @property (nonatomic, readwrite) int cropLeft;
 @property (nonatomic, readwrite) int cropRight;
 
-@property (nonatomic, readwrite, assign) HBTitle *title;
+/**
+ *  Source size
+ */
+@property (nonatomic, readonly) int sourceWidth;
+@property (nonatomic, readonly) int sourceHeight;
 
 @end
 

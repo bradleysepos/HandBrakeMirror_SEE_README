@@ -70,8 +70,14 @@ scaleProportionally(NSSize imageSize, NSRect canvasRect)
 #endif
 
 @implementation HBImageAndTextCell
+{
+@private
+    NSImage	             *image;
+    NSImageAlignment     imageAlignment;    // defaults to NSImageAlignTop. Supports NSImageAlignCenter & NSImageAlignBottom
+    NSSize               imageSpacing;      // horizontal and vertical spacing around the image
+}
 
--(id)initTextCell:(NSString *)aString
+-(instancetype)initTextCell:(NSString *)aString
 {
     if (self = [super initTextCell:aString])
     {
@@ -81,7 +87,7 @@ scaleProportionally(NSSize imageSize, NSRect canvasRect)
     return self; 
 }
 
--(id)initWithCoder:(NSCoder *)decoder
+-(instancetype)initWithCoder:(NSCoder *)decoder
 {
     if (self = [super initWithCoder:decoder])
     {
@@ -91,17 +97,10 @@ scaleProportionally(NSSize imageSize, NSRect canvasRect)
     return self; 
 }
 
-- (void)dealloc
-{
-    [image release];
-    image = nil;
-    [super dealloc];
-}
-
 - copyWithZone:(NSZone *)zone
 {
     HBImageAndTextCell *cell = (HBImageAndTextCell *)[super copyWithZone:zone];
-    cell->image = [image retain];
+    cell->image = image;
     return cell;
 }
 
@@ -109,8 +108,7 @@ scaleProportionally(NSSize imageSize, NSRect canvasRect)
 {
     if (anImage != image)
     {
-        [image release];
-        image = [anImage retain];
+        image = anImage;
     }
 }
 

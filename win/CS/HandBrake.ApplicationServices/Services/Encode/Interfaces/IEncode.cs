@@ -13,6 +13,7 @@ namespace HandBrake.ApplicationServices.Services.Encode.Interfaces
 
     using HandBrake.ApplicationServices.Model;
     using HandBrake.ApplicationServices.Services.Encode.EventArgs;
+    using HandBrake.ApplicationServices.Services.Encode.Model;
 
     /// <summary>
     /// Encode Progess Status
@@ -72,11 +73,6 @@ namespace HandBrake.ApplicationServices.Services.Encode.Interfaces
         int LogIndex { get; }
 
         /// <summary>
-        /// Gets a value indicating whether can pause.
-        /// </summary>
-        bool CanPause { get; }
-
-        /// <summary>
         /// Gets a value indicating whether is pasued.
         /// </summary>
         bool IsPasued { get; }
@@ -87,7 +83,10 @@ namespace HandBrake.ApplicationServices.Services.Encode.Interfaces
         /// <param name="job">
         /// The job.
         /// </param>
-        void Start(QueueTask job);
+        /// <param name="configuration">
+        /// The configuration.
+        /// </param>
+        void Start(EncodeTask job, HBConfiguration configuration);
 
         /// <summary>
         /// The pause.

@@ -14,11 +14,17 @@
 extern "C" {
 #endif
 
-#include "hb.h"
+#include "common.h"
+
+hb_dict_t  * hb_state_to_dict( hb_state_t * state);
+hb_dict_t  * hb_job_to_dict( const hb_job_t * job );
+hb_dict_t  * hb_title_to_dict( hb_handle_t *h, int title_index );
+hb_dict_t  * hb_title_set_to_dict( const hb_title_set_t * title_set );
 
 char       * hb_get_title_set_json(hb_handle_t * h);
-char       * hb_title_to_json(const hb_title_t * title);
+char       * hb_title_to_json( hb_handle_t *h, int title_index );
 char       * hb_job_init_json(hb_handle_t *h, int title_index);
+hb_job_t   * hb_dict_to_job( hb_handle_t * h, hb_dict_t *dict );
 char       * hb_job_to_json(const hb_job_t * job);
 hb_job_t   * hb_json_to_job(hb_handle_t * h, const char * json_job);
 int          hb_add_json(hb_handle_t *h, const char * json_job);
@@ -28,6 +34,7 @@ hb_image_t * hb_json_to_image(char *json_image);
 char       * hb_get_preview_params_json(int title_idx, int preview_idx,
                             int deinterlace, hb_geometry_settings_t *settings);
 char       * hb_get_preview_json(hb_handle_t * h, const char *json_param);
+void         hb_json_job_scan( hb_handle_t * h, const char * json_job );
 
 #ifdef __cplusplus
 }

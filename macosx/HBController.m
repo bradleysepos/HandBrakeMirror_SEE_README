@@ -27,15 +27,17 @@
 #import "HBAddPresetController.h"
 
 #import "HBCore.h"
+#import "HBTitle.h"
 #import "HBJob.h"
+#import "HBStateFormatter.h"
 
-@interface HBController () <HBPresetsViewControllerDelegate, HBPreviewControllerDelegate, HBPictureControllerDelegate, HBTitleSelectionDelegate>
+@interface HBController () <HBPresetsViewControllerDelegate, HBTitleSelectionDelegate>
 
-@property (assign) IBOutlet NSView *openTitleView;
+@property (unsafe_unretained) IBOutlet NSView *openTitleView;
 @property (nonatomic, readwrite) BOOL scanSpecificTitle;
 @property (nonatomic, readwrite) NSInteger scanSpecificTitleIdx;
 
-@property (nonatomic, readwrite, retain) HBTitleSelectionController *titlesSelectionController;
+@property (nonatomic, readwrite, strong) HBTitleSelectionController *titlesSelectionController;
 
 /**
  * The name of the source, it might differ from the source
@@ -44,19 +46,19 @@
 @property (nonatomic, copy) NSString *browsedSourceDisplayName;
 
 /// The current job.
-@property (nonatomic, retain) HBJob *job;
+@property (nonatomic, strong) HBJob *job;
 
 /// The job to be applied from the queue.
-@property (nonatomic, retain) HBJob *jobFromQueue;
+@property (nonatomic, strong) HBJob *jobFromQueue;
 
 /// The current selected preset.
-@property (nonatomic, retain) HBPreset *selectedPreset;
+@property (nonatomic, strong) HBPreset *currentPreset;
 @property (nonatomic) BOOL customPreset;
 
 ///  The HBCore used for scanning.
-@property (nonatomic, retain) HBCore *core;
+@property (nonatomic, strong) HBCore *core;
 
-@property (nonatomic, readwrite) NSColor *labelColor;
+@property (unsafe_unretained, nonatomic, readwrite) NSColor *labelColor;
 
 @end
 
@@ -69,20 +71,18 @@
     {
         // Init libhb
         int loggingLevel = [[[NSUserDefaults standardUserDefaults] objectForKey:@"LoggingLevel"] intValue];
-        _core = [[HBCore alloc] initWithLoggingLevel:loggingLevel];
-        _core.name = @"ScanCore";
+        _core = [[HBCore alloc] initWithLogLevel:loggingLevel name:@"ScanCore"];
 
         // Inits the controllers
+        fPreviewController = [[HBPreviewController alloc] init];
         fPictureController = [[HBPictureController alloc] init];
-        [fPictureController setDelegate:self];
-
-        fPreviewController = [[HBPreviewController alloc] initWithDelegate:self];
+        fPictureController.previewWindow = fPreviewController;
+        fPreviewController.pictureSettingsWindow = fPictureController;
 
         fQueueController = queueController;
         fQueueController.controller = self;
 
         presetManager = manager;
-        _selectedPreset = [presetManager.defaultPreset retain];
     }
 
     return self;
@@ -91,18 +91,6 @@
 - (void)dealloc
 {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
-
-    [fPreviewController release];
-    [fPictureController release];
-
-    [_browsedSourceDisplayName release];
-    [_job release];
-    [_jobFromQueue release];
-    [_selectedPreset release];
-    [_labelColor release];
-    [_core release];
-
-    [super dealloc];
 }
 
 - (void)windowDidLoad
@@ -235,12 +223,10 @@
                 if (![[fMainTabView tabViewItems] containsObject:fAdvancedTab])
                 {
                     [fMainTabView insertTabViewItem:fAdvancedTab atIndex:3];
-                    [fAdvancedTab release];
                 }
             }
             else
             {
-                [fAdvancedTab retain];
                 [fMainTabView removeTabViewItem:fAdvancedTab];
             }
         }
@@ -360,9 +346,7 @@
         }
     }
 
-    if (action == @selector(showPicturePanel:) ||
-        action == @selector(showPreviewWindow:) ||
-        action == @selector(addToQueue:))
+    if (action == @selector(addToQueue:))
     {
         return (self.job != nil);
     }
@@ -374,9 +358,8 @@
 {
     SEL action = [menuItem action];
 
-    if (action == @selector(addToQueue:) || action == @selector(addAllTitlesToQueue:) || action == @selector(addTitlesToQueue:) ||
-        action == @selector(showPicturePanel:) || action == @selector(showAddPresetPanel:) ||
-        action == @selector(showPreviewWindow:))
+    if (action == @selector(addToQueue:) || action == @selector(addAllTitlesToQueue:) ||
+        action == @selector(addTitlesToQueue:) || action == @selector(showAddPresetPanel:))
     {
         return self.job && self.window.attachedSheet == nil;
     }
@@ -414,7 +397,7 @@
     }
     if (action == @selector(selectPresetFromMenu:))
     {
-        if ([menuItem.representedObject isEqualTo:self.selectedPreset])
+        if ([menuItem.representedObject isEqualTo:self.currentPreset])
         {
             menuItem.state = NSOnState;
         }
@@ -423,6 +406,10 @@
             menuItem.state = NSOffState;
         }
         return (self.job != nil);
+    }
+    if (action == @selector(exportPreset:))
+    {
+        return [fPresetsView validateUserInterfaceItem:menuItem];
     }
 
     return YES;
@@ -490,8 +477,7 @@
     [self removeJobObservers];
 
     // Retain the new job
-    [_job autorelease];
-    _job = [job retain];
+    _job = job;
 
     // Set the jobs info to the view controllers
     fPictureController.picture = job.picture;
@@ -504,7 +490,7 @@
 
     if (job)
     {
-        fPreviewController.generator = [[[HBPreviewGenerator alloc] initWithCore:self.core job:job] autorelease];
+        fPreviewController.generator = [[HBPreviewGenerator alloc] initWithCore:self.core job:job];
     }
     else
     {
@@ -643,7 +629,7 @@
     // Save the current settings
     if (self.job)
     {
-        self.selectedPreset = [self createPresetFromCurrentSettings];
+        self.currentPreset = [self createPresetFromCurrentSettings];
     }
 
     self.job = nil;
@@ -672,7 +658,6 @@
         [alert addButtonWithTitle:@"Attempt Scan Anyway"];
         [NSApp requestUserAttention:NSCriticalRequest];
         NSInteger status = [alert runModal];
-        [alert release];
 
         if (status == NSAlertFirstButtonReturn)
         {
@@ -698,29 +683,17 @@
         int hb_num_previews = [[[NSUserDefaults standardUserDefaults] objectForKey:@"PreviewsNumber"] intValue];
         int min_title_duration_seconds = [[[NSUserDefaults standardUserDefaults] objectForKey:@"MinTitleScanSeconds"] intValue];
 
+        HBStateFormatter *formatter = [[HBStateFormatter alloc] init];
+
         [self.core scanURL:scanURL
                titleIndex:scanTitleNum
             previews:hb_num_previews minDuration:min_title_duration_seconds
         progressHandler:^(HBState state, hb_state_t hb_state)
         {
-            #define p hb_state.param.scanning
-            if (p.preview_cur)
-            {
-                fSrcDVD2Field.stringValue = [NSString stringWithFormat:
-                                             NSLocalizedString( @"Scanning title %d of %d, preview %d…", @"" ),
-                                             p.title_cur, p.title_count,
-                                             p.preview_cur];
-            }
-            else
-            {
-                fSrcDVD2Field.stringValue = [NSString stringWithFormat:
-                                             NSLocalizedString( @"Scanning title %d of %d…", @"" ),
-                                             p.title_cur, p.title_count];
-            }
+            fSrcDVD2Field.stringValue = [formatter stateToString:hb_state title:nil];
             fScanIndicator.hidden = NO;
             fScanHorizontalLine.hidden = YES;
-            fScanIndicator.doubleValue = 100.0 * p.progress;
-        #undef p
+            fScanIndicator.doubleValue = [formatter stateToPercentComplete:hb_state];
         }
     completionHandler:^(BOOL success)
         {
@@ -766,14 +739,6 @@
     }
 
     [self titlePopUpChanged:nil];
-
-    // Open preview window now if it was visible when HB was closed
-    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"PreviewWindowIsOpen"])
-        [self showPreviewWindow:nil];
-
-    // Open picture sizing window now if it was visible when HB was closed
-    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"PictureSizeWindowIsOpen"])
-        [self showPicturePanel:nil];
 
     if (self.jobFromQueue)
     {
@@ -872,7 +837,11 @@
     // If there is already a title load, save the current settings to a preset
     if (self.job)
     {
-        self.selectedPreset = [self createPresetFromCurrentSettings];
+        self.currentPreset = [self createPresetFromCurrentSettings];
+    }
+    else
+    {
+        self.currentPreset = fPresetsView.selectedPreset;
     }
 
     HBTitle *title = self.core.titles[fSrcTitlePopUp.indexOfSelectedItem];
@@ -885,7 +854,7 @@
     }
     else
     {
-        self.job = [[[HBJob alloc] initWithTitle:title andPreset:self.selectedPreset] autorelease];
+        self.job = [[HBJob alloc] initWithTitle:title andPreset:self.currentPreset];
         self.job.destURL = [self destURLForJob:self.job];
     }
 
@@ -1011,7 +980,7 @@
  */
 - (void)doAddToQueue
 {
-    [fQueueController addJob:[[self.job copy] autorelease]];
+    [fQueueController addJob:[self.job copy]];
 }
 
 /**
@@ -1028,7 +997,6 @@
         [alert setMessageText:NSLocalizedString(@"Warning!", @"")];
         [alert setInformativeText:NSLocalizedString(@"This is not a valid destination directory!", @"")];
         [alert runModal];
-        [alert release];
         return;
 	}
 
@@ -1043,7 +1011,6 @@
         [alert setAlertStyle:NSCriticalAlertStyle];
 
         [alert beginSheetModalForWindow:self.window modalDelegate:self didEndSelector:@selector(overwriteAddToQueueAlertDone:returnCode:contextInfo:) contextInfo:NULL];
-        [alert release];
     }
     else if ([fQueueController jobExistAtURL:self.job.destURL])
     {
@@ -1056,7 +1023,6 @@
         [alert setAlertStyle:NSCriticalAlertStyle];
 
         [alert beginSheetModalForWindow:self.window modalDelegate:self didEndSelector:@selector(overwriteAddToQueueAlertDone:returnCode:contextInfo:) contextInfo:NULL];
-        [alert release];
     }
     else
     {
@@ -1130,7 +1096,6 @@
         [alert setMessageText:NSLocalizedString(@"Warning!", @"")];
         [alert setInformativeText:NSLocalizedString(@"This is not a valid destination directory!", @"")];
         [alert runModal];
-        [alert release];
         return;
     }
 
@@ -1146,7 +1111,6 @@
 
         [alert beginSheetModalForWindow:self.window modalDelegate:self didEndSelector:@selector(overWriteAlertDone:returnCode:contextInfo:) contextInfo:NULL];
         // overWriteAlertDone: will be called when the alert is dismissed. It will call doRip.
-        [alert release];
     }
     else
     {
@@ -1178,7 +1142,7 @@
 
 - (IBAction)addTitlesToQueue:(id)sender
 {
-    self.titlesSelectionController = [[[HBTitleSelectionController alloc] initWithTitles:self.core.titles delegate:self] autorelease];
+    self.titlesSelectionController = [[HBTitleSelectionController alloc] initWithTitles:self.core.titles delegate:self];
 
     [NSApp beginSheet:self.titlesSelectionController.window
        modalForWindow:self.window
@@ -1211,12 +1175,26 @@
             job.destURL = [self destURLForJob:job];
             job.title = nil;
             [jobs addObject:job];
-            [job release];
+        }
+    }
 
-            if ([[NSFileManager defaultManager] fileExistsAtPath:job.destURL.path] || [fQueueController jobExistAtURL:job.destURL])
-            {
-                fileExists = YES;
-            }
+    NSMutableSet *destinations = [[NSMutableSet alloc] init];
+    for (HBJob *job in jobs)
+    {
+        if ([destinations containsObject:job.destURL])
+        {
+            fileExists = YES;
+            break;
+        }
+        else
+        {
+            [destinations addObject:job.destURL];
+        }
+
+        if ([[NSFileManager defaultManager] fileExistsAtPath:job.destURL.path] || [fQueueController jobExistAtURL:job.destURL])
+        {
+            fileExists = YES;
+            break;
         }
     }
 
@@ -1230,13 +1208,11 @@
         [alert addButtonWithTitle:NSLocalizedString(@"Overwrite", nil)];
         [alert setAlertStyle:NSCriticalAlertStyle];
 
-        [alert beginSheetModalForWindow:self.window modalDelegate:self didEndSelector:@selector(overwriteAddTitlesToQueueAlertDone:returnCode:contextInfo:) contextInfo:jobs];
-        [alert release];
+        [alert beginSheetModalForWindow:self.window modalDelegate:self didEndSelector:@selector(overwriteAddTitlesToQueueAlertDone:returnCode:contextInfo:) contextInfo:(void *)CFBridgingRetain(jobs)];
     }
     else
     {
         [fQueueController addJobsFromArray:jobs];
-        [jobs release];
     }
 }
 
@@ -1246,9 +1222,8 @@
 {
     if (returnCode == NSAlertSecondButtonReturn)
     {
-        NSArray *jobs = (NSArray *)contextInfo;
+        NSArray *jobs = CFBridgingRelease(contextInfo);
         [fQueueController addJobsFromArray:jobs];
-        [jobs release];
     }
 }
 
@@ -1283,7 +1258,7 @@
  */
 - (IBAction)showPicturePanel:(id)sender
 {
-	[fPictureController showPictureWindow];
+	[fPictureController showWindow:sender];
 }
 
 - (IBAction)showPreviewWindow:(id)sender
@@ -1304,7 +1279,7 @@
 {
     if (preset != nil && self.job)
     {
-        self.selectedPreset = preset;
+        self.currentPreset = preset;
 
         // Remove the job observer so we don't update the file name
         // too many times while the preset is being applied
@@ -1326,33 +1301,31 @@
     HBAddPresetController *addPresetController = [[HBAddPresetController alloc] initWithPreset:[self createPresetFromCurrentSettings]
                                                                                      videoSize:NSMakeSize(self.job.picture.width, self.job.picture.height)];
 
-    [NSApp beginSheet:addPresetController.window modalForWindow:self.window modalDelegate:self didEndSelector:@selector(sheetDidEnd:returnCode:contextInfo:) contextInfo:addPresetController];
+    [NSApp beginSheet:addPresetController.window modalForWindow:self.window modalDelegate:self didEndSelector:@selector(sheetDidEnd:returnCode:contextInfo:) contextInfo:(void *)CFBridgingRetain(addPresetController)];
 }
 
 - (void)sheetDidEnd:(NSWindow *)sheet returnCode:(NSInteger)returnCode contextInfo:(void *)contextInfo
 {
-    HBAddPresetController *addPresetController = (HBAddPresetController *)contextInfo;
+    HBAddPresetController *addPresetController = (HBAddPresetController *)CFBridgingRelease(contextInfo);
 
     if (returnCode == NSModalResponseContinue)
     {
         [presetManager addPreset:addPresetController.preset];
     }
-
-    [addPresetController release];
 }
 
 - (HBPreset *)createPresetFromCurrentSettings
 {
     NSMutableDictionary *preset = [NSMutableDictionary dictionary];
-    NSDictionary *currentPreset = self.selectedPreset.content;
+    NSDictionary *currentPreset = self.currentPreset.content;
 
-    preset[@"PresetBuildNumber"] = [NSString stringWithFormat: @"%d", [[[[NSBundle mainBundle] infoDictionary] objectForKey:@"CFBundleVersion"] intValue]];
+    preset[@"PresetBuildNumber"] = [NSString stringWithFormat: @"%d", [[[NSBundle mainBundle] infoDictionary][@"CFBundleVersion"] intValue]];
     preset[@"PresetName"] = self.job.presetName;
     preset[@"Folder"] = @NO;
 
 	// Set whether or not this is a user preset or factory 0 is factory, 1 is user
     preset[@"Type"] = @1;
-    preset[@"Default"] = @0;
+    preset[@"Default"] = @NO;
 
     // Get the whether or not to apply pic Size and Cropping (includes Anamorphic)
     preset[@"UsesPictureSettings"] = currentPreset[@"UsesPictureSettings"];
@@ -1366,91 +1339,20 @@
 
     [self.job applyCurrentSettingsToPreset:preset];
 
-    return [[[HBPreset alloc] initWithName:preset[@"PresetName"] content:preset builtIn:NO] autorelease];
+    return [[HBPreset alloc] initWithName:preset[@"PresetName"] content:preset builtIn:NO];
 }
 
 #pragma mark -
 #pragma mark Import Export Preset(s)
 
-- (IBAction) browseExportPresetFile: (id) sender
+- (IBAction)exportPreset:(id)sender
 {
-    // Open a panel to let the user choose where and how to save the export file
-    NSSavePanel *panel = [NSSavePanel savePanel];
-	// We get the current file name and path from the destination field here
-    NSURL *defaultExportDirectory = [[NSURL fileURLWithPath:NSHomeDirectory()] URLByAppendingPathComponent:@"Desktop"];
-    [panel setDirectoryURL:defaultExportDirectory];
-    [panel setNameFieldStringValue:@"HB_Export.plist"];
-    [panel beginSheetModalForWindow:self.window completionHandler:^(NSInteger result) {
-        if( result == NSOKButton )
-        {
-            NSURL *exportPresetsFile = [panel URL];
-            NSURL *presetExportDirectory = [exportPresetsFile URLByDeletingLastPathComponent];
-            [[NSUserDefaults standardUserDefaults] setURL:presetExportDirectory forKey:@"LastPresetExportDirectoryURL"];
-
-            // We check for the presets.plist
-            if ([[NSFileManager defaultManager] fileExistsAtPath:[exportPresetsFile path]] == 0)
-            {
-                [[NSFileManager defaultManager] createFileAtPath:[exportPresetsFile path] contents:nil attributes:nil];
-            }
-
-            NSMutableArray *presetsToExport = [[[NSMutableArray alloc] initWithContentsOfURL:exportPresetsFile] autorelease];
-            if (presetsToExport == nil)
-            {
-                presetsToExport = [[NSMutableArray alloc] init];
-                // now get and add selected presets to export
-            }
-            if (fPresetsView.selectedPreset != nil)
-            {
-                [presetsToExport addObject:[fPresetsView.selectedPreset content]];
-                [presetsToExport writeToURL:exportPresetsFile atomically:YES];
-            }
-        }
-    }];
+    [fPresetsView exportPreset:sender];
 }
 
-- (IBAction)browseImportPresetFile:(id)sender
+- (IBAction)importPreset:(id)sender
 {
-    NSOpenPanel *panel = [NSOpenPanel openPanel];
-    [panel setAllowsMultipleSelection:NO];
-    [panel setCanChooseFiles:YES];
-    [panel setCanChooseDirectories:NO];
-    [panel setAllowedFileTypes:@[@"plist", @"xml"]];
-
-    NSURL *sourceDirectory;
-	if ([[NSUserDefaults standardUserDefaults] URLForKey:@"LastPresetImportDirectoryURL"])
-	{
-		sourceDirectory = [[NSUserDefaults standardUserDefaults] URLForKey:@"LastPresetImportDirectoryURL"];
-	}
-	else
-	{
-		sourceDirectory = [[NSURL fileURLWithPath:NSHomeDirectory()] URLByAppendingPathComponent:@"Desktop"];
-	}
-
-    // set this for allowed file types, not sure if we should allow xml or not.
-    [panel setDirectoryURL:sourceDirectory];
-    [panel beginSheetModalForWindow:self.window completionHandler:^(NSInteger result)
-    {
-        NSURL *importPresetsFile = [panel URL];
-        NSURL *importPresetsDirectory = [importPresetsFile URLByDeletingLastPathComponent];
-        [[NSUserDefaults standardUserDefaults] setURL:importPresetsDirectory forKey:@"LastPresetImportDirectoryURL"];
-
-        // NOTE: here we need to do some sanity checking to verify we do not hose up our presets file
-        NSMutableArray *presetsToImport = [[NSMutableArray alloc] initWithContentsOfURL:importPresetsFile];
-        // iterate though the new array of presets to import and add them to our presets array
-        for (NSMutableDictionary *dict in presetsToImport)
-        {
-            // make any changes to the incoming preset we see fit
-            // make sure the incoming preset is not tagged as default
-            dict[@"Default"] = @0;
-            // prepend "(imported) to the name of the incoming preset for clarification since it can be changed
-            NSString *prependedName = [@"(import) " stringByAppendingString:dict[@"PresetName"]] ;
-            dict[@"PresetName"] = prependedName;
-
-            // actually add the new preset to our presets array
-            [presetManager addPresetFromDictionary:dict];
-        }
-        [presetsToImport autorelease];
-    }];
+    [fPresetsView importPreset:sender];
 }
 
 #pragma mark -
@@ -1459,7 +1361,7 @@
 - (IBAction)selectDefaultPreset:(id)sender
 {
     [self applyPreset:presetManager.defaultPreset];
-    [fPresetsView setSelection:_selectedPreset];
+    [fPresetsView setSelection:_currentPreset];
 }
 
 - (IBAction)insertFolder:(id)sender

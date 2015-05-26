@@ -366,14 +366,15 @@ static int muxWork( hb_work_object_t * w, hb_buffer_t ** buf_in,
         return HB_WORK_DONE;
     }
 
-    if ( buf->size <= 0 )
+    if (buf->s.flags & HB_BUF_FLAG_EOF)
     {
         // EOF - mark this track as done
         hb_buffer_close( &buf );
         hb_bitvec_set(mux->eof, pv->track);
         hb_bitvec_set(mux->rdy, pv->track);
     }
-    else if ((job->pass != 0 && job->pass != 2) ||
+    else if ((job->pass_id != HB_PASS_ENCODE &&
+              job->pass_id != HB_PASS_ENCODE_2ND) ||
              hb_bitvec_bit(mux->eof, pv->track))
     {
         hb_buffer_close( &buf );
@@ -471,7 +472,8 @@ void muxClose( hb_work_object_t * w )
         // may initiate optimization which can take a while and
         // we want the muxing state to be visible while this is
         // happening.
-        if( job->pass == 0 || job->pass == 2 )
+        if( job->pass_id == HB_PASS_ENCODE ||
+            job->pass_id == HB_PASS_ENCODE_2ND )
         {
             /* Update the UI */
             hb_state_t state;
@@ -487,7 +489,8 @@ void muxClose( hb_work_object_t * w )
         }
 
         // we're all done muxing -- print final stats and cleanup.
-        if( job->pass == 0 || job->pass == 2 )
+        if( job->pass_id == HB_PASS_ENCODE ||
+            job->pass_id == HB_PASS_ENCODE_2ND )
         {
             hb_stat_t sb;
             uint64_t bytes_total, frames_total;
@@ -612,7 +615,7 @@ hb_work_object_t * hb_muxer_init( hb_job_t * job )
     mux->pts = mux->interleave;
 
     /* Get a real muxer */
-    if( job->pass == 0 || job->pass == 2)
+    if( job->pass_id == HB_PASS_ENCODE || job->pass_id == HB_PASS_ENCODE_2ND )
     {
         switch( job->mux )
         {
@@ -635,7 +638,7 @@ hb_work_object_t * hb_muxer_init( hb_job_t * job )
 
     /* Initialize the work objects that will receive fifo data */
 
-    muxer = hb_get_work( WORK_MUX );
+    muxer = hb_get_work( job->h, WORK_MUX );
     muxer->private_data = calloc( sizeof( hb_work_private_t ), 1 );
     muxer->private_data->job = job;
     muxer->private_data->mux = mux;
@@ -649,7 +652,7 @@ hb_work_object_t * hb_muxer_init( hb_job_t * job )
     {
         hb_audio_t  *audio = hb_list_item( job->list_audio, i );
 
-        w = hb_get_work( WORK_MUX );
+        w = hb_get_work( job->h, WORK_MUX );
         w->private_data = calloc( sizeof( hb_work_private_t ), 1 );
         w->private_data->job = job;
         w->private_data->mux = mux;
@@ -669,7 +672,7 @@ hb_work_object_t * hb_muxer_init( hb_job_t * job )
         if (subtitle->config.dest != PASSTHRUSUB)
             continue;
 
-        w = hb_get_work( WORK_MUX );
+        w = hb_get_work( job->h, WORK_MUX );
         w->private_data = calloc( sizeof( hb_work_private_t ), 1 );
         w->private_data->job = job;
         w->private_data->mux = mux;

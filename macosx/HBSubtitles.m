@@ -10,7 +10,7 @@
 #import "HBSubtitlesDefaults.h"
 
 #import "HBTitle.h"
-#import "NSCodingMacro.h"
+#import "HBCodingUtilities.h"
 #include "lang.h"
 
 NSString *keySubTrackSelectionIndex = @"keySubTrackSelectionIndex";
@@ -85,23 +85,6 @@ NSString *keySubTrackLanguageIndex = @"keySubTrackLanguageIndex";
     return self;
 }
 
-- (void)dealloc
-{
-    [_tracks release];
-    _tracks = nil;
-
-    [_defaults release];
-    _defaults = nil;
-
-    [_masterTrackArray release];
-    _masterTrackArray = nil;
-
-    [_foreignAudioSearchTrackName release];
-    _foreignAudioSearchTrackName = nil;
-
-    [super dealloc];
-}
-
 - (void)addAllTracks
 {
     [self.tracks removeAllObjects];
@@ -164,7 +147,7 @@ NSString *keySubTrackLanguageIndex = @"keySubTrackLanguageIndex";
     newSubtitleTrack[keySubTrackBurned] = @0;
     newSubtitleTrack[keySubTrackDefault] = @0;
 
-    return [newSubtitleTrack autorelease];
+    return newSubtitleTrack;
 }
 
 /**
@@ -306,9 +289,62 @@ NSString *keySubTrackLanguageIndex = @"keySubTrackLanguageIndex";
         }
     }
 
+    // Set the burn key for the appropriate track.
+    if (self.defaults.burnInBehavior != HBSubtitleTrackBurnInBehaviorNone && self.tracks.count)
+    {
+        if (self.defaults.burnInBehavior == HBSubtitleTrackBurnInBehaviorFirst)
+        {
+            if ([self.tracks.firstObject[keySubTrackIndex] integerValue] != -1)
+            {
+                self.tracks.firstObject[keySubTrackBurned] = @YES;
+            }
+            else if (self.tracks.count > 1)
+            {
+                self.tracks[1][keySubTrackBurned] = @YES;
+            }
+        }
+        else if (self.defaults.burnInBehavior == HBSubtitleTrackBurnInBehaviorForeignAudio)
+        {
+            if ([self.tracks.firstObject[keySubTrackIndex] integerValue] == -1)
+            {
+                self.tracks.firstObject[keySubTrackBurned] = @YES;
+            }
+        }
+        else if (self.defaults.burnInBehavior == HBSubtitleTrackBurnInBehaviorForeignAudioThenFirst)
+        {
+            self.tracks.firstObject[keySubTrackBurned] = @YES;
+        }
+    }
+
+    // Burn-in the first dvd or bluray track and remove the others.
+    if (self.defaults.burnInDVDSubtitles || self.defaults.burnInBluraySubtitles)
+    {
+        // Ugly settings for ugly players
+        BOOL bitmapSubtitlesFound = NO;
+
+        NSMutableArray *tracksToDelete = [[NSMutableArray alloc] init];
+        for (NSMutableDictionary *track in self.tracks)
+        {
+            if ([track[keySubTrackIndex] integerValue] != -1)
+            {
+                if ((([track[keySubTrackType] intValue] == VOBSUB && self.defaults.burnInDVDSubtitles) ||
+                     ([track[keySubTrackType] intValue] == PGSSUB && self.defaults.burnInBluraySubtitles)) &&
+                    !bitmapSubtitlesFound)
+                {
+                    track[keySubTrackBurned] = @YES;
+                    bitmapSubtitlesFound = YES;
+                }
+                else if ([track[keySubTrackType] intValue] == VOBSUB || [track[keySubTrackType] intValue] == PGSSUB)
+                {
+                    [tracksToDelete addObject:track];
+                }
+            }
+        }
+        [self.tracks removeObjectsInArray:tracksToDelete];
+    }
+
     // Add an empty track
     [self insertObject:[self createSubtitleTrack] inTracksAtIndex:[self countOfTracks]];
-
     [self validatePassthru];
 }
 
@@ -318,7 +354,6 @@ NSString *keySubTrackLanguageIndex = @"keySubTrackLanguageIndex";
  */
 - (void)validatePassthru
 {
-    int subtitleTrackType;
     BOOL convertToBurnInUsed = NO;
     NSMutableArray *tracksToDelete = [[NSMutableArray alloc] init];
 
@@ -330,7 +365,7 @@ NSString *keySubTrackLanguageIndex = @"keySubTrackLanguageIndex";
             continue;
         }
 
-        subtitleTrackType = [track[keySubTrackType] intValue];
+        int subtitleTrackType = [track[keySubTrackType] intValue];
         if (!hb_subtitle_can_pass(subtitleTrackType, self.container))
         {
             if (convertToBurnInUsed == NO)
@@ -356,7 +391,7 @@ NSString *keySubTrackLanguageIndex = @"keySubTrackLanguageIndex";
                 continue;
             }
 
-            subtitleTrackType = [track[keySubTrackType] intValue];
+            int subtitleTrackType = [track[keySubTrackType] intValue];
             if (hb_subtitle_can_pass(subtitleTrackType, self.container))
             {
                 track[keySubTrackBurned] = @0;
@@ -371,7 +406,6 @@ NSString *keySubTrackLanguageIndex = @"keySubTrackLanguageIndex";
     }
     [self didChangeValueForKey:@"tracks"];
 
-    [tracksToDelete release];
 }
 
 #pragma mark - Languages
@@ -382,7 +416,7 @@ NSString *keySubTrackLanguageIndex = @"keySubTrackLanguageIndex";
 {
     if (!_languagesArray)
     {
-        _languagesArray = [[self populateLanguageArray] retain];
+        _languagesArray = [self populateLanguageArray];
     }
 
     return _languagesArray;
@@ -390,7 +424,7 @@ NSString *keySubTrackLanguageIndex = @"keySubTrackLanguageIndex";
 
 - (NSArray *)populateLanguageArray
 {
-    NSMutableArray *languages = [[[NSMutableArray alloc] init] autorelease];
+    NSMutableArray *languages = [[NSMutableArray alloc] init];
 
     for (const iso639_lang_t * lang = lang_get_next(NULL); lang != NULL; lang = lang_get_next(lang))
     {
@@ -401,7 +435,7 @@ NSString *keySubTrackLanguageIndex = @"keySubTrackLanguageIndex";
             _languagesArrayDefIndex = [languages count] - 1;
         }
     }
-    return [[languages copy] autorelease];
+    return [languages copy];
 }
 
 @synthesize charCodeArray = _charCodeArray;
@@ -411,11 +445,11 @@ NSString *keySubTrackLanguageIndex = @"keySubTrackLanguageIndex";
     if (!_charCodeArray)
     {
         // populate the charCodeArray.
-        _charCodeArray = [@[@"ANSI_X3.4-1968", @"ANSI_X3.4-1986", @"ANSI_X3.4", @"ANSI_X3.110-1983", @"ANSI_X3.110", @"ASCII",
+        _charCodeArray = @[@"ANSI_X3.4-1968", @"ANSI_X3.4-1986", @"ANSI_X3.4", @"ANSI_X3.110-1983", @"ANSI_X3.110", @"ASCII",
                             @"ECMA-114", @"ECMA-118", @"ECMA-128", @"ECMA-CYRILLIC", @"IEC_P27-1", @"ISO-8859-1", @"ISO-8859-2",
                             @"ISO-8859-3", @"ISO-8859-4", @"ISO-8859-5", @"ISO-8859-6", @"ISO-8859-7", @"ISO-8859-8", @"ISO-8859-9",
                             @"ISO-8859-9E", @"ISO-8859-10", @"ISO-8859-11", @"ISO-8859-13", @"ISO-8859-14", @"ISO-8859-15", @"ISO-8859-16",
-                            @"UTF-7", @"UTF-8", @"UTF-16", @"UTF-16LE", @"UTF-16BE", @"UTF-32", @"UTF-32LE", @"UTF-32BE"] retain];
+                            @"UTF-7", @"UTF-8", @"UTF-16", @"UTF-16LE", @"UTF-16BE", @"UTF-32", @"UTF-32LE", @"UTF-32BE"];
     }
     return _charCodeArray;
 }
@@ -438,7 +472,7 @@ NSString *keySubTrackLanguageIndex = @"keySubTrackLanguageIndex";
             if (idx < _tracks.count)
             {
                 NSMutableDictionary *trackCopy = [obj copy];
-                [copy->_tracks addObject:[trackCopy autorelease]];
+                [copy->_tracks addObject:trackCopy];
             }
         }];
 
@@ -449,6 +483,11 @@ NSString *keySubTrackLanguageIndex = @"keySubTrackLanguageIndex";
 }
 
 #pragma mark - NSCoding
+
++ (BOOL)supportsSecureCoding
+{
+    return YES;
+}
 
 - (void)encodeWithCoder:(NSCoder *)coder
 {
@@ -463,17 +502,17 @@ NSString *keySubTrackLanguageIndex = @"keySubTrackLanguageIndex";
     encodeObject(_defaults);
 }
 
-- (id)initWithCoder:(NSCoder *)decoder
+- (instancetype)initWithCoder:(NSCoder *)decoder
 {
     self = [super init];
 
     decodeInt(_container);
 
-    decodeObject(_masterTrackArray);
-    decodeObject(_foreignAudioSearchTrackName);
-    decodeObject(_tracks);
+    decodeObject(_masterTrackArray, NSMutableArray);
+    decodeObject(_foreignAudioSearchTrackName, NSString);
+    decodeObject(_tracks, NSMutableArray);
 
-    decodeObject(_defaults);
+    decodeObject(_defaults, HBSubtitlesDefaults);
 
     return self;
 }

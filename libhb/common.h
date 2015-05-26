@@ -71,6 +71,7 @@
 #define HB_DVD_READ_BUFFER_SIZE 2048
 
 typedef struct hb_handle_s hb_handle_t;
+typedef struct hb_hwd_s hb_hwd_t;
 typedef struct hb_list_s hb_list_t;
 typedef struct hb_rate_s hb_rate_t;
 typedef struct hb_dither_s hb_dither_t;
@@ -157,7 +158,8 @@ void hb_audio_config_init(hb_audio_config_t * audiocfg);
 int hb_audio_add(const hb_job_t * job, const hb_audio_config_t * audiocfg);
 hb_audio_config_t * hb_list_audio_config_item(hb_list_t * list, int i);
 
-int hb_subtitle_add_ssa_header(hb_subtitle_t *subtitle, int width, int height);
+int hb_subtitle_add_ssa_header(hb_subtitle_t *subtitle, const char *font,
+                               int fs, int width, int height);
 hb_subtitle_t *hb_subtitle_copy(const hb_subtitle_t *src);
 hb_list_t *hb_subtitle_list_copy(const hb_list_t *src);
 void hb_subtitle_close( hb_subtitle_t **sub );
@@ -376,6 +378,7 @@ int                 hb_mixdown_get_discrete_channel_count(int mixdown);
 int                 hb_mixdown_get_low_freq_channel_count(int mixdown);
 int                 hb_mixdown_get_best(uint32_t codec, uint64_t layout, int mixdown);
 int                 hb_mixdown_get_default(uint32_t codec, uint64_t layout);
+hb_mixdown_t*       hb_mixdown_get_from_mixdown(int mixdown);
 int                 hb_mixdown_get_from_name(const char *name);
 const char*         hb_mixdown_get_name(int mixdown);
 const char*         hb_mixdown_get_short_name(int mixdown);
@@ -383,6 +386,7 @@ const char*         hb_mixdown_sanitize_name(const char *name);
 const hb_mixdown_t* hb_mixdown_get_next(const hb_mixdown_t *last);
 
 int                 hb_video_encoder_get_default(int muxer);
+hb_encoder_t*       hb_video_encoder_get_from_codec(int codec);
 int                 hb_video_encoder_get_from_name(const char *name);
 const char*         hb_video_encoder_get_name(int encoder);
 const char*         hb_video_encoder_get_short_name(int encoder);
@@ -399,6 +403,7 @@ const hb_encoder_t* hb_video_encoder_get_next(const hb_encoder_t *last);
  */
 int                 hb_audio_encoder_get_fallback_for_passthru(int passthru);
 int                 hb_audio_encoder_get_default(int muxer);
+hb_encoder_t*       hb_audio_encoder_get_from_codec(int codec);
 int                 hb_audio_encoder_get_from_name(const char *name);
 const char*         hb_audio_encoder_get_name(int encoder);
 const char*         hb_audio_encoder_get_short_name(int encoder);
@@ -414,6 +419,7 @@ void hb_autopassthru_apply_settings(hb_job_t *job);
 void hb_autopassthru_print_settings(hb_job_t *job);
 int  hb_autopassthru_get_encoder(int in_codec, int copy_mask, int fallback, int muxer);
 
+hb_container_t*       hb_container_get_from_format(int format);
 int                   hb_container_get_from_name(const char *name);
 int                   hb_container_get_from_extension(const char *extension); // not really a container name
 const char*           hb_container_get_name(int format);
@@ -430,8 +436,6 @@ struct hb_title_set_s
     int           feature;    // Detected DVD feature title
 };
 
-extern int hb_gui_use_hwd_flag;
-
 typedef enum
 {
     HB_ANAMORPHIC_NONE,
@@ -446,6 +450,8 @@ typedef enum
  *****************************************************************************/
 struct hb_job_s
 {
+    PRIVATE const char  * json;   // JSON encoded job string
+
     /* ID assigned by UI so it can groups job passes together */
     int             sequence_id;
 
@@ -478,6 +484,7 @@ struct hb_job_s
          pass:              0, 1 or 2 (or -1 for scan)
          areBframes:        boolean to note if b-frames are used */
 #define HB_VCODEC_MASK         0x0000FFF
+#define HB_VCODEC_INVALID      0x0000000
 #define HB_VCODEC_X264         0x0000001
 #define HB_VCODEC_THEORA       0x0000002
 #define HB_VCODEC_X265         0x0000004
@@ -494,7 +501,7 @@ struct hb_job_s
     int             vbitrate;
     hb_rational_t   vrate;
     int             cfr;
-    PRIVATE int     pass;
+    PRIVATE int     pass_id;
     int             twopass;        // Enable 2-pass encode. Boolean
     int             fastfirstpass;
     char           *encoder_preset;
@@ -544,6 +551,7 @@ struct hb_job_s
      *     file: file path
      */
 #define HB_MUX_MASK     0xFF0001
+#define HB_MUX_INVALID  0x000000
 #define HB_MUX_MP4V2    0x010000
 #define HB_MUX_AV_MP4   0x020000
 #define HB_MUX_MASK_MP4 0x030000
@@ -579,16 +587,17 @@ struct hb_job_s
                                         //  to non-I frames).
     int use_opencl;
     int use_hwd;
-    int use_decomb;
-    int use_detelecine;
+    PRIVATE int use_decomb;
+    PRIVATE int use_detelecine;
 
-#ifdef USE_QSV
     // QSV-specific settings
     struct
     {
         int decode;
         int async_depth;
+#ifdef USE_QSV
         av_qsv_context *ctx;
+#endif
         // shared encoding parameters
         // initialized by the QSV encoder, then used upstream (e.g. by filters)
         // to configure their output so that it matches what the encoder expects
@@ -600,12 +609,10 @@ struct hb_job_s
             int is_init_done;
         } enc_info;
     } qsv;
-#endif
 
 #ifdef __LIBHB__
     /* Internal data */
     hb_handle_t   * h;
-    hb_lock_t     * pause;
     volatile hb_error_code * done_error;
     volatile int  * die;
     volatile int    done;
@@ -629,6 +636,7 @@ struct hb_job_s
 
 /* Audio starts here */
 /* Audio Codecs: Update win/CS/HandBrake.Interop/HandBrakeInterop/HbLib/NativeConstants.cs when changing these consts */
+#define HB_ACODEC_INVALID   0x00000000
 #define HB_ACODEC_MASK      0x03FFFF00
 #define HB_ACODEC_LAME      0x00000200
 #define HB_ACODEC_VORBIS    0x00000400
@@ -732,6 +740,12 @@ struct hb_audio_config_s
         PRIVATE char description[1024];
         PRIVATE char simple[1024];
         PRIVATE char iso639_2[4];
+#define HB_AUDIO_TYPE_NONE              0
+#define HB_AUDIO_TYPE_NORMAL            1
+#define HB_AUDIO_TYPE_VISUALLY_IMPAIRED 2
+#define HB_AUDIO_TYPE_COMMENTARY        3
+#define HB_AUDIO_TYPE_ALT_COMMENTARY    4
+#define HB_AUDIO_TYPE_BD_SECONDARY      5
         PRIVATE uint8_t type; /* normal, visually impaired, director's commentary */
     } lang;
 };
@@ -993,9 +1007,14 @@ struct hb_state_s
         struct
         {
             /* HB_STATE_WORKING */
+#define HB_PASS_SUBTITLE    -1
+#define HB_PASS_ENCODE      0
+#define HB_PASS_ENCODE_1ST  1   // Some code depends on these values being
+#define HB_PASS_ENCODE_2ND  2   // 1 and 2.  Do not change.
+            int   pass_id;
+            int   pass;
+            int   pass_count;
             float progress;
-            int   job_cur;
-            int   job_count;
             float rate_cur;
             float rate_avg;
             int   hours;
@@ -1086,6 +1105,7 @@ struct hb_work_object_s
     hb_work_private_t * private_data;
 
     hb_thread_t       * thread;
+    int                 yield;
     volatile int      * done;
     int                 status;
     int                 codec_param;
@@ -1093,6 +1113,8 @@ struct hb_work_object_s
 
     hb_work_object_t  * next;
     int                 thread_sleep_interval;
+
+    hb_handle_t       * h;
 #endif
 };
 
@@ -1185,6 +1207,7 @@ struct hb_filter_object_s
 // Update win/CS/HandBrake.Interop/HandBrakeInterop/HbLib/hb_filter_ids.cs when changing this enum
 enum
 {
+    HB_FILTER_INVALID = 0,
     // for QSV - important to have before other filters
     HB_FILTER_FIRST = 1,
     HB_FILTER_QSV_PRE = 1,
@@ -1217,10 +1240,6 @@ hb_filter_object_t * hb_filter_init( int filter_id );
 hb_filter_object_t * hb_filter_copy( hb_filter_object_t * filter );
 hb_list_t *hb_filter_list_copy(const hb_list_t *src);
 void hb_filter_close( hb_filter_object_t ** );
-char * hb_generate_filter_settings(int filter_id, const char *preset,
-                                                  const char *tune);
-int    hb_validate_filter_settings(int filter_id, const char *filter_param);
-int    hb_validate_param_string(const char *regex_pattern, const char *param_string);
 
 typedef void hb_error_handler_t( const char *errmsg );
 

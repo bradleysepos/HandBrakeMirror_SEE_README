@@ -11,9 +11,9 @@ namespace HandBrakeWPF.Helpers
 {
     using System.Diagnostics;
 
-    using HandBrake.Interop.HbLib;
-    using HandBrake.Interop.Model;
-    using HandBrake.Interop.Model.Encoding;
+    using HandBrake.ApplicationServices.Interop.HbLib;
+    using HandBrake.ApplicationServices.Interop.Model;
+    using HandBrake.ApplicationServices.Interop.Model.Encoding;
 
     /// <summary>
     /// The picture size Helpers
@@ -186,7 +186,7 @@ namespace HandBrakeWPF.Helpers
                 maxHeight = job.MaxHeight,
                 mode = (int)(hb_anamorphic_mode_t)job.AnamorphicMode,
                 modulus = job.Modulus.HasValue ? job.Modulus.Value : 16,
-                geometry =  new hb_geometry_s { height = job.Height, width =  job.Width, par = job.AnamorphicMode != Anamorphic.Custom ? new hb_rational_t { den = title.ParH, num = title.ParW } : new hb_rational_t { den = job.ParH, num = job.ParW }}
+                geometry = new hb_geometry_s { height = job.Height, width = job.Width, par = job.AnamorphicMode != Anamorphic.Custom ? new hb_rational_t { den = title.ParH, num = title.ParW } : new hb_rational_t { den = job.ParH, num = job.ParW }}
             };
 
             hb_geometry_s sourceGeometry = new hb_geometry_s

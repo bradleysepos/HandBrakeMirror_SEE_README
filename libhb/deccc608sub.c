@@ -563,6 +563,17 @@ static unsigned encode_line(unsigned char *buffer, unsigned char *text)
     return bytes;
 }
 
+static unsigned stuff_space(unsigned char *buffer, int space)
+{
+    int ii;
+    for (ii = 0; ii < space; ii++)
+    {
+        *buffer++ = '\\';
+        *buffer++ = 'h';
+    }
+    return space * 2;
+}
+
 static void find_limit_characters(unsigned char *line, int *first_non_blank,
                                   int *last_non_blank)
 {
@@ -798,7 +809,6 @@ static int write_cc_buffer_as_ssa(struct eia608_screen *data,
     int i;
     int64_t ms_start = wb->data608->current_visible_start_ms;
     //int64_t ms_end = get_last_pts(wb) + subs_delay;
-    int row = -1, col = -1;
 
     ms_start += subs_delay;
     if (ms_start<0) // Drop screens that because of subs_delay start too early
@@ -820,6 +830,8 @@ static int write_cc_buffer_as_ssa(struct eia608_screen *data,
      * and have a big bottom line (strip spaces from any joined lines).
      */
     int rows = 0, columns = 0;
+    int min_row = 15, max_row = 0;
+    int min_col = 41, max_col = 0;
     for (i = 0; i < 15; i++)
     {
         if (data->row_used[i])
@@ -830,76 +842,109 @@ static int write_cc_buffer_as_ssa(struct eia608_screen *data,
             find_limit_characters(data->characters[i], &first, &last);
             if (last - first + 1 > columns)
                 columns = last - first + 1;
+            if (min_col > first)
+                min_col = first;
+            if (min_row > i)
+                min_row = i;
+            if (max_col < last)
+                max_col = last;
+            if (max_row < i)
+                max_row = i;
         }
     }
 
     wb->prev_font_style = FONT_REGULAR;
     wb->prev_font_color = COL_WHITE;
     wb->enc_buffer_used = 0;
+
+    int cropped_width, cropped_height, font_size;
+    int cell_width, cell_height;
+    int safe_x, safe_y;
+    int min_safe_x, min_safe_y;
+    double aspect;
+
+    cropped_height = wb->height - wb->crop[0] - wb->crop[1];
+    cropped_width = wb->width - wb->crop[2] - wb->crop[3];
+    aspect = (double)wb->width * wb->par.num /
+                    (wb->height * wb->par.den);
+
+    // CC grid is 16 rows by 32 colums (for 4:3 video)
+    // Our SSA resolution is the title resolution
+    // Tranlate CC grid to SSA coordinates
+    // The numbers are tweaked to keep things off the very
+    // edges of the screen and in the "safe" zone
+    int screen_columns = 32;
+    if (aspect >= 1.6)
+    {
+        // If the display aspect is close to or greater than 16:9
+        // then width of screen is 42 columns (see CEA-708)
+        screen_columns = 42;
+    }
+    font_size = wb->height * .8 * .08;
+
+    safe_x = 0.1 * wb->width;
+    safe_y = 0.1 * wb->height;
+    min_safe_x = 0.025 * cropped_width;
+    min_safe_y = 0.025 * cropped_height;
+    cell_height = (wb->height - 2 * safe_y) / 16; 
+    cell_width  = (wb->width  - 2 * safe_x) / screen_columns; 
+
+    char *pos;
+    int y, x, top;
+    int col = min_col;
+    if (aspect >= 1.6)
+    {
+        // If the display aspect is close to or greater than 16:9
+        // center the CC in about a 4:3 region
+        col += 5;
+    }
+    y = cell_height * (min_row + 1 + rows) + safe_y - wb->crop[0];
+    x = cell_width * col + safe_x - wb->crop[2];
+    top = y - rows * font_size;
+
+    if (top < min_safe_y)
+        y = (rows * font_size) + min_safe_y;
+    if (y > cropped_height - min_safe_y)
+        y = cropped_height - min_safe_y;
+    if (x + columns * cell_width > cropped_width - min_safe_x)
+        x = cropped_width - columns * cell_width - min_safe_x;
+    if (x < min_safe_x)
+        x = min_safe_x;
+    pos = hb_strdup_printf("{\\an1\\pos(%d,%d)}", x, y);
+
     int line = 1;
     for (i = 0; i < 15; i++)
     {
         if (data->row_used[i])
         {
+            int first, last;
             // Get position for this CC
-            if (row == -1)
-            {
-                int last, x, y, top, safe_zone, cell_width, cell_height;
-                int cropped_width, cropped_height, font_size;
-                char *pos;
-
-                row = i;
-                find_limit_characters(data->characters[i], &col, &last);
-
-                // CC grid is 16 rows by 62 colums
-                // Our SSA resolution is the title resolution
-                // Tranlate CC grid to SSA coordinates
-                // The numbers are tweaked to keep things off the very
-                // edges of the screen and in the "safe" zone
-                cropped_height = wb->height - wb->crop[0] - wb->crop[1];
-                cropped_width = wb->width - wb->crop[2] - wb->crop[3];
-                font_size = cropped_height * .066;
-
-                safe_zone = cropped_height * 0.025; 
-                cell_height = (wb->height - 2 * safe_zone) / 16; 
-                cell_width = (wb->width - 2 * safe_zone) / 32; 
-
-                // Calculate position assuming the position defines
-                // the baseline of the text which is lower left corner
-                // of bottom row of characters
-                y = cell_height * (row + 1 + rows) + safe_zone - wb->crop[0];
-                top = y - rows * font_size;
-                x = cell_width * col + safe_zone - wb->crop[2];
-                if (top < safe_zone)
-                    y = (rows * font_size) + safe_zone;
-                if (y > cropped_height - safe_zone)
-                    y = cropped_height - safe_zone;
-                if (x + columns * cell_width > cropped_width - safe_zone)
-                    x = cropped_width - columns * cell_width - safe_zone;
-                if (x < safe_zone)
-                    x = safe_zone;
-                pos = hb_strdup_printf("{\\a1\\pos(%d,%d)}", x, y);
-                wb->enc_buffer_used += encode_line(
-                        wb->enc_buffer + wb->enc_buffer_used, (uint8_t*)pos);
-                free(pos);
-            }
+            find_limit_characters(data->characters[i], &first, &last);
 
             /*
              * The intention was to use a newline but QT doesn't like it,
              * old code still here just in case..
              */
+            int space = first - min_col;
             if (line == 1) {
+                wb->enc_buffer_used += encode_line(
+                        wb->enc_buffer + wb->enc_buffer_used, (uint8_t*)pos);
+                wb->enc_buffer_used += stuff_space(
+                        wb->enc_buffer + wb->enc_buffer_used, space);
                 wb->enc_buffer_used += get_decoder_line_encoded(wb,
                         wb->enc_buffer + wb->enc_buffer_used, i, data);
                 line = 2;
             } else {
                 wb->enc_buffer_used += encode_line(
                         wb->enc_buffer + wb->enc_buffer_used, (uint8_t*)"\\N");
+                wb->enc_buffer_used += stuff_space(
+                        wb->enc_buffer + wb->enc_buffer_used, space);
                 wb->enc_buffer_used += get_decoder_line_encoded(wb,
                         wb->enc_buffer + wb->enc_buffer_used, i, data);
             }
         }
     }
+    free(pos);
     if (wb->enc_buffer_used && wb->enc_buffer[0] != 0 && data->dirty)
     {
         hb_buffer_t *buffer;
@@ -1470,12 +1515,13 @@ static void handle_pac(unsigned char c1, unsigned char c2, struct s_write *wb)
             return;
         }
     }
-    int color=pac2_attribs[c2][0];
-    int font=pac2_attribs[c2][1];
+    wb->data608->color=pac2_attribs[c2][0];
+    wb->data608->font=pac2_attribs[c2][1];
     int indent=pac2_attribs[c2][2];
     if (debug_608)
-        hb_log ("  --  Position: %d:%d, color: %s,  font: %s\n",row,
-            indent,color_text[color][0],font_text[font]);
+        hb_log ("  --  Position: %d:%d, color: %s,  font: %s\n", row, indent,
+                color_text[wb->data608->color][0],
+                font_text[wb->data608->font]);
 
     // CC spec says to the preferred method to handle a roll-up base row
     // that causes the display to scroll off the top of the screen is to 
@@ -1617,7 +1663,7 @@ static int disCommand(unsigned char hi, unsigned char lo, struct s_write *wb)
                 handle_pac (hi,lo,wb);
             break;
         case 0x17:
-            if (lo>=0x21 && lo<=0x22)
+            if (lo>=0x21 && lo<=0x23)
                 handle_command (hi,lo,wb);
             if (lo>=0x2e && lo<=0x2f)
                 handle_text_attr (hi,lo,wb);
@@ -1744,6 +1790,7 @@ static int decccInit( hb_work_object_t * w, hb_job_t * job )
             pv->cc608->width = job->title->geometry.width;
             pv->cc608->height = job->title->geometry.height;
             memcpy(pv->cc608->crop, job->crop, sizeof(int[4]));
+            pv->cc608->par = job->title->geometry.par;
             retval = general_608_init(pv->cc608);
             if( !retval )
             {
@@ -1761,7 +1808,9 @@ static int decccInit( hb_work_object_t * w, hb_job_t * job )
         // Generate generic SSA Script Info.
         int height = job->title->geometry.height - job->crop[0] - job->crop[1];
         int width = job->title->geometry.width - job->crop[2] - job->crop[3];
-        hb_subtitle_add_ssa_header(w->subtitle, width, height);
+        int safe_height = 0.8 * job->title->geometry.height;
+        hb_subtitle_add_ssa_header(w->subtitle, "Courier New",
+                                   .08 * safe_height, width, height);
     }
     // When rendering subs, we need to push rollup subtitles out
     // asap (instead of waiting for a completed line) so that we
@@ -1776,7 +1825,7 @@ static int decccWork( hb_work_object_t * w, hb_buffer_t ** buf_in,
     hb_work_private_t * pv = w->private_data;
     hb_buffer_t * in = *buf_in;
 
-    if ( in->size <= 0 )
+    if (in->s.flags & HB_BUF_FLAG_EOF)
     {
         /* EOF on input stream - send it downstream & say that we're done */
         handle_end_of_data(pv->cc608);

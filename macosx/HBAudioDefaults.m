@@ -6,7 +6,7 @@
 
 #import "HBAudioDefaults.h"
 #import "HBAudioTrackPreset.h"
-#import "NSCodingMacro.h"
+#import "HBCodingUtilities.h"
 #import "hb.h"
 #import "lang.h"
 
@@ -31,18 +31,10 @@
     return self;
 }
 
-- (void)dealloc
-{
-    [_trackSelectionLanguages release];
-    [_tracksArray release];
-    [super dealloc];
-}
-
 - (void)addTrack
 {
     HBAudioTrackPreset *track = [[HBAudioTrackPreset alloc] initWithContainer:self.container];
     [self insertObject:track inTracksArrayAtIndex:[self countOfTracksArray]];
-    [track release];
 }
 
 - (NSArray *)audioEncoderFallbacks
@@ -58,7 +50,7 @@
             [fallbacks addObject:@(audio_encoder->name)];
         }
     }
-    return [fallbacks autorelease];
+    return fallbacks;
 }
 
 - (NSString *)isoCodeForNativeLang:(NSString *)language
@@ -124,20 +116,61 @@
         }
     }
 
-    // Passthru settings
-    self.allowAACPassthru = [preset[@"AudioAllowAACPass"] boolValue];
-    self.allowAC3Passthru = [preset[@"AudioAllowAC3Pass"] boolValue];
-    self.allowDTSHDPassthru = [preset[@"AudioAllowDTSHDPass"] boolValue];
-    self.allowDTSPassthru= [preset[@"AudioAllowDTSPass"] boolValue];
-    self.allowMP3Passthru = [preset[@"AudioAllowMP3Pass"] boolValue];
+    // Auto Passthru settings
+    // first, disable all encoders
+    self.allowAACPassthru    = NO;
+    self.allowAC3Passthru    = NO;
+    self.allowDTSPassthru    = NO;
+    self.allowDTSHDPassthru  = NO;
+    self.allowEAC3Passthru   = NO;
+    self.allowFLACPassthru   = NO;
+    self.allowMP3Passthru    = NO;
+    self.allowTrueHDPassthru = NO;
+
+    // then, enable allowed passthru encoders
+    for (NSString *copyMask in preset[@"AudioCopyMask"])
+    {
+        int allowedPassthru = hb_audio_encoder_get_from_name(copyMask.UTF8String);
+        if (allowedPassthru & HB_ACODEC_PASS_FLAG)
+        {
+            switch (allowedPassthru)
+            {
+                case HB_ACODEC_AAC_PASS:
+                    self.allowAACPassthru = YES;
+                    break;
+                case HB_ACODEC_AC3_PASS:
+                    self.allowAC3Passthru = YES;
+                    break;
+                case HB_ACODEC_DCA_PASS:
+                    self.allowDTSPassthru = YES;
+                    break;
+                case HB_ACODEC_DCA_HD_PASS:
+                    self.allowDTSHDPassthru = YES;
+                    break;
+                case HB_ACODEC_EAC3_PASS:
+                    self.allowEAC3Passthru = YES;
+                    break;
+                case HB_ACODEC_FLAC_PASS:
+                    self.allowFLACPassthru = YES;
+                    break;
+                case HB_ACODEC_MP3_PASS:
+                    self.allowMP3Passthru = YES;
+                    break;
+                case HB_ACODEC_TRUEHD_PASS:
+                    self.allowTrueHDPassthru = YES;
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
 
     self.secondaryEncoderMode = [preset[@"AudioSecondaryEncoderMode"] boolValue];
 
     if (preset[@"AudioEncoderFallback"])
     {
         // map legacy encoder names via libhb
-        const char *strValue = hb_audio_encoder_sanitize_name([preset[@"AudioEncoderFallback"] UTF8String]);
-        self.encoderFallback = hb_audio_encoder_get_from_name(strValue);
+        self.encoderFallback = hb_audio_encoder_get_from_name([preset[@"AudioEncoderFallback"] UTF8String]);
     }
 
     [self.tracksArray removeAllObjects];
@@ -165,10 +198,9 @@
         }
         newTrack.bitRate = [track[@"AudioBitrate"] intValue];
 
-        newTrack.drc = [track[@"AudioTrackDRCSlider"] floatValue];
-        newTrack.gain = [track[@"AudioTrackGainSlider"] intValue];
+        newTrack.drc = [track[@"AudioTrackDRCSlider"] doubleValue];
+        newTrack.gain = [track[@"AudioTrackGainSlider"] doubleValue];
         [self.tracksArray addObject:newTrack];
-        [newTrack release];
     }
 }
 
@@ -187,16 +219,45 @@
     {
         preset[@"AudioTrackSelectionBehavior"] = @"none";
     }
-    preset[@"AudioLanguageList"] = [[self.trackSelectionLanguages copy] autorelease];
+    preset[@"AudioLanguageList"] = [self.trackSelectionLanguages copy];
 
     // Passthru settings
-    preset[@"AudioAllowAACPass"] = @(self.allowAACPassthru);
-    preset[@"AudioAllowAC3Pass"] = @(self.allowAC3Passthru);
-    preset[@"AudioAllowDTSHDPass"] = @(self.allowDTSHDPassthru);
-    preset[@"AudioAllowDTSPass"] = @(self.allowDTSPassthru);
-    preset[@"AudioAllowMP3Pass"] = @(self.allowMP3Passthru);
+    NSMutableArray *copyMask = [NSMutableArray array];
+    if (self.allowAACPassthru)
+    {
+        [copyMask addObject:@(hb_audio_encoder_get_short_name(HB_ACODEC_AAC_PASS))];
+    }
+    if (self.allowAC3Passthru)
+    {
+        [copyMask addObject:@(hb_audio_encoder_get_short_name(HB_ACODEC_AC3_PASS))];
+    }
+    if (self.allowEAC3Passthru)
+    {
+        [copyMask addObject:@(hb_audio_encoder_get_short_name(HB_ACODEC_EAC3_PASS))];
+    }
+    if (self.allowDTSHDPassthru)
+    {
+        [copyMask addObject:@(hb_audio_encoder_get_short_name(HB_ACODEC_DCA_HD_PASS))];
+    }
+    if (self.allowDTSPassthru)
+    {
+        [copyMask addObject:@(hb_audio_encoder_get_short_name(HB_ACODEC_DCA_PASS))];
+    }
+    if (self.allowMP3Passthru)
+    {
+        [copyMask addObject:@(hb_audio_encoder_get_short_name(HB_ACODEC_MP3_PASS))];
+    }
+    if (self.allowTrueHDPassthru)
+    {
+        [copyMask addObject:@(hb_audio_encoder_get_short_name(HB_ACODEC_TRUEHD_PASS))];
+    }
+    if (self.allowFLACPassthru)
+    {
+        [copyMask addObject:@(hb_audio_encoder_get_short_name(HB_ACODEC_FLAC_PASS))];
+    }
+    preset[@"AudioCopyMask"] = [copyMask copy];
 
-    preset[@"AudioEncoderFallback"] = @(hb_audio_encoder_get_name(self.encoderFallback));
+    preset[@"AudioEncoderFallback"] = @(hb_audio_encoder_get_short_name(self.encoderFallback));
 
     preset[@"AudioSecondaryEncoderMode"] = @(self.secondaryEncoderMode);
 
@@ -204,13 +265,13 @@
 
     for (HBAudioTrackPreset *track in self.tracksArray)
     {
-        NSString *sampleRate = @"Auto";
+        NSString *sampleRate = @"auto";
         if (hb_audio_samplerate_get_name(track.sampleRate))
         {
             sampleRate = @(hb_audio_samplerate_get_name(track.sampleRate));
         }
-        NSDictionary *newTrack = @{@"AudioEncoder": @(hb_audio_encoder_get_name(track.encoder)),
-                                   @"AudioMixdown": @(hb_mixdown_get_name(track.mixdown)),
+        NSDictionary *newTrack = @{@"AudioEncoder": @(hb_audio_encoder_get_short_name(track.encoder)),
+                                   @"AudioMixdown": @(hb_mixdown_get_short_name(track.mixdown)),
                                    @"AudioSamplerate": sampleRate,
                                    @"AudioBitrate": @(track.bitRate),
                                    @"AudioTrackDRCSlider": @(track.drc),
@@ -220,7 +281,6 @@
     }
 
     preset[@"AudioList"] = audioList;
-    [audioList release];
 }
 
 - (void)validateEncoderFallbackForVideoContainer:(int)container
@@ -257,17 +317,18 @@
     if (copy)
     {
         copy->_trackSelectionBehavior = _trackSelectionBehavior;
-        [copy->_trackSelectionLanguages release];
         copy->_trackSelectionLanguages = [_trackSelectionLanguages mutableCopy];
 
-        [copy->_tracksArray release];
         copy->_tracksArray = [[NSMutableArray alloc] initWithArray:_tracksArray copyItems:YES];
 
         copy->_allowAACPassthru = _allowAACPassthru;
         copy->_allowAC3Passthru = _allowAC3Passthru;
+        copy->_allowEAC3Passthru = _allowEAC3Passthru;
         copy->_allowDTSHDPassthru = _allowDTSHDPassthru;
         copy->_allowDTSPassthru = _allowDTSPassthru;
         copy->_allowMP3Passthru = _allowMP3Passthru;
+        copy->_allowTrueHDPassthru = _allowTrueHDPassthru;
+        copy->_allowFLACPassthru = _allowFLACPassthru;
 
         copy->_encoderFallback = _encoderFallback;
         copy->_secondaryEncoderMode = _secondaryEncoderMode;
@@ -277,6 +338,11 @@
 }
 
 #pragma mark - NSCoding
+
++ (BOOL)supportsSecureCoding
+{
+    return YES;
+}
 
 - (void)encodeWithCoder:(NSCoder *)coder
 {
@@ -289,28 +355,34 @@
 
     encodeBool(_allowAACPassthru);
     encodeBool(_allowAC3Passthru);
+    encodeBool(_allowEAC3Passthru);
     encodeBool(_allowDTSHDPassthru);
     encodeBool(_allowDTSPassthru);
     encodeBool(_allowMP3Passthru);
+    encodeBool(_allowTrueHDPassthru);
+    encodeBool(_allowFLACPassthru);
 
     encodeInt(_encoderFallback);
     encodeBool(_secondaryEncoderMode);
 }
 
-- (id)initWithCoder:(NSCoder *)decoder
+- (instancetype)initWithCoder:(NSCoder *)decoder
 {
     self = [super init];
 
     decodeInteger(_trackSelectionBehavior);
-    decodeObject(_trackSelectionLanguages);
+    decodeObject(_trackSelectionLanguages, NSMutableArray);
 
-    decodeObject(_tracksArray);
+    decodeObject(_tracksArray, NSMutableArray);
 
     decodeBool(_allowAACPassthru);
     decodeBool(_allowAC3Passthru);
+    decodeBool(_allowEAC3Passthru);
     decodeBool(_allowDTSHDPassthru);
     decodeBool(_allowDTSPassthru);
     decodeBool(_allowMP3Passthru);
+    decodeBool(_allowTrueHDPassthru);
+    decodeBool(_allowFLACPassthru);
 
     decodeInt(_encoderFallback);
     decodeBool(_secondaryEncoderMode);

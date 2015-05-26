@@ -26,14 +26,14 @@ namespace HandBrakeWPF.ViewModels
     using HandBrake.ApplicationServices.Services.Encode.Interfaces;
     using HandBrake.ApplicationServices.Services.Encode.Model;
     using HandBrake.ApplicationServices.Services.Encode.Model.Models;
-    using HandBrake.ApplicationServices.Services.Interfaces;
     using HandBrake.ApplicationServices.Services.Scan.EventArgs;
     using HandBrake.ApplicationServices.Services.Scan.Interfaces;
     using HandBrake.ApplicationServices.Services.Scan.Model;
     using HandBrake.ApplicationServices.Utilities;
-    using HandBrake.Interop;
+    using HandBrake.ApplicationServices.Interop;
 
     using HandBrakeWPF.Commands;
+    using HandBrakeWPF.EventArgs;
     using HandBrakeWPF.Factories;
     using HandBrakeWPF.Helpers;
     using HandBrakeWPF.Model;
@@ -44,6 +44,7 @@ namespace HandBrakeWPF.ViewModels
     using HandBrakeWPF.Services.Presets.Factories;
     using HandBrakeWPF.Services.Presets.Interfaces;
     using HandBrakeWPF.Services.Presets.Model;
+    using HandBrakeWPF.Services.Queue.Model;
     using HandBrakeWPF.Utilities;
     using HandBrakeWPF.ViewModels.Interfaces;
     using HandBrakeWPF.Views;
@@ -51,6 +52,10 @@ namespace HandBrakeWPF.ViewModels
     using Microsoft.Win32;
 
     using Ookii.Dialogs.Wpf;
+
+    using Action = System.Action;
+    using Execute = Caliburn.Micro.Execute;
+    using IQueueProcessor = HandBrakeWPF.Services.Queue.Interfaces.IQueueProcessor;
 
     /// <summary>
     /// HandBrakes Main Window
@@ -97,7 +102,7 @@ namespace HandBrakeWPF.ViewModels
         /// <summary>
         /// The Encode Service
         /// </summary>
-        private readonly IEncodeServiceWrapper encodeService;
+        private readonly IEncode encodeService;
 
         /// <summary>
         /// Windows 7 API Pack wrapper
@@ -194,6 +199,14 @@ namespace HandBrakeWPF.ViewModels
         /// </summary>
         private bool canPause;
 
+        private bool showAlertWindow;
+
+        private string alertWindowHeader;
+
+        private string alertWindowText;
+
+        private bool hasSource;
+
         #endregion
 
         /// <summary>
@@ -229,7 +242,7 @@ namespace HandBrakeWPF.ViewModels
         /// The when Done Service.
         /// *** Leave in Constructor. *** 
         /// </param>
-        public MainViewModel(IUserSettingService userSettingService, IScan scanService, IEncodeServiceWrapper encodeService, IPresetService presetService,
+        public MainViewModel(IUserSettingService userSettingService, IScan scanService, IEncode encodeService, IPresetService presetService,
             IErrorService errorService, IShellViewModel shellViewModel, IUpdateService updateService, INotificationService notificationService,
             IPrePostActionService whenDoneService)
         {
@@ -247,9 +260,10 @@ namespace HandBrakeWPF.ViewModels
             this.CurrentTask = new EncodeTask();
             this.CurrentTask.PropertyChanged += this.CurrentTask_PropertyChanged;
             this.ScannedSource = new Source();
+            this.HasSource = false;
 
             // Setup Events
-            this.scanService.ScanStared += this.ScanStared;
+            this.scanService.ScanStarted += this.ScanStared;
             this.scanService.ScanCompleted += this.ScanCompleted;
             this.scanService.ScanStatusChanged += this.ScanStatusChanged;
             this.queueProcessor.JobProcessingStarted += this.QueueProcessorJobProcessingStarted;
@@ -259,8 +273,9 @@ namespace HandBrakeWPF.ViewModels
             this.userSettingService.SettingChanged += this.UserSettingServiceSettingChanged;
 
             this.Presets = this.presetService.Presets;
-            this.CancelScanCommand = new CancelScanCommand(this.scanService);
             this.Drives = new BindingList<SourceMenuItem>();
+
+            HandBrakeInstanceManager.Init();
         }
 
         #region View Model Properties
@@ -496,7 +511,7 @@ namespace HandBrakeWPF.ViewModels
                 // Check if we have a Folder, if so, check if it's a DVD / Bluray drive and get the label.
                 if (ScannedSource.ScanPath.EndsWith("\\"))
                 {
-                    foreach (DriveInformation item in GeneralUtilities.GetDrives())
+                    foreach (DriveInformation item in DriveUtilities.GetDrives())
                     {
                         if (item.RootDirectory.Contains(this.ScannedSource.ScanPath.Replace("\\\\", "\\")))
                         {
@@ -603,7 +618,7 @@ namespace HandBrakeWPF.ViewModels
             set
             {
                 this.isEncoding = value;
-                this.CanPause = value && this.encodeService.CanPause;
+                this.CanPause = value;
                 this.NotifyOfPropertyChange(() => this.IsEncoding);
             }
         }
@@ -654,11 +669,6 @@ namespace HandBrakeWPF.ViewModels
                     };
             }
         }
-
-        /// <summary>
-        /// Gets or sets the cancel scan command.
-        /// </summary>
-        public CancelScanCommand CancelScanCommand { get; set; }
 
         /// <summary>
         /// Gets or sets Destination.
@@ -997,7 +1007,7 @@ namespace HandBrakeWPF.ViewModels
                 if (this.showSourceSelection)
                 {
                     this.Drives.Clear();
-                    foreach (SourceMenuItem menuItem in from item in GeneralUtilities.GetDrives()
+                    foreach (SourceMenuItem menuItem in from item in DriveUtilities.GetDrives()
                                                         let driveInformation = item
                                                         select new SourceMenuItem
                                                         {
@@ -1042,6 +1052,130 @@ namespace HandBrakeWPF.ViewModels
         /// </summary>
         public IStaticPreviewViewModel StaticPreviewViewModel { get; set; }
 
+        /// <summary>
+        /// Gets the cancel action.
+        /// </summary>
+        public Action CancelAction
+        {
+            get
+            {
+                return this.CancelScan;
+            }
+        }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether show alert window.
+        /// </summary>
+        public bool ShowAlertWindow
+        {
+            get
+            {
+                return this.showAlertWindow;
+            }
+            set
+            {
+                if (value.Equals(this.showAlertWindow))
+                {
+                    return;
+                }
+                this.showAlertWindow = value;
+                this.NotifyOfPropertyChange(() => this.ShowAlertWindow);
+            }
+        }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether alert window header.
+        /// </summary>
+        public string AlertWindowHeader
+        {
+            get
+            {
+                return this.alertWindowHeader;
+            }
+            set
+            {
+                if (value == this.alertWindowHeader)
+                {
+                    return;
+                }
+                this.alertWindowHeader = value;
+                this.NotifyOfPropertyChange(() => this.AlertWindowHeader);
+            }
+        }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether alert window text.
+        /// </summary>
+        public string AlertWindowText
+        {
+            get
+            {
+                return this.alertWindowText;
+            }
+            set
+            {
+                if (value == this.alertWindowText)
+                {
+                    return;
+                }
+                this.alertWindowText = value;
+                this.NotifyOfPropertyChange(() => this.AlertWindowText);
+            }
+        }
+
+        /// <summary>
+        /// Gets the alert window close.
+        /// </summary>
+        public Action AlertWindowClose
+        {
+            get
+            {
+                return this.CloseAlertWindow;
+            }
+        }
+
+        /// <summary>
+        /// Gets the add to queue label.
+        /// </summary>
+        public string QueueLabel
+        {
+            get
+            {
+                return string.Format(Resources.Main_QueueLabel, this.queueProcessor.Count > 0 ? string.Format(" ({0})", this.queueProcessor.Count) : string.Empty);
+            }
+        }
+
+        /// <summary>
+        /// Gets the start label.
+        /// </summary>
+        public string StartLabel
+        {
+            get
+            {
+                return this.queueProcessor.Count > 0 ? Resources.Main_StartQueue : Resources.Main_Start;
+            }
+        }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether has source.
+        /// </summary>
+        public bool HasSource
+        {
+            get
+            {
+                return this.hasSource;
+            }
+            set
+            {
+                if (value.Equals(this.hasSource))
+                {
+                    return;
+                }
+                this.hasSource = value;
+                this.NotifyOfPropertyChange(() => this.HasSource);
+            }
+        }
+
         #endregion
 
         #region Load and Shutdown Handling
@@ -1085,7 +1219,7 @@ namespace HandBrakeWPF.ViewModels
             this.encodeService.Stop();
 
             // Unsubscribe from Events.
-            this.scanService.ScanStared -= this.ScanStared;
+            this.scanService.ScanStarted -= this.ScanStared;
             this.scanService.ScanCompleted -= this.ScanCompleted;
             this.scanService.ScanStatusChanged -= this.ScanStatusChanged;
 
@@ -1202,7 +1336,7 @@ namespace HandBrakeWPF.ViewModels
         {
             if (this.ScannedSource == null || string.IsNullOrEmpty(this.ScannedSource.ScanPath) || this.ScannedSource.Titles.Count == 0)
             {
-                this.errorService.ShowMessageBox(Resources.Main_ScanSourceFirst, Resources.Error, MessageBoxButton.OK, MessageBoxImage.Error);
+                this.errorService.ShowMessageBox(Resources.Main_ScanSource, Resources.Error, MessageBoxButton.OK, MessageBoxImage.Error);
                 return false;
             }
 
@@ -1260,7 +1394,7 @@ namespace HandBrakeWPF.ViewModels
         {
             if (this.ScannedSource == null || this.ScannedSource.Titles == null || this.ScannedSource.Titles.Count == 0)
             {
-                this.errorService.ShowMessageBox(Resources.Main_ScanSourceFirst, Resources.Error, MessageBoxButton.OK, MessageBoxImage.Error);
+                this.errorService.ShowMessageBox(Resources.Main_ScanSource, Resources.Error, MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
             }
 
@@ -1289,7 +1423,7 @@ namespace HandBrakeWPF.ViewModels
         {
             if (this.ScannedSource == null || this.ScannedSource.Titles == null || this.ScannedSource.Titles.Count == 0)
             {
-                this.errorService.ShowMessageBox(Resources.Main_ScanSourceFirst, Resources.Error, MessageBoxButton.OK, MessageBoxImage.Error);
+                this.errorService.ShowMessageBox(Resources.Main_ScanSource, Resources.Error, MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
             }
 
@@ -1433,12 +1567,8 @@ namespace HandBrakeWPF.ViewModels
         public void PauseEncode()
         {
             this.queueProcessor.Pause();
-
-            if (this.encodeService.CanPause)
-            {
-                this.encodeService.Pause();
-                this.IsEncoding = false;
-            }
+            this.encodeService.Pause();
+            this.IsEncoding = false;
         }
 
         /// <summary>
@@ -1472,6 +1602,16 @@ namespace HandBrakeWPF.ViewModels
         public void CloseSourceSelection()
         {
             this.ShowSourceSelection = false;
+        }
+
+        /// <summary>
+        /// The close alert window.
+        /// </summary>
+        public void CloseAlertWindow()
+        {
+            this.ShowAlertWindow = false;
+            this.AlertWindowText = string.Empty;
+            this.AlertWindowHeader = string.Empty;
         }
 
         #endregion
@@ -1521,9 +1661,10 @@ namespace HandBrakeWPF.ViewModels
 
             if (this.CurrentTask != null && !string.IsNullOrEmpty(this.CurrentTask.Destination))
             {
-                saveFileDialog.InitialDirectory = Directory.Exists(Path.GetDirectoryName(this.CurrentTask.Destination))
-                                                      ? Path.GetDirectoryName(this.CurrentTask.Destination) + "\\"
-                                                      : null;
+                if (Directory.Exists(Path.GetDirectoryName(this.CurrentTask.Destination)))
+                {
+                    saveFileDialog.InitialDirectory = Path.GetDirectoryName(this.CurrentTask.Destination);
+                }
 
                 saveFileDialog.FileName = Path.GetFileName(this.CurrentTask.Destination);
             }
@@ -1625,6 +1766,29 @@ namespace HandBrakeWPF.ViewModels
         {
             if (this.selectedPreset != null)
             {
+                if (this.selectedPreset.IsDefault)
+                {
+                    this.errorService.ShowMessageBox(
+                      "You can not delete the default preset. Please set another preset as default first.",
+                      Resources.Warning,
+                      MessageBoxButton.OK,
+                      MessageBoxImage.Information);
+
+                    return;
+                }
+
+                MessageBoxResult result =
+                this.errorService.ShowMessageBox(
+                   "Are you sure you want to delete the preset: " + this.selectedPreset.Name + " ?",
+                   Resources.Question,
+                   MessageBoxButton.YesNo,
+                   MessageBoxImage.Question);
+
+                if (result == MessageBoxResult.No)
+                {
+                    return;
+                }
+
                 this.presetService.Remove(this.selectedPreset);
             }
             else
@@ -1810,13 +1974,16 @@ namespace HandBrakeWPF.ViewModels
         /// <param name="successful">
         /// The successful.
         /// </param>
-        private void QueueEditAction(bool successful)
+        /// <param name="scannedSource">
+        /// The scanned Source.
+        /// </param>
+        private void QueueEditAction(bool successful, Source scannedSource)
         {
             /* TODO Fix this. */
             Execute.OnUIThread(() =>
                 {
                     // Copy all the Scan data into the UI
-                    this.scanService.SouceData.CopyTo(this.ScannedSource);
+                    scannedSource.CopyTo(this.ScannedSource);
                     this.NotifyOfPropertyChange(() => this.ScannedSource);
                     this.NotifyOfPropertyChange(() => this.ScannedSource.Titles);
 
@@ -1960,6 +2127,22 @@ namespace HandBrakeWPF.ViewModels
             }
         }
 
+        /// <summary>
+        /// The open alert window.
+        /// </summary>
+        /// <param name="header">
+        /// The header.
+        /// </param>
+        /// <param name="message">
+        /// The message.
+        /// </param>
+        private void OpenAlertWindow(string header, string message)
+        {
+            this.ShowAlertWindow = true;
+            this.AlertWindowHeader = header;
+            this.AlertWindowText = message;
+        }
+
         #endregion
 
         #region Event Handlers
@@ -1989,15 +2172,27 @@ namespace HandBrakeWPF.ViewModels
         /// </param>
         private void ScanCompleted(object sender, ScanCompletedEventArgs e)
         {
-            this.scanService.SouceData.CopyTo(this.ScannedSource);
+            if (e.ScannedSource != null)
+            {
+                e.ScannedSource.CopyTo(this.ScannedSource);
+            }
+            else
+            {
+                this.ScannedSource = null;
+            }
+
             Execute.OnUIThread(() =>
                 {
                     if (e.Successful)
                     {
                         this.NotifyOfPropertyChange(() => this.ScannedSource);
                         this.NotifyOfPropertyChange(() => this.ScannedSource.Titles);
-                        this.SelectedTitle = this.ScannedSource.Titles.FirstOrDefault(t => t.MainTitle)
-                                             ?? this.ScannedSource.Titles.FirstOrDefault();
+                        this.HasSource = true;
+                        this.SelectedTitle = this.ScannedSource.Titles.FirstOrDefault(t => t.MainTitle) ?? this.ScannedSource.Titles.FirstOrDefault();
+                    }
+                    else
+                    {
+                        this.OpenAlertWindow(Resources.Main_ScanNoTitlesFound, Resources.Main_ScanNoTitlesFoundMessage);
                     }
 
                     this.ShowStatusWindow = false;
@@ -2010,11 +2205,6 @@ namespace HandBrakeWPF.ViewModels
                     {
                         this.SourceLabel = Resources.Main_ScanCancelled;
                         this.StatusLabel = Resources.Main_ScanCancelled;
-                    }
-                    else if (e.Exception == null && e.ErrorInformation != null)
-                    {
-                        this.SourceLabel = Resources.Main_ScanFailed_NoReason + e.ErrorInformation;
-                        this.StatusLabel = Resources.Main_ScanFailed_NoReason + e.ErrorInformation;
                     }
                     else
                     {
@@ -2104,7 +2294,7 @@ namespace HandBrakeWPF.ViewModels
         /// <param name="e">
         /// The e.
         /// </param>
-        void QueueProcessorJobProcessingStarted(object sender, HandBrake.ApplicationServices.EventArgs.QueueProgressEventArgs e)
+        void QueueProcessorJobProcessingStarted(object sender, QueueProgressEventArgs e)
         {
             Execute.OnUIThread(
                () =>
@@ -2155,6 +2345,8 @@ namespace HandBrakeWPF.ViewModels
               () =>
               {
                   this.ProgramStatusLabel = string.Format(Resources.Main_XEncodesPending, this.queueProcessor.Count);
+                  this.NotifyOfPropertyChange(() => this.QueueLabel);
+                  this.NotifyOfPropertyChange(() => this.StartLabel);
               });
         }
 
@@ -2194,7 +2386,7 @@ namespace HandBrakeWPF.ViewModels
         /// <param name="e">
         /// The e.
         /// </param>
-        private void UserSettingServiceSettingChanged(object sender, HandBrake.ApplicationServices.EventArgs.SettingChangedEventArgs e)
+        private void UserSettingServiceSettingChanged(object sender, SettingChangedEventArgs e)
         {
             if (e.Key == UserSettingConstants.ShowAdvancedTab)
             {

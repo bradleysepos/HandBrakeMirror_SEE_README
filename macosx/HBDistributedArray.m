@@ -18,8 +18,8 @@
 
 - (instancetype)initWithObject:(id)object;
 
-@property (nonatomic, retain) id representedObject;
-@property (nonatomic, readonly) NSString *uuid;
+@property (nonatomic, strong) id representedObject;
+@property (unsafe_unretained, nonatomic, readonly) NSString *uuid;
 
 @end
 
@@ -27,15 +27,9 @@
 
 - (instancetype)initWithObject:(id)object
 {
-    _representedObject = [object retain];
+    _representedObject = object;
 
     return self;
-}
-
-- (void)dealloc
-{
-    [_representedObject release];
-    [super dealloc];
 }
 
 - (NSMethodSignature *)methodSignatureForSelector:(SEL)selector
@@ -78,16 +72,6 @@ NSString *HBDistributedArraWrittenToDisk = @"HBDistributedArraWrittenToDisk";
         _fileURL = [fileURL copy];
         _array = [[NSMutableArray alloc] init];
 
-        NSFileManager *fileManager = [NSFileManager defaultManager];
-        if (![fileManager fileExistsAtPath:_fileURL.path])
-        {
-            if (![fileManager fileExistsAtPath:_fileURL.URLByDeletingLastPathComponent.path])
-            {
-                [fileManager createDirectoryAtPath:_fileURL.URLByDeletingLastPathComponent.path withIntermediateDirectories:YES attributes:nil error:NULL];
-            }
-            [fileManager createFileAtPath:_fileURL.path contents:nil attributes:nil];
-        }
-
         NSArray *runningInstances = [NSRunningApplication runningApplicationsWithBundleIdentifier:[[NSBundle mainBundle] bundleIdentifier]];
         const char *name = [NSString stringWithFormat:@"/%@.hblock", _fileURL.lastPathComponent].UTF8String;
 
@@ -109,10 +93,13 @@ NSString *HBDistributedArraWrittenToDisk = @"HBDistributedArraWrittenToDisk";
 
         [[NSDistributedNotificationCenter defaultCenter] addObserver:self selector:@selector(handleNotification:) name:HBDistributedArraWrittenToDisk object:nil];
 
-        // Load the array from disk
-        [self lock];
-        [self reload];
-        [self unlock];
+        if ([[NSFileManager defaultManager] fileExistsAtPath:_fileURL.path])
+        {
+            // Load the array from disk
+            [self lock];
+            [self reload];
+            [self unlock];
+        }
     }
 
     return self;
@@ -120,20 +107,13 @@ NSString *HBDistributedArraWrittenToDisk = @"HBDistributedArraWrittenToDisk";
 
 - (void)dealloc
 {
+    [[NSDistributedNotificationCenter defaultCenter] removeObserver:self];
+
     [self lock];
     [self synchronize];
     [self unlock];
 
-    [_fileURL release];
-    _fileURL = nil;
-    [_array release];
-    _array = nil;
-
-    [[NSDistributedNotificationCenter defaultCenter] removeObserver:self];
-
     sem_close(_mutex);
-
-    [super dealloc];
 }
 
 - (void)lock
@@ -195,7 +175,7 @@ NSString *HBDistributedArraWrittenToDisk = @"HBDistributedArraWrittenToDisk";
  */
 - (void)reload
 {
-    NSMutableArray *jobsArray = nil;;
+    NSMutableArray *jobsArray = nil;
     @try
     {
         jobsArray = [NSKeyedUnarchiver unarchiveObjectWithFile:self.fileURL.path];
@@ -284,7 +264,7 @@ NSString *HBDistributedArraWrittenToDisk = @"HBDistributedArraWrittenToDisk";
     }
     else
     {
-        return [[[HBProxyArrayObject alloc] initWithObject:anObject] autorelease];
+        return [[HBProxyArrayObject alloc] initWithObject:anObject];
     }
 }
 
@@ -312,7 +292,7 @@ NSString *HBDistributedArraWrittenToDisk = @"HBDistributedArraWrittenToDisk";
 
 - (void)replaceObjectAtIndex:(NSUInteger)index withObject:(id)anObject
 {
-    [self.array replaceObjectAtIndex:index withObject:[self wrapObjectIfNeeded:anObject]];
+    (self.array)[index] = [self wrapObjectIfNeeded:anObject];
 }
 
 - (NSUInteger)count
@@ -322,7 +302,7 @@ NSString *HBDistributedArraWrittenToDisk = @"HBDistributedArraWrittenToDisk";
 
 - (id)objectAtIndex:(NSUInteger)index
 {
-    return [self.array objectAtIndex:index];
+    return (self.array)[index];
 }
 
 @end

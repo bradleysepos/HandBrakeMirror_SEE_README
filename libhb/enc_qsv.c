@@ -577,27 +577,32 @@ int encqsvInit(hb_work_object_t *w, hb_job_t *job)
     if (job->encoder_options != NULL && *job->encoder_options)
     {
         hb_dict_t *options_list;
-        hb_dict_entry_t *option = NULL;
         options_list = hb_encopts_to_dict(job->encoder_options, job->vcodec);
-        while ((option = hb_dict_next(options_list, option)) != NULL)
+
+        hb_dict_iter_t iter;
+        for (iter  = hb_dict_iter_init(options_list);
+             iter != HB_DICT_ITER_DONE;
+             iter  = hb_dict_iter_next(options_list, iter))
         {
-            switch (hb_qsv_param_parse(&pv->param,  pv->qsv_info,
-                                       option->key, option->value))
+            const char *key = hb_dict_iter_key(iter);
+            hb_value_t *value = hb_dict_iter_value(iter);
+            char *str = hb_value_get_string_xform(value);
+
+            switch (hb_qsv_param_parse(&pv->param,  pv->qsv_info, key, str))
             {
                 case HB_QSV_PARAM_OK:
                     break;
 
                 case HB_QSV_PARAM_BAD_NAME:
-                    hb_log("encqsvInit: hb_qsv_param_parse: bad key %s",
-                           option->key);
+                    hb_log("encqsvInit: hb_qsv_param_parse: bad key %s", key);
                     break;
                 case HB_QSV_PARAM_BAD_VALUE:
                     hb_log("encqsvInit: hb_qsv_param_parse: bad value %s for key %s",
-                           option->value, option->key);
+                           str, key);
                     break;
                 case HB_QSV_PARAM_UNSUPPORTED:
                     hb_log("encqsvInit: hb_qsv_param_parse: unsupported option %s",
-                           option->key);
+                           key);
                     break;
 
                 case HB_QSV_PARAM_ERROR:
@@ -605,6 +610,7 @@ int encqsvInit(hb_work_object_t *w, hb_job_t *job)
                     hb_log("encqsvInit: hb_qsv_param_parse: unknown error");
                     break;
             }
+            free(str);
         }
         hb_dict_free(&options_list);
     }
@@ -1738,7 +1744,7 @@ int encqsvWork(hb_work_object_t *w, hb_buffer_t **buf_in, hb_buffer_t **buf_out)
      * EOF on input. Flush the decoder, then send the
      * EOF downstream to let the muxer know we're done.
      */
-    if (in->size <= 0)
+    if (in->s.flags & HB_BUF_FLAG_EOF)
     {
         qsv_enc_work(pv, NULL, NULL);
         hb_list_add(pv->encoded_frames, in);

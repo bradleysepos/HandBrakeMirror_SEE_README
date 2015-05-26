@@ -17,14 +17,13 @@ namespace HandBrakeWPF.ViewModels
 
     using Caliburn.Micro;
 
-    using HandBrake.ApplicationServices.EventArgs;
     using HandBrake.ApplicationServices.Services.Encode.Model;
     using HandBrake.ApplicationServices.Services.Encode.Model.Models;
     using HandBrake.ApplicationServices.Services.Encode.Model.Models.Video;
     using HandBrake.ApplicationServices.Services.Scan.Model;
     using HandBrake.ApplicationServices.Utilities;
-    using HandBrake.Interop;
-    using HandBrake.Interop.Model.Encoding;
+    using HandBrake.ApplicationServices.Interop;
+    using HandBrake.ApplicationServices.Interop.Model.Encoding;
 
     using HandBrakeWPF.Commands.Interfaces;
     using HandBrakeWPF.Properties;
@@ -33,6 +32,7 @@ namespace HandBrakeWPF.ViewModels
     using HandBrakeWPF.ViewModels.Interfaces;
 
     using Clipboard = System.Windows.Clipboard;
+    using SettingChangedEventArgs = HandBrakeWPF.EventArgs.SettingChangedEventArgs;
 
     /// <summary>
     /// The Video View Model
@@ -1033,11 +1033,6 @@ namespace HandBrakeWPF.ViewModels
         /// </returns>
         private string GetActualx264Query()
         {
-            if (!GeneralUtilities.IsLibHbPresent)
-            {
-                return string.Empty; // Feature is disabled.
-            }
-
             string preset = this.VideoPreset != null ? this.VideoPreset.ShortName : string.Empty;
             string profile = this.VideoProfile != null ? this.VideoProfile.ShortName : string.Empty; 
 
@@ -1165,6 +1160,11 @@ namespace HandBrakeWPF.ViewModels
         /// </param>
         private void HandleEncoderChange(VideoEncoder selectedEncoder)
         {
+            if (selectedEncoder != VideoEncoder.X264)
+            {
+                this.UseAdvancedTab = false;
+            }
+
             HBVideoEncoder encoder = HandBrakeEncoderHelpers.VideoEncoders.FirstOrDefault(s => s.ShortName == EnumHelper<VideoEncoder>.GetShortName(selectedEncoder));
             if (encoder != null)
             {
@@ -1220,7 +1220,6 @@ namespace HandBrakeWPF.ViewModels
                     this.VideoLevel = VideoLevel.Auto;
                 }
                 
-
                 // Setup Presets.
                 this.VideoPresets.Clear();
                 if (encoder.Presets != null)
@@ -1246,7 +1245,6 @@ namespace HandBrakeWPF.ViewModels
 
             // Update the Quality Slider. Make sure the bounds are up to date with the users settings.
             this.SetQualitySliderBounds();
-
 
             // Update control display
             this.UseAdvancedTab = selectedEncoder != VideoEncoder.QuickSync && this.UseAdvancedTab;

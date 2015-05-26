@@ -20,8 +20,9 @@ namespace HandBrakeWPF.Startup
     using Castle.MicroKernel.Registration;
     using Castle.Windsor;
 
-    using HandBrake.ApplicationServices;
+    using HandBrake.ApplicationServices.Services.Encode;
     using HandBrake.ApplicationServices.Services.Encode.Interfaces;
+    using HandBrake.ApplicationServices.Services.Logging;
     using HandBrake.ApplicationServices.Services.Scan;
     using HandBrake.ApplicationServices.Services.Scan.Interfaces;
 
@@ -35,6 +36,8 @@ namespace HandBrakeWPF.Startup
 
     using HandBrakeWPF.Services;
     using HandBrakeWPF.Services.Interfaces;
+    using HandBrakeWPF.Services.Queue;
+    using HandBrakeWPF.Services.Queue.Interfaces;
 
     /// <summary>
     /// The Castle Bootstrapper
@@ -56,17 +59,18 @@ namespace HandBrakeWPF.Startup
             this.windsorContainer.Register(Component.For<IEventAggregator>().ImplementedBy<EventAggregator>());
 
             // Initialise the ApplicationServices IWindsorInstaller
-            this.windsorContainer.Register(Component.For<IWindsorInstaller>().ImplementedBy<ServicesWindsorInstaller>());
-            this.windsorContainer.Install(windsorContainer.ResolveAll<IWindsorInstaller>());
+            // this.windsorContainer.Register(Component.For<IWindsorInstaller>().ImplementedBy<ServicesWindsorInstaller>());
+            // this.windsorContainer.Install(windsorContainer.ResolveAll<IWindsorInstaller>());
 
             // Services
             this.windsorContainer.Register(Component.For<IUpdateService>().ImplementedBy<UpdateService>().LifeStyle.Is(LifestyleType.Singleton));
             this.windsorContainer.Register(Component.For<IScan>().ImplementedBy<LibScan>().LifeStyle.Is(LifestyleType.Singleton));
-            this.windsorContainer.Register(Component.For<IEncodeServiceWrapper>().ImplementedBy<EncodeServiceWrapper>().LifeStyle.Is(LifestyleType.Singleton));
+            this.windsorContainer.Register(Component.For<IEncode>().ImplementedBy<LibEncode>().LifeStyle.Is(LifestyleType.Singleton));
             this.windsorContainer.Register(Component.For<INotificationService>().ImplementedBy<NotificationService>().LifeStyle.Is(LifestyleType.Singleton));
             this.windsorContainer.Register(Component.For<IPrePostActionService>().ImplementedBy<PrePostActionService>().LifeStyle.Is(LifestyleType.Singleton));
             this.windsorContainer.Register(Component.For<IUserSettingService>().ImplementedBy<UserSettingService>());
             this.windsorContainer.Register(Component.For<IPresetService>().ImplementedBy<PresetService>());
+            this.windsorContainer.Register(Component.For<IQueueProcessor>().ImplementedBy<QueueProcessor>());
 
             // Commands
             this.windsorContainer.Register(Component.For<IAdvancedEncoderOptionsCommand>().ImplementedBy<AdvancedEncoderOptionsCommand>().LifeStyle.Is(LifestyleType.Singleton));
@@ -97,6 +101,8 @@ namespace HandBrakeWPF.Startup
             this.windsorContainer.Register(Component.For<ISubtitlesViewModel>().ImplementedBy<SubtitlesViewModel>().LifeStyle.Is(LifestyleType.Singleton));
             this.windsorContainer.Register(Component.For<IFiltersViewModel>().ImplementedBy<FiltersViewModel>().LifeStyle.Is(LifestyleType.Singleton));
             this.windsorContainer.Register(Component.For<IVideoViewModel>().ImplementedBy<VideoViewModel>().LifeStyle.Is(LifestyleType.Singleton));
+
+            // Overlay Panels
         }
 
         /// <summary>

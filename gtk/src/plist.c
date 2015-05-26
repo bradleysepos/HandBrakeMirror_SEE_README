@@ -2,12 +2,13 @@
 #include <stdlib.h>
 #include <fcntl.h>
 #include <string.h>
+#include <inttypes.h>
 #include <glib.h>
 #include <glib/gstdio.h>
 #include <glib-object.h>
 
-#include "plist.h"
 #include "values.h"
+#include "plist.h"
 
 #define BUF_SZ  (128*1024)
 
@@ -60,7 +61,7 @@ typedef struct
 {
     gchar *key;
     gchar *value;
-    GValue *plist;
+    GhbValue *plist;
     GQueue *stack;
     GQueue *tag_stack;
     gboolean closed_top;
@@ -102,9 +103,9 @@ start_element(
         return;
     }
     g_queue_push_head(pd->tag_stack, id.pid);
-    GType gtype = 0;
-    GValue *gval = NULL;
-    GValue *current = g_queue_peek_head(pd->stack);
+    GhbType gtype = 0;
+    GhbValue *gval = NULL;
+    GhbValue *current = g_queue_peek_head(pd->stack);
     switch (id.id)
     {
         case P_PLIST:
@@ -117,12 +118,12 @@ start_element(
         } break;
         case P_DICT:
         {
-            gval = ghb_dict_value_new();
+            gval = ghb_dict_new();
             g_queue_push_head(pd->stack, gval);
         } break;
         case P_ARRAY:
         {
-            gval = ghb_array_value_new(128);
+            gval = ghb_array_new();
             g_queue_push_head(pd->stack, gval);
         } break;
         case P_INTEGER:
@@ -155,21 +156,21 @@ start_element(
             pd->plist = gval;
             return;
         }
-        gtype = G_VALUE_TYPE(current);
-        if (gtype == ghb_array_get_type())
+        gtype = ghb_value_type(current);
+        if (gtype == GHB_ARRAY)
         {
             ghb_array_append(current, gval);
         }
-        else if (gtype == ghb_dict_get_type())
+        else if (gtype == GHB_DICT)
         {
             if (pd->key == NULL)
             {
                 g_warning("No key for dictionary item");
-                ghb_value_free(gval);
+                ghb_value_free(&gval);
             }
             else
             {
-                ghb_dict_insert(current, g_strdup(pd->key), gval);
+                ghb_dict_set(current, pd->key, gval);
             }
         }
         else
@@ -217,9 +218,9 @@ end_element(
     if (start_id.id != id)
         g_warning("start tag != end tag: (%s %d) %d", name, id, id);
 
-    GValue *gval = NULL;
-    GValue *current = g_queue_peek_head(pd->stack);
-    GType gtype = 0;
+    GhbValue *gval = NULL;
+    GhbValue *current = g_queue_peek_head(pd->stack);
+    GhbType gtype = 0;
     switch (id)
     {
         case P_PLIST:
@@ -242,7 +243,7 @@ end_element(
         case P_INTEGER:
         {
             gint64 val = g_strtod(pd->value, NULL);
-            gval = ghb_int64_value_new(val);
+            gval = ghb_int_value_new(val);
         } break;
         case P_REAL:
         {
@@ -253,28 +254,17 @@ end_element(
         {
             gval = ghb_string_value_new(pd->value);
         } break;
-        case P_DATE:
-        {
-            GDate date;
-            GTimeVal time;
-            g_time_val_from_iso8601(pd->value, &time);
-            g_date_set_time_val(&date, &time);
-            gval = ghb_date_value_new(&date);
-        } break;
         case P_TRUE:
         {
-            gval = ghb_boolean_value_new(TRUE);
+            gval = ghb_bool_value_new(TRUE);
         } break;
         case P_FALSE:
         {
-            gval = ghb_boolean_value_new(FALSE);
+            gval = ghb_bool_value_new(FALSE);
         } break;
-        case P_DATA:
+        default:
         {
-            ghb_rawdata_t *data;
-            data = g_malloc(sizeof(ghb_rawdata_t));
-            data->data = g_base64_decode(pd->value, &(data->size));
-            gval = ghb_rawdata_value_new(data);
+            g_message("Unhandled plist type %d", id);
         } break;
     }
     if (gval)
@@ -287,21 +277,21 @@ end_element(
             pd->closed_top = TRUE;
             return;
         }
-        gtype = G_VALUE_TYPE(current);
-        if (gtype == ghb_array_get_type())
+        gtype = ghb_value_type(current);
+        if (gtype == GHB_ARRAY)
         {
             ghb_array_append(current, gval);
         }
-        else if (gtype == ghb_dict_get_type())
+        else if (gtype == GHB_DICT)
         {
             if (pd->key == NULL)
             {
                 g_warning("No key for dictionary item");
-                ghb_value_free(gval);
+                ghb_value_free(&gval);
             }
             else
             {
-                ghb_dict_insert(current, g_strdup(pd->key), gval);
+                ghb_dict_set(current, pd->key, gval);
             }
         }
         else
@@ -352,7 +342,7 @@ destroy_notify(gpointer data)
     //g_debug("destroy parser");
 }
 
-GValue*
+GhbValue*
 ghb_plist_parse(const gchar *buf, gssize len)
 {
     GMarkupParseContext *ctx;
@@ -384,12 +374,12 @@ ghb_plist_parse(const gchar *buf, gssize len)
     return pd.plist;
 }
 
-GValue*
+GhbValue*
 ghb_plist_parse_file(const gchar *filename)
 {
     gchar *buffer;
     size_t size;
-    GValue *gval;
+    GhbValue *gval;
     FILE *fd;
 
     fd = g_fopen(filename, "r");
@@ -422,28 +412,18 @@ indent_fprintf(FILE *file, gint indent, const gchar *fmt, ...)
     va_end(ap);
 }
 
-// Used for sorting dictionaries.
-static gint
-key_cmp(gconstpointer a, gconstpointer b)
-{
-    gchar *stra = (gchar*)a;
-    gchar *strb = (gchar*)b;
-
-    return strcmp(stra, strb);
-}
-
 static void
-gval_write(FILE *file, GValue *gval)
+gval_write(FILE *file, GhbValue *gval)
 {
     static gint indent = 0;
     gint ii;
-    GType gtype;
+    GhbType gtype;
 
     if (gval == NULL) return;
-    gtype = G_VALUE_TYPE(gval);
-    if (gtype == ghb_array_get_type())
+    gtype = ghb_value_type(gval);
+    if (gtype == GHB_ARRAY)
     {
-        GValue *val;
+        GhbValue *val;
         gint count;
 
         indent_fprintf(file, indent, "<array>\n");
@@ -451,40 +431,35 @@ gval_write(FILE *file, GValue *gval)
         count = ghb_array_len(gval);
         for (ii = 0; ii < count; ii++)
         {
-            val = ghb_array_get_nth(gval, ii);
+            val = ghb_array_get(gval, ii);
             gval_write(file, val);
         }
         indent--;
         indent_fprintf(file, indent, "</array>\n");
     }
-    else if (gtype == ghb_dict_get_type())
+    else if (gtype == GHB_DICT)
     {
-        GValue *val;
-        GHashTable *dict = g_value_get_boxed(gval);
-        GList *link, *keys;
-        keys = g_hash_table_get_keys(dict);
-        // Sort the dictionary.  Not really necessray, but it makes
-        // finding things easier
-        keys = g_list_sort(keys, key_cmp);
-        link = keys;
+        const char *key;
+        GhbValue *val;
+        GhbDictIter iter;
+
         indent_fprintf(file, indent, "<dict>\n");
         indent++;
-        while (link)
+
+        iter = ghb_dict_iter_init(gval);
+        while (ghb_dict_iter_next(gval, &iter, &key, &val))
         {
-            gchar *key = (gchar*)link->data;
-            val = g_hash_table_lookup(dict, key);
             indent_fprintf(file, indent, "<key>%s</key>\n", key);
             gval_write(file, val);
-            link = link->next;
         }
+
         indent--;
         indent_fprintf(file, indent, "</dict>\n");
-        g_list_free(keys);
     }
-    else if (gtype == G_TYPE_BOOLEAN)
+    else if (gtype == GHB_BOOL)
     {
         gchar *tag;
-        if (g_value_get_boolean(gval))
+        if (ghb_value_get_bool(gval))
         {
             tag = "true";
         }
@@ -494,45 +469,19 @@ gval_write(FILE *file, GValue *gval)
         }
         indent_fprintf(file, indent, "<%s />\n", tag);
     }
-    else if (gtype == g_date_get_type())
+    else if (gtype == GHB_DOUBLE)
     {
-        GDate *date;
-        date = g_value_get_boxed(gval);
-        indent_fprintf(file, indent, "<date>%d-%d-%d</date>\n",
-            g_date_get_year(date),
-            g_date_get_month(date),
-            g_date_get_day(date)
-        );
-    }
-    else if (gtype == ghb_rawdata_get_type())
-    {
-        ghb_rawdata_t *data;
-        gchar *base64;
-        data = g_value_get_boxed(gval);
-        base64 = g_base64_encode(data->data, data->size);
-        indent_fprintf(file, indent, "<data>\n");
-        indent_fprintf(file, 0, "%s\n", base64);
-        indent_fprintf(file, indent, "</data>\n");
-        g_free(base64);
-    }
-    else if (gtype == G_TYPE_DOUBLE)
-    {
-        gdouble val = g_value_get_double(gval);
+        gdouble val = ghb_value_get_double(gval);
         indent_fprintf(file, indent, "<real>%.17g</real>\n", val);
     }
-    else if (gtype == G_TYPE_INT64)
+    else if (gtype == GHB_INT)
     {
-        gint val = g_value_get_int64(gval);
-        indent_fprintf(file, indent, "<integer>%d</integer>\n", val);
+        gint64 val = ghb_value_get_int(gval);
+        indent_fprintf(file, indent, "<integer>%"PRId64"</integer>\n", val);
     }
-    else if (gtype == G_TYPE_INT)
+    else if (gtype == GHB_STRING)
     {
-        gint val = g_value_get_int(gval);
-        indent_fprintf(file, indent, "<integer>%d</integer>\n", val);
-    }
-    else if (gtype == G_TYPE_STRING)
-    {
-        const gchar *str = g_value_get_string(gval);
+        const gchar *str = ghb_value_get_string(gval);
         gchar *esc = g_markup_escape_text(str, -1);
         indent_fprintf(file, indent, "<string>%s</string>\n", esc);
         g_free(esc);
@@ -540,26 +489,12 @@ gval_write(FILE *file, GValue *gval)
     else
     {
         // Try to make anything thats unrecognized into a string
-        const gchar *str;
-        GValue val = {0,};
-        g_value_init(&val, G_TYPE_STRING);
-        if (g_value_transform(gval, &val))
-        {
-            str = g_value_get_string(&val);
-            gchar *esc = g_markup_escape_text(str, -1);
-            indent_fprintf(file, indent, "<string>%s</string>\n", esc);
-            g_free(esc);
-        }
-        else
-        {
-            g_message("failed to transform");
-        }
-        g_value_unset(&val);
+        g_warning("Unhandled data type %d", gtype);
     }
 }
 
 void
-ghb_plist_write(FILE *file, GValue *gval)
+ghb_plist_write(FILE *file, GhbValue *gval)
 {
     fprintf(file, "%s", preamble);
     gval_write(file, gval);
@@ -567,17 +502,16 @@ ghb_plist_write(FILE *file, GValue *gval)
 }
 
 void
-ghb_plist_write_file(const gchar *filename, GValue *gval)
+ghb_plist_write_file(const gchar *filename, GhbValue *gval)
 {
     FILE *file;
 
-    file = fopen(filename, "w");
+    file = g_fopen(filename, "w");
     if (file == NULL)
         return;
 
-    fprintf(file, "%s", preamble);
-    gval_write(file, gval);
-    fprintf(file, "%s", postfix);
+    ghb_plist_write(file, gval);
+    fclose(file);
 }
 
 
@@ -585,7 +519,7 @@ ghb_plist_write_file(const gchar *filename, GValue *gval)
 gint
 main(gint argc, gchar *argv[])
 {
-    GValue *gval;
+    GhbValue *gval;
 
     g_type_init();
 

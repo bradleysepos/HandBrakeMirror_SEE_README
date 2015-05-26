@@ -9,6 +9,8 @@
 #import "HBAudioDefaults.h"
 #import "HBAudioTrack.h"
 
+#import "HBTitle.h"
+
 @implementation HBJob (HBJobConversion)
 
 /**
@@ -41,7 +43,7 @@
         job->pts_to_start = start_seconds * 90000LL;
         // Stop seconds is actually the duration of encode, so subtract the end seconds from the start seconds
         int stop_seconds = self.range.secondsStop;
-        job->pts_to_stop = stop_seconds * 90000LL;
+        job->pts_to_stop = (stop_seconds - start_seconds) * 90000LL;
     }
     else if (self.range.type == HBRangeTypeFrames)
     {
@@ -52,7 +54,7 @@
         job->frame_to_start = start_frame;
         // get the frame to stop on from the end frame field
         int stop_frame = self.range.frameStop;
-        job->frame_to_stop = stop_frame;
+        job->frame_to_stop = stop_frame - start_frame;
     }
     else if (self.range.type == HBRangePreviewIndex)
     {
@@ -323,24 +325,37 @@
 
     if (audioDefaults.allowAACPassthru)
     {
-        job->acodec_copy_mask |= HB_ACODEC_FFAAC;
+        job->acodec_copy_mask |= HB_ACODEC_AAC_PASS;
     }
     if (audioDefaults.allowAC3Passthru)
     {
-        job->acodec_copy_mask |= HB_ACODEC_AC3;
+        job->acodec_copy_mask |= HB_ACODEC_AC3_PASS;
+    }
+    if (audioDefaults.allowEAC3Passthru)
+    {
+        job->acodec_copy_mask |= HB_ACODEC_EAC3_PASS;
     }
     if (audioDefaults.allowDTSHDPassthru)
     {
-        job->acodec_copy_mask |= HB_ACODEC_DCA_HD;
+        job->acodec_copy_mask |= HB_ACODEC_DCA_HD_PASS;
     }
     if (audioDefaults.allowDTSPassthru)
     {
-        job->acodec_copy_mask |= HB_ACODEC_DCA;
+        job->acodec_copy_mask |= HB_ACODEC_DCA_PASS;
     }
     if (audioDefaults.allowMP3Passthru)
     {
-        job->acodec_copy_mask |= HB_ACODEC_MP3;
+        job->acodec_copy_mask |= HB_ACODEC_MP3_PASS;
     }
+    if (audioDefaults.allowTrueHDPassthru)
+    {
+        job->acodec_copy_mask |= HB_ACODEC_TRUEHD_PASS;
+    }
+    if (audioDefaults.allowFLACPassthru)
+    {
+        job->acodec_copy_mask |= HB_ACODEC_FLAC_PASS;
+    }
+
     job->acodec_fallback = audioDefaults.encoderFallback;
 
     // Audio tracks and mixdowns
@@ -401,74 +416,37 @@
 
     // Detelecine
     hb_filter_object_t *filter;
-    if (self.filters.detelecine == 1)
+    if (![self.filters.detelecine isEqualToString:@"off"])
     {
-        filter = hb_filter_init(HB_FILTER_DETELECINE);
-        // use a custom detelecine string
-        hb_add_filter(job, filter, self.filters.detelecineCustomString.UTF8String);
-    }
-    else if (self.filters.detelecine == 2)
-    {
-        filter = hb_filter_init(HB_FILTER_DETELECINE);
-        // Use libhb's default values
-        hb_add_filter(job, filter, NULL);
+        int filter_id = HB_FILTER_DETELECINE;
+        const char *filter_str = hb_generate_filter_settings(filter_id,
+                                                             self.filters.detelecine.UTF8String,
+                                                             self.filters.detelecineCustomString.UTF8String);
+        filter = hb_filter_init(filter_id);
+        hb_add_filter(job, filter, filter_str);
     }
 
-    if (self.filters.useDecomb && self.filters.decomb)
+    if (self.filters.useDecomb && ![self.filters.decomb isEqualToString:@"off"])
     {
         // Decomb
-        filter = hb_filter_init(HB_FILTER_DECOMB);
-        if (self.filters.decomb == 1)
-        {
-            // use a custom decomb string */
-            hb_add_filter(job, filter, self.filters.decombCustomString.UTF8String);
-        }
-        else if (self.filters.decomb == 2)
-        {
-            // use libhb defaults
-            hb_add_filter(job, filter, NULL);
-        }
-        else if (self.filters.decomb == 3)
-        {
-            // use old defaults (decomb fast)
-            hb_add_filter(job, filter, "7:2:6:9:1:80");
-        }
-        else if (self.filters.decomb == 4)
-        {
-            // decomb 3 with bobbing enabled
-            hb_add_filter(job, filter, "455");
-        }
+        int filter_id = HB_FILTER_DECOMB;
+        const char *filter_str = hb_generate_filter_settings(filter_id,
+                                                             self.filters.decomb.UTF8String,
+                                                             self.filters.decombCustomString.UTF8String);
+        filter = hb_filter_init(filter_id);
+        hb_add_filter(job, filter, filter_str);
     }
-    else if (!self.filters.useDecomb && self.filters.deinterlace)
+    else if (!self.filters.useDecomb && ![self.filters.deinterlace isEqualToString:@"off"])
     {
         // Deinterlace
-        filter = hb_filter_init(HB_FILTER_DEINTERLACE);
-        if (self.filters.deinterlace == 1)
-        {
-            // we add the custom string if present
-            hb_add_filter(job, filter, self.filters.deinterlaceCustomString.UTF8String);
-        }
-        else if (self.filters.deinterlace == 2)
-        {
-            // Run old deinterlacer fd by default
-            hb_add_filter(job, filter, "0");
-        }
-        else if (self.filters.deinterlace == 3)
-        {
-            // Yadif mode 0 (without spatial deinterlacing)
-            hb_add_filter(job, filter, "1");
-        }
-        else if (self.filters.deinterlace == 4)
-        {
-            // Yadif (with spatial deinterlacing)
-            hb_add_filter(job, filter, "3");
-        }
-        else if (self.filters.deinterlace == 5)
-        {
-            // Yadif (with spatial deinterlacing and bobbing)
-            hb_add_filter(job, filter, "15");
-        }
+        int filter_id = HB_FILTER_DEINTERLACE;
+        const char *filter_str = hb_generate_filter_settings(filter_id,
+                                                             self.filters.deinterlace.UTF8String,
+                                                             self.filters.deinterlaceCustomString.UTF8String);
+        filter = hb_filter_init(filter_id);
+        hb_add_filter(job, filter, filter_str);
     }
+
     // Denoise
     if (![self.filters.denoise isEqualToString:@"off"])
     {
@@ -498,7 +476,7 @@
     // NOTE: even though there is a valid deblock setting of 0 for the filter, for
     // the macgui's purposes a value of 0 actually means to not even use the filter
     // current hb_filter_deblock.settings valid ranges are from 5 - 15
-    if (self.filters.deblock != 0)
+    if (self.filters.deblock)
     {
         filter = hb_filter_init(HB_FILTER_DEBLOCK);
         hb_add_filter(job, filter, [NSString stringWithFormat:@"%ld", (long)self.filters.deblock].UTF8String);

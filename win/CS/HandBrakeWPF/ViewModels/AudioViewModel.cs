@@ -16,12 +16,11 @@ namespace HandBrakeWPF.ViewModels
 
     using Caliburn.Micro;
 
-    using HandBrake.ApplicationServices.Model;
+    using HandBrake.ApplicationServices.Interop.Model.Encoding;
     using HandBrake.ApplicationServices.Services.Encode.Model;
     using HandBrake.ApplicationServices.Services.Encode.Model.Models;
     using HandBrake.ApplicationServices.Services.Scan.Model;
     using HandBrake.ApplicationServices.Utilities;
-    using HandBrake.Interop.Model.Encoding;
 
     using HandBrakeWPF.Model.Audio;
     using HandBrakeWPF.Services.Interfaces;
@@ -272,13 +271,21 @@ namespace HandBrakeWPF.ViewModels
         }
 
         /// <summary>
+        /// Reload the audio tracks based on the defaults.
+        /// </summary>
+        public void ReloadDefaults()
+        {
+            this.SetupTracks();
+        }
+
+        /// <summary>
         /// Trigger a Notify Property Changed on the Task to force various UI elements to update.
         /// </summary>
         public void RefreshTask()
         {
             this.NotifyOfPropertyChange(() => this.Task);
 
-            if (Task.OutputFormat == OutputFormat.Mp4)
+            if (this.Task.OutputFormat == OutputFormat.Mp4)
             {
                 foreach (AudioTrack track in this.Task.AudioTracks.Where(track => track.Encoder == AudioEncoder.ffflac || track.Encoder == AudioEncoder.Vorbis))
                 {
@@ -300,6 +307,8 @@ namespace HandBrakeWPF.ViewModels
         /// </summary>
         public void ShowAudioDefaults()
         {
+            // OpenOverlayPanelCommand command = new OpenOverlayPanelCommand();
+            // command.Execute(new AudioDefaultsViewModel(this.WindowManager, this.UserSettingService));
             this.ShowAudioDefaultsPanel = !this.ShowAudioDefaultsPanel;
         }
 
@@ -310,7 +319,7 @@ namespace HandBrakeWPF.ViewModels
         {
             if (this.SelectedAvailableToMove.Count > 0)
             {
-                List<string> copiedList = SelectedAvailableToMove.ToList();
+                List<string> copiedList = this.SelectedAvailableToMove.ToList();
                 foreach (string item in copiedList)
                 {
                     this.AvailableLanguages.Remove(item);
@@ -328,7 +337,7 @@ namespace HandBrakeWPF.ViewModels
         {
             if (this.SelectedLangaugesToMove.Count > 0)
             {
-                List<string> copiedList = SelectedLangaugesToMove.ToList();
+                List<string> copiedList = this.SelectedLangaugesToMove.ToList();
                 foreach (string item in copiedList)
                 {
                     this.AudioBehaviours.SelectedLangauges.Remove(item);
@@ -393,7 +402,7 @@ namespace HandBrakeWPF.ViewModels
         public void UpdateTask(EncodeTask task)
         {
             this.Task = task;
-            this.NotifyOfPropertyChange(() => Task.AudioTracks);
+            this.NotifyOfPropertyChange(() => this.Task.AudioTracks);
             this.NotifyOfPropertyChange(() => this.Task);
         }
 
@@ -507,6 +516,9 @@ namespace HandBrakeWPF.ViewModels
             // Step 4, Handle the default selection behaviour.
             switch (this.AudioBehaviours.SelectedBehaviour)
             {
+                case AudioBehaviourModes.None:
+                    this.Task.AudioTracks.Clear();
+                    break;
                 case AudioBehaviourModes.FirstMatch: // Adding all remaining audio tracks
                     this.AddFirstForSelectedLanguages();
                     break;

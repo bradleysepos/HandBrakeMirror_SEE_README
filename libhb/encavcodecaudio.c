@@ -163,6 +163,13 @@ static int encavcodecaInit(hb_work_object_t *w, hb_job_t *job)
     {
         context->global_quality = audio->config.out.quality * FF_QP2LAMBDA;
         context->flags |= CODEC_FLAG_QSCALE;
+        if (audio->config.out.codec == HB_ACODEC_FDK_AAC ||
+            audio->config.out.codec == HB_ACODEC_FDK_HAAC)
+        {
+            char vbr[2];
+            snprintf(vbr, 2, "%.1g", audio->config.out.quality);
+            av_dict_set(&av_opts, "vbr", vbr, 0);
+        }
     }
 
     if (audio->config.out.compression_level >= 0)
@@ -431,11 +438,11 @@ static hb_buffer_t * Flush( hb_work_object_t * w )
 
     if( last )
     {
-        last->next = hb_buffer_init( 0 );
+        last->next = hb_buffer_eof_init();
     }
     else
     {
-        first = hb_buffer_init( 0 );
+        first = hb_buffer_eof_init();
     }
 
     return first;
@@ -452,7 +459,7 @@ static int encavcodecaWork( hb_work_object_t * w, hb_buffer_t ** buf_in,
     hb_work_private_t * pv = w->private_data;
     hb_buffer_t * in = *buf_in, * buf;
 
-    if ( in->size <= 0 )
+    if (in->s.flags & HB_BUF_FLAG_EOF)
     {
         /* EOF on input - send it downstream & say we're done */
         *buf_out = Flush( w );

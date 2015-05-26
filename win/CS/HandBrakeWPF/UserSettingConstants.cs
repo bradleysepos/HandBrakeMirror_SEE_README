@@ -97,16 +97,6 @@ namespace HandBrakeWPF
         public const string VLCPath = "VLC_Path";
 
         /// <summary>
-        /// The enable process isolation.
-        /// </summary>
-        public const string EnableProcessIsolation = "EnableProcessIsolation";
-
-        /// <summary>
-        /// The server port.
-        /// </summary>
-        public const string ServerPort = "ServerPort";
-
-        /// <summary>
         /// Growl Encodes
         /// </summary>
         public const string GrowlEncode = "GrowlEncode";
@@ -170,11 +160,6 @@ namespace HandBrakeWPF
         /// The Show Preset Panel
         /// </summary>
         public const string ShowPresetPanel = "ShowPresetPanel";
-
-        /// <summary>
-        /// The use system colours.
-        /// </summary>
-        public const string UseSystemColours = "UseSystemColours";
 
         /// <summary>
         /// The reset when done action.

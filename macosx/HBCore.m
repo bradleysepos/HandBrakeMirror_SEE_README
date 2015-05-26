@@ -10,6 +10,8 @@
 #import "HBDVDDetector.h"
 #import "HBUtilities.h"
 
+#import "HBTitle.h"
+
 #include <dlfcn.h>
 
 static BOOL globalInitialized = NO;
@@ -43,7 +45,7 @@ static void hb_error_handler(const char *errmsg)
 @property (nonatomic, readonly) dispatch_queue_t updateTimerQueue;
 
 /// Current scanned titles.
-@property (nonatomic, readwrite, retain) NSArray *titles;
+@property (nonatomic, readwrite, strong) NSArray *titles;
 
 /// Progress handler.
 @property (nonatomic, readwrite, copy) HBCoreProgressHandler progressHandler;
@@ -72,7 +74,6 @@ static void hb_error_handler(const char *errmsg)
 + (void)closeGlobal
 {
     NSAssert(globalInitialized, @"[HBCore closeGlobal] global closed but not initialized");
-    [errorHandler release];
     hb_global_close();
 }
 
@@ -82,21 +83,12 @@ static void hb_error_handler(const char *errmsg)
     hb_register_error_handler(&hb_error_handler);
 }
 
-/**
- * Initializes HBCore.
- */
 - (instancetype)init
 {
-    return [self initWithLoggingLevel:0];
+    return [self initWithLogLevel:0];
 }
 
-/**
- * Opens low level HandBrake library. This should be called once before other
- * functions HBCore are used.
- *
- * @param debugMode         If set to YES, libhb will print verbose debug output.
- */
-- (instancetype)initWithLoggingLevel:(int)loggingLevel
+- (instancetype)initWithLogLevel:(int)level
 {
     self = [super init];
     if (self)
@@ -106,14 +98,23 @@ static void hb_error_handler(const char *errmsg)
         _updateTimerQueue = dispatch_queue_create("fr.handbrake.coreQueue", DISPATCH_QUEUE_SERIAL);
         _hb_state = malloc(sizeof(struct hb_state_s));
 
-        _hb_handle = hb_init(loggingLevel, 0);
+        _hb_handle = hb_init(level, 0);
         if (!_hb_handle)
         {
-            [self release];
             return nil;
         }
     }
 
+    return self;
+}
+
+- (instancetype)initWithLogLevel:(int)level name:(NSString *)name
+{
+    self = [self initWithLogLevel:level];
+    if (self)
+    {
+        _name = [name copy];
+    }
     return self;
 }
 
@@ -129,22 +130,14 @@ static void hb_error_handler(const char *errmsg)
     hb_close(&_hb_handle);
     _hb_handle = NULL;
     free(_hb_state);
-
-    [_name release];
-    _name = nil;
-
-    [_titles release];
-    _titles = nil;
-
-    [super dealloc];
 }
 
 #pragma mark - Scan
 
-- (BOOL)canScan:(NSURL *)url error:(NSError **)error
+- (BOOL)canScan:(NSURL *)url error:(NSError * __autoreleasing *)error
 {
     if (![[NSFileManager defaultManager] fileExistsAtPath:url.path]) {
-        if (*error) {
+        if (error) {
             *error = [NSError errorWithDomain:@"HBErrorDomain"
                                          code:100
                                      userInfo:@{ NSLocalizedDescriptionKey: @"Unable to find the file at the specified URL" }];
@@ -255,10 +248,10 @@ static void hb_error_handler(const char *errmsg)
     for (int i = 0; i < hb_list_count(title_set->list_title); i++)
     {
         hb_title_t *title = (hb_title_t *) hb_list_item(title_set->list_title, i);
-        [titles addObject:[[[HBTitle alloc] initWithTitle:title featured:(title->index == title_set->feature)] autorelease]];
+        [titles addObject:[[HBTitle alloc] initWithTitle:title featured:(title->index == title_set->feature)]];
     }
 
-    self.titles = [[titles copy] autorelease];
+    self.titles = [titles copy];
 
     [HBUtilities writeToActivityLog:"%s scan done", self.name.UTF8String];
 
@@ -527,10 +520,9 @@ static void hb_error_handler(const char *errmsg)
     {
         // Retain the completion block, because it could be replaced
         // inside the same block.
-        HBCoreCompletionHandler completionHandler = [self.completionHandler retain];
+        HBCoreCompletionHandler completionHandler = self.completionHandler;
         self.completionHandler = nil;
         completionHandler(result);
-        [completionHandler release];
     }
 }
 

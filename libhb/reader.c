@@ -35,6 +35,7 @@ typedef struct
 
 struct hb_work_private_s
 {
+    hb_handle_t  * h;
     hb_job_t     * job;
     hb_title_t   * title;
     volatile int * die;
@@ -45,6 +46,7 @@ struct hb_work_private_s
 
     stream_timing_t *stream_timing;
     int64_t        scr_offset;
+    int            sub_scr_set;
     hb_psdemux_t   demux;
     int            scr_changes;
     uint32_t       sequence;
@@ -74,7 +76,7 @@ static int hb_reader_open( hb_work_private_t * r )
 {
     if ( r->title->type == HB_BD_TYPE )
     {
-        if ( !( r->bd = hb_bd_init( r->title->path ) ) )
+        if ( !( r->bd = hb_bd_init( r->h, r->title->path ) ) )
             return 1;
     }
     else if ( r->title->type == HB_DVD_TYPE )
@@ -85,7 +87,7 @@ static int hb_reader_open( hb_work_private_t * r )
     else if ( r->title->type == HB_STREAM_TYPE ||
               r->title->type == HB_FF_STREAM_TYPE )
     {
-        if ( !( r->stream = hb_stream_open( r->title->path, r->title, 0 ) ) )
+        if (!(r->stream = hb_stream_open(r->h, r->title->path, r->title, 0)))
             return 1;
     }
     else
@@ -103,6 +105,7 @@ static int hb_reader_init( hb_work_object_t * w, hb_job_t * job )
     r = calloc( sizeof( hb_work_private_t ), 1 );
     w->private_data = r;
 
+    r->h     = job->h;
     r->job   = job;
     r->title = job->title;
     r->die   = job->die;
@@ -220,6 +223,21 @@ static int is_audio( hb_work_private_t *r, int id )
     for( i = 0; ( audio = hb_list_item( r->title->list_audio, i ) ); ++i )
     {
         if ( audio->id == id )
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int is_subtitle( hb_work_private_t *r, int id )
+{
+    int i;
+    hb_subtitle_t *sub;
+
+    for( i = 0; ( sub = hb_list_item( r->title->list_subtitle, i ) ); ++i )
+    {
+        if ( sub->id == id )
         {
             return 1;
         }
@@ -437,19 +455,7 @@ void ReadLoop( void * _w )
     } 
     else if ( r->stream && r->job->pts_to_start )
     {
-        int64_t pts_to_start = r->job->pts_to_start;
-        
-        // Find out what the first timestamp of the stream is
-        // and then seek to the appropriate offset from it
-        if ( ( buf = hb_stream_read( r->stream ) ) )
-        {
-            if (buf->s.start != AV_NOPTS_VALUE)
-            {
-                pts_to_start += buf->s.start;
-            }
-        }
-        
-        if ( hb_stream_seek_ts( r->stream, pts_to_start ) >= 0 )
+        if ( hb_stream_seek_ts( r->stream, r->job->pts_to_start ) >= 0 )
         {
             // Seek takes us to the nearest I-frame before the timestamp
             // that we want.  So we will retrieve the start time of the
@@ -457,12 +463,9 @@ void ReadLoop( void * _w )
             // inspect the reset of the frames in sync.
             r->start_found = 2;
             r->duration -= r->job->pts_to_start;
-            r->job->pts_to_start = pts_to_start;
-            hb_buffer_close(&buf);
         }
         // hb_stream_seek_ts does nothing for TS streams and will return
-        // an error.  In this case, the current buf remains valid and
-        // gets processed below.
+        // an error.
     } 
     else if( r->stream )
     {
@@ -602,6 +605,7 @@ void ReadLoop( void * _w )
                              ( st == r->stream_timing && !r->saw_audio ) )
                         {
                             new_scr_offset( r, buf );
+                            r->sub_scr_set = 0;
                         }
                         else
                         {
@@ -610,8 +614,26 @@ void ReadLoop( void * _w )
                             // frame but video & subtitles don't. Clear
                             // the timestamps so the decoder will generate
                             // them from the frame durations.
-                            buf->s.start = AV_NOPTS_VALUE;
-                            buf->s.renderOffset = AV_NOPTS_VALUE;
+                            if (is_subtitle(r, buf->s.id) &&
+                                buf->s.start != AV_NOPTS_VALUE)
+                            {
+                                if (!r->sub_scr_set)
+                                {
+                                    // We can't generate timestamps in the
+                                    // subtitle decoder as we can for
+                                    // audio & video.  So we need to make
+                                    // the closest guess that we can
+                                    // for the subtitles start time here.
+                                    int64_t last = r->stream_timing[0].last;
+                                    r->scr_offset = buf->s.start - last;
+                                    r->sub_scr_set = 1;
+                                }
+                            }
+                            else
+                            {
+                                buf->s.start = AV_NOPTS_VALUE;
+                                buf->s.renderOffset = AV_NOPTS_VALUE;
+                            }
                         }
                     }
                 }
@@ -713,30 +735,26 @@ void ReadLoop( void * _w )
     // send empty buffers downstream to video & audio decoders to signal we're done.
     if( !*r->die && !r->job->done )
     {
-        push_buf( r, r->job->fifo_mpeg2, hb_buffer_init(0) );
+        push_buf(r, r->job->fifo_mpeg2, hb_buffer_eof_init());
 
         hb_audio_t *audio;
         for( n = 0; (audio = hb_list_item( r->job->list_audio, n)); ++n )
         {
             if ( audio->priv.fifo_in )
-                push_buf( r, audio->priv.fifo_in, hb_buffer_init(0) );
+                push_buf(r, audio->priv.fifo_in, hb_buffer_eof_init());
         }
 
         hb_subtitle_t *subtitle;
         for( n = 0; (subtitle = hb_list_item( r->job->list_subtitle, n)); ++n )
         {
             if ( subtitle->fifo_in && subtitle->source == VOBSUB)
-                push_buf( r, subtitle->fifo_in, hb_buffer_init(0) );
+                push_buf(r, subtitle->fifo_in, hb_buffer_eof_init());
         }
     }
 
     hb_list_empty( &list );
 
     hb_log( "reader: done. %d scr changes", r->demux.scr_changes );
-    if ( r->demux.dts_drops )
-    {
-        hb_log( "reader: %d drops because DTS out of range", r->demux.dts_drops );
-    }
 }
 
 static void UpdateState( hb_work_private_t  * r, int64_t start)
@@ -751,6 +769,7 @@ static void UpdateState( hb_work_private_t  * r, int64_t start)
         r->st_first = now;
     }
 
+    hb_get_state2(r->job->h, &state);
 #define p state.param.working
     if ( !r->job->indepth_scan )
     {

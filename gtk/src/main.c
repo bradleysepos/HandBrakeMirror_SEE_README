@@ -67,6 +67,7 @@
 #include "presets.h"
 #include "preview.h"
 #include "ghbcompositor.h"
+#include "ui_res.h"
 
 
 /*
@@ -89,9 +90,15 @@ GtkBuilder*
 create_builder_or_die(const gchar * name)
 {
     guint res = 0;
-    GValue *gval;
     GError *error = NULL;
     const gchar *ghb_ui;
+    gsize data_size;
+
+    ghb_ui_register_resource();
+    GResource *ui_res = ghb_ui_get_resource();
+    GBytes *gbytes = g_resource_lookup_data(ui_res, "/org/handbrake/ui/ghb.ui",
+                                            0, NULL);
+    ghb_ui = g_bytes_get_data(gbytes, &data_size);
 
     const gchar *markup =
         N_("<b><big>Unable to create %s.</big></b>\n"
@@ -100,8 +107,6 @@ create_builder_or_die(const gchar * name)
         "%s");
     g_debug("create_builder_or_die()\n");
     GtkBuilder *xml = gtk_builder_new();
-    gval = ghb_resource_get("ghb-ui");
-    ghb_ui = g_value_get_string(gval);
     if (xml != NULL)
         res = gtk_builder_add_from_string(xml, ghb_ui, -1, &error);
     if (!xml || !res)
@@ -327,7 +332,7 @@ bind_audio_tree_model(signal_user_data_t *ud)
     GtkTreeSelection *selection;
 
     g_debug("bind_audio_tree_model()\n");
-    treeview = GTK_TREE_VIEW(GHB_WIDGET(ud->builder, "audio_list"));
+    treeview = GTK_TREE_VIEW(GHB_WIDGET(ud->builder, "audio_list_view"));
     selection = gtk_tree_view_get_selection(treeview);
     treestore = gtk_tree_store_new(6, G_TYPE_STRING, G_TYPE_STRING,
                                       G_TYPE_STRING, G_TYPE_STRING,
@@ -392,7 +397,7 @@ bind_subtitle_tree_model(signal_user_data_t *ud)
     GtkTreeSelection *selection;
 
     g_debug("bind_subtitle_tree_model()\n");
-    treeview = GTK_TREE_VIEW(GHB_WIDGET(ud->builder, "subtitle_list"));
+    treeview = GTK_TREE_VIEW(GHB_WIDGET(ud->builder, "subtitle_list_view"));
     selection = gtk_tree_view_get_selection(treeview);
     treestore = gtk_tree_store_new(6, G_TYPE_STRING, G_TYPE_STRING,
                                       G_TYPE_STRING, G_TYPE_STRING,
@@ -627,15 +632,20 @@ IoRedirect(signal_user_data_t *ud)
     // Set encoding to raw.
     g_io_channel_set_encoding(ud->activity_log, NULL, NULL);
     // redirect stderr to the writer end of the pipe
+
 #if defined(_WIN32)
-    _dup2(pfd[1], STDERR_FILENO);
-    // Non-console windows apps do not have a stderr->_file assigned properly
-    stderr->_file = STDERR_FILENO;
+    _dup2(pfd[1], _fileno(stderr));
 #else
     dup2(pfd[1], STDERR_FILENO);
 #endif
     setvbuf(stderr, NULL, _IONBF, 0);
+
+#if defined(_WIN32)
+    channel = g_io_channel_win32_new_fd(pfd[0]);
+#else
     channel = g_io_channel_unix_new(pfd[0]);
+#endif
+
     // I was getting an this error:
     // "Invalid byte sequence in conversion input"
     // Set disable encoding on the channel.
@@ -652,12 +662,18 @@ typedef struct
 static gchar *dvd_device = NULL;
 static gchar *arg_preset = NULL;
 static gboolean ghb_debug = FALSE;
+#if defined(_WIN32)
+static gboolean win32_console = FALSE;
+#endif
 
 static GOptionEntry entries[] =
 {
     { "device", 'd', 0, G_OPTION_ARG_FILENAME, &dvd_device, N_("The device or file to encode"), NULL },
     { "preset", 'p', 0, G_OPTION_ARG_STRING, &arg_preset, N_("The preset values to use for encoding"), NULL },
     { "debug",  'x', 0, G_OPTION_ARG_NONE, &ghb_debug, N_("Spam a lot"), NULL },
+#if defined(_WIN32)
+    { "console",'c', 0, G_OPTION_ARG_NONE, &win32_console, N_("Open a console for debug output"), NULL },
+#endif
     { NULL }
 };
 
@@ -782,7 +798,6 @@ int
 main(int argc, char *argv[])
 {
     signal_user_data_t *ud;
-    GValue *preset;
     GError *error = NULL;
     GOptionContext *context;
 
@@ -807,6 +822,26 @@ main(int argc, char *argv[])
         g_clear_error(&error);
     }
     g_option_context_free(context);
+
+#if defined(_WIN32)
+    if (win32_console)
+    {
+        // Enable console logging
+        if(AttachConsole(ATTACH_PARENT_PROCESS) || AllocConsole()){
+            close(STDOUT_FILENO);
+            freopen("CONOUT$", "w", stdout);
+            close(STDERR_FILENO);
+            freopen("CONOUT$", "w", stderr);
+        }
+    }
+    else
+    {
+        // Non-console windows apps do not have a stderr->_file
+        // assigned properly
+        stderr->_file = STDERR_FILENO;
+        stdout->_file = STDOUT_FILENO;
+    }
+#endif
 
     if (argc > 1 && dvd_device == NULL && argv[1][0] != '-')
     {
@@ -833,7 +868,6 @@ main(int argc, char *argv[])
 #if !defined(_WIN32)
     notify_init("HandBrake");
 #endif
-    ghb_register_transforms();
     ghb_resource_init();
     ghb_load_icons();
 
@@ -849,10 +883,10 @@ main(int argc, char *argv[])
     g_log_set_handler("Gtk", G_LOG_LEVEL_WARNING, warn_log_handler, ud);
     //g_log_set_handler("Gtk", G_LOG_LEVEL_CRITICAL, warn_log_handler, ud);
 
-    ud->globals = ghb_settings_new();
-    ud->prefs = ghb_settings_new();
-    ud->settings_array = ghb_array_value_new(1);
-    ud->settings = ghb_settings_new();
+    ud->globals = ghb_dict_new();
+    ud->prefs = ghb_dict_new();
+    ud->settings_array = ghb_array_new();
+    ud->settings = ghb_dict_new();
     ghb_array_append(ud->settings_array, ud->settings);
 
     ud->builder = create_builder_or_die(BUILDER_NAME);
@@ -976,13 +1010,15 @@ main(int argc, char *argv[])
     ghb_settings_init(ud->prefs, "Preferences");
     ghb_settings_init(ud->globals, "Globals");
     ghb_settings_init(ud->settings, "Initialization");
+    ghb_settings_init(ud->settings, "OneTimeInitialization");
     // Load user preferences file
     ghb_prefs_load(ud);
     // Store user preferences into ud->prefs
     ghb_prefs_to_settings(ud->prefs);
 
-    // Load all settings with default preset values
-    ghb_settings_init(ud->settings, "Presets");
+    int logLevel = ghb_dict_get_int(ud->prefs, "LoggingLevel");
+    ghb_backend_init(logLevel);
+
     // Load the presets files
     ghb_presets_load(ud);
     // Note that ghb_preset_to_settings(ud->settings) is called when
@@ -993,29 +1029,20 @@ main(int argc, char *argv[])
     // Note that ghb_settings_to_ui(ud->settings) happens when initial
     // empty title is initialized.
 
-    gint logLevel;
-    logLevel = ghb_settings_get_int(ud->prefs, "LoggingLevel");
-    ghb_backend_init(logLevel);
 
-    if (ghb_settings_get_boolean(ud->prefs, "hbfd"))
+    if (ghb_dict_get_bool(ud->prefs, "hbfd"))
     {
         ghb_hbfd(ud, TRUE);
     }
-    gchar *source = ghb_settings_get_string(ud->prefs, "default_source");
+    const gchar *source = ghb_dict_get_string(ud->prefs, "default_source");
     ghb_dvd_set_current(source, ud);
-    g_free(source);
 
     // Populate the presets tree view
-    ghb_presets_list_init(ud, NULL, 0);
+    ghb_presets_list_init(ud, NULL);
     // Get the first preset name
     if (arg_preset != NULL)
     {
-        preset = ghb_parse_preset_path(arg_preset);
-        if (preset)
-        {
-            ghb_select_preset(ud->builder, preset);
-            ghb_value_free(preset);
-        }
+        ghb_select_preset(ud->builder, arg_preset);
     }
     else
     {
@@ -1028,13 +1055,13 @@ main(int argc, char *argv[])
     if (dvd_device != NULL)
     {
         // Source overridden from command line option
-        ghb_settings_set_string(ud->globals, "scan_source", dvd_device);
+        ghb_dict_set_string(ud->globals, "scan_source", dvd_device);
         g_idle_add((GSourceFunc)ghb_idle_scan, ud);
     }
     else
     {
-        GValue *gval = ghb_settings_get_value(ud->prefs, "default_source");
-        ghb_settings_set_value(ud->globals, "scan_source", gval);
+        GhbValue *gval = ghb_dict_get_value(ud->prefs, "default_source");
+        ghb_dict_set(ud->globals, "scan_source", ghb_value_dup(gval));
     }
     // Reload and check status of the last saved queue
     g_idle_add((GSourceFunc)ghb_reload_queue, ud);
@@ -1056,8 +1083,8 @@ main(int argc, char *argv[])
     geo_mask = GDK_HINT_MIN_SIZE | GDK_HINT_MAX_SIZE | GDK_HINT_BASE_SIZE;
     gtk_window_set_geometry_hints(GTK_WINDOW(ghb_window), ghb_window,
                                   &geo, geo_mask);
-    window_width = ghb_settings_get_int(ud->prefs, "window_width");
-    window_height = ghb_settings_get_int(ud->prefs, "window_height");
+    window_width = ghb_dict_get_int(ud->prefs, "window_width");
+    window_height = ghb_dict_get_int(ud->prefs, "window_height");
 
     /*
      * Filter objects in GtkBuilder xml
@@ -1195,11 +1222,11 @@ main(int argc, char *argv[])
     gtk_main();
     ghb_backend_close();
 
-    ghb_value_free(ud->queue);
-    ghb_value_free(ud->settings_array);
-    ghb_value_free(ud->prefs);
-    ghb_value_free(ud->globals);
-    ghb_value_free(ud->x264_priv);
+    ghb_value_free(&ud->queue);
+    ghb_value_free(&ud->settings_array);
+    ghb_value_free(&ud->prefs);
+    ghb_value_free(&ud->globals);
+    ghb_value_free(&ud->x264_priv);
 
     g_io_channel_unref(ud->activity_log);
     ghb_settings_close();

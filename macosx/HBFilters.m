@@ -5,13 +5,10 @@
  It may be used under the terms of the GNU General Public License. */
 
 #import "HBFilters.h"
-#import "NSCodingMacro.h"
+#import "HBCodingUtilities.h"
+#include "hb.h"
 
 NSString * const HBFiltersChangedNotification = @"HBFiltersChangedNotification";
-
-NSDictionary *_HandBrake_denoiseTypesDict;
-NSDictionary *_HandBrake_denoisePresetsDict;
-NSDictionary *_HandBrake_nlmeansTunesDict;
 
 @interface HBFilters ()
 
@@ -21,35 +18,16 @@ NSDictionary *_HandBrake_nlmeansTunesDict;
 
 @implementation HBFilters
 
-+ (void)initialize
-{
-    if (self == [HBFilters class])
-    {
-        _HandBrake_denoiseTypesDict = [@{NSLocalizedString(@"Off", nil):      @"off",
-                               NSLocalizedString(@"NLMeans", nil):  @"nlmeans",
-                               NSLocalizedString(@"HQDN3D", nil):   @"hqdn3d"} retain];
-
-        _HandBrake_denoisePresetsDict = [@{NSLocalizedString(@"Custom", nil):     @"none",
-                                 NSLocalizedString(@"Ultralight", nil): @"ultralight",
-                                 NSLocalizedString(@"Light", nil):      @"light",
-                                 NSLocalizedString(@"Medium", nil) :    @"medium",
-                                 NSLocalizedString(@"Strong", nil) :    @"strong"} retain];
-
-        _HandBrake_nlmeansTunesDict = [@{NSLocalizedString(@"None", nil):         @"none",
-                               NSLocalizedString(@"Film", nil):         @"film",
-                               NSLocalizedString(@"Grain", nil):        @"grain",
-                               NSLocalizedString(@"High Motion", nil):  @"highmotion",
-                               NSLocalizedString(@"Animation", nil) :   @"animation"} retain];
-    }
-}
-
 - (instancetype)init
 {
     self = [super init];
     if (self)
     {
+        _detelecine = @"off";
         _detelecineCustomString = @"";
+        _deinterlace = @"off";
         _deinterlaceCustomString = @"";
+        _decomb = @"off";
         _decombCustomString = @"";
         _denoise = @"off";
         _denoiseCustomString = @"";
@@ -73,17 +51,22 @@ NSDictionary *_HandBrake_nlmeansTunesDict;
 
 #pragma mark - Setters
 
-- (void)setDetelecine:(NSInteger)detelecine
+- (void)setDetelecine:(NSString *)detelecine
 {
-    _detelecine = detelecine;
+    if (detelecine)
+    {
+        _detelecine = [detelecine copy];
+    }
+    else
+    {
+        _detelecine = @"off";
+    }
     [self postChangedNotification];
 }
 
 // Override setter to avoid nil values.
 - (void)setDetelecineCustomString:(NSString *)detelecineCustomString
 {
-    [_detelecineCustomString autorelease];
-
     if (detelecineCustomString)
     {
         _detelecineCustomString = [detelecineCustomString copy];
@@ -96,16 +79,21 @@ NSDictionary *_HandBrake_nlmeansTunesDict;
     [self postChangedNotification];
 }
 
-- (void)setDeinterlace:(NSInteger)deinterlace
+- (void)setDeinterlace:(NSString *)deinterlace
 {
-    _deinterlace = deinterlace;
+    if (deinterlace)
+    {
+        _deinterlace = [deinterlace copy];
+    }
+    else
+    {
+        _deinterlace = @"off";
+    }
     [self postChangedNotification];
 }
 
 - (void)setDeinterlaceCustomString:(NSString *)deinterlaceCustomString
 {
-    [_deinterlaceCustomString autorelease];
-
     if (deinterlaceCustomString)
     {
         _deinterlaceCustomString = [deinterlaceCustomString copy];
@@ -118,16 +106,21 @@ NSDictionary *_HandBrake_nlmeansTunesDict;
     [self postChangedNotification];
 }
 
-- (void)setDecomb:(NSInteger)decomb
+- (void)setDecomb:(NSString *)decomb
 {
-    _decomb = decomb;
+    if (decomb)
+    {
+        _decomb = [decomb copy];
+    }
+    else
+    {
+        _decomb = @"off";
+    }
     [self postChangedNotification];
 }
 
 - (void)setDecombCustomString:(NSString *)decombCustomString
 {
-    [_decombCustomString autorelease];
-
     if (decombCustomString)
     {
         _decombCustomString = [decombCustomString copy];
@@ -142,8 +135,6 @@ NSDictionary *_HandBrake_nlmeansTunesDict;
 
 - (void)setDenoise:(NSString *)denoise
 {
-    [_denoise autorelease];
-
     if (denoise)
     {
         _denoise = [denoise copy];
@@ -158,8 +149,6 @@ NSDictionary *_HandBrake_nlmeansTunesDict;
 
 - (void)setDenoisePreset:(NSString *)denoisePreset
 {
-    [_denoisePreset autorelease];
-
     if (denoisePreset)
     {
         _denoisePreset = [denoisePreset copy];
@@ -174,8 +163,6 @@ NSDictionary *_HandBrake_nlmeansTunesDict;
 
 - (void)setDenoiseTune:(NSString *)denoiseTune
 {
-    [_denoiseTune autorelease];
-
     if (denoiseTune)
     {
         _denoiseTune = [denoiseTune copy];
@@ -190,8 +177,6 @@ NSDictionary *_HandBrake_nlmeansTunesDict;
 
 - (void)setDenoiseCustomString:(NSString *)denoiseCustomString
 {
-    [_denoiseCustomString autorelease];
-
     if (denoiseCustomString)
     {
         _denoiseCustomString = [denoiseCustomString copy];
@@ -230,6 +215,12 @@ NSDictionary *_HandBrake_nlmeansTunesDict;
     {
         retval = [NSSet setWithObjects:@"detelecine", @"detelecineCustomString", @"useDecomb", @"deinterlace", @"deinterlaceCustomString", @"decomb", @"decombCustomString", @"denoise", @"denoisePreset", @"denoiseTune", @"denoiseCustomString", @"deblock", @"grayscale", nil];
     }
+    if ([key isEqualToString:@"customDetelecineSelected"] ||
+        [key isEqualToString:@"customDecombSelected"] ||
+        [key isEqualToString:@"customDeinterlaceSelected"])
+    {
+        retval = [NSSet setWithObjects:@"detelecine", @"decomb", @"deinterlace", @"useDecomb", nil];
+    }
 
     return retval;
 }
@@ -243,13 +234,13 @@ NSDictionary *_HandBrake_nlmeansTunesDict;
 
     if (copy)
     {
-        copy->_detelecine = _detelecine;
+        copy->_detelecine = [_detelecine copy];
         copy->_detelecineCustomString = [_detelecineCustomString copy];
 
-        copy->_deinterlace = _deinterlace;
+        copy->_deinterlace = [_deinterlace copy];
         copy->_deinterlaceCustomString = [_deinterlaceCustomString copy];
 
-        copy->_decomb = _decomb;
+        copy->_decomb = [_decomb copy];
         copy->_decombCustomString = [_decombCustomString copy];
 
         copy->_denoise = [_denoise copy];
@@ -262,23 +253,28 @@ NSDictionary *_HandBrake_nlmeansTunesDict;
 
         copy->_useDecomb = _useDecomb;
     }
-    
+
     return copy;
 }
 
 #pragma mark - NSCoding
 
++ (BOOL)supportsSecureCoding
+{
+    return YES;
+}
+
 - (void)encodeWithCoder:(NSCoder *)coder
 {
     [coder encodeInt:1 forKey:@"HBFiltersVersion"];
 
-    encodeInteger(_detelecine);
+    encodeObject(_detelecine);
     encodeObject(_detelecineCustomString);
 
-    encodeInteger(_deinterlace);
+    encodeObject(_deinterlace);
     encodeObject(_deinterlaceCustomString);
 
-    encodeInteger(_decomb);
+    encodeObject(_decomb);
     encodeObject(_decombCustomString);
 
     encodeObject(_denoise);
@@ -292,23 +288,23 @@ NSDictionary *_HandBrake_nlmeansTunesDict;
     encodeBool(_useDecomb);
 }
 
-- (id)initWithCoder:(NSCoder *)decoder
+- (instancetype)initWithCoder:(NSCoder *)decoder
 {
     self = [super init];
 
-    decodeInteger(_detelecine);
-    decodeObject(_detelecineCustomString);
+    decodeObject(_detelecine, NSString);
+    decodeObject(_detelecineCustomString, NSString);
 
-    decodeInteger(_deinterlace);
-    decodeObject(_deinterlaceCustomString);
+    decodeObject(_deinterlace, NSString);
+    decodeObject(_deinterlaceCustomString, NSString);
 
-    decodeInteger(_decomb);
-    decodeObject(_decombCustomString);
+    decodeObject(_decomb, NSString);
+    decodeObject(_decombCustomString, NSString);
 
-    decodeObject(_denoise);
-    decodeObject(_denoisePreset);
-    decodeObject(_denoiseTune);
-    decodeObject(_denoiseCustomString);
+    decodeObject(_denoise, NSString);
+    decodeObject(_denoisePreset, NSString);
+    decodeObject(_denoiseTune, NSString);
+    decodeObject(_denoiseCustomString, NSString);
 
     decodeInteger(_deblock);
     decodeBool(_grayscale);
@@ -326,13 +322,13 @@ NSDictionary *_HandBrake_nlmeansTunesDict;
 {
     preset[@"PictureDecombDeinterlace"] = @(self.useDecomb);
 
-    preset[@"PictureDeinterlace"] = @(self.deinterlace);
+    preset[@"PictureDeinterlace"] = self.deinterlace;
     preset[@"PictureDeinterlaceCustom"] = self.deinterlaceCustomString;
 
-    preset[@"PictureDecomb"] = @(self.decomb);
+    preset[@"PictureDecomb"] = self.decomb;
     preset[@"PictureDecombCustom"] = self.decombCustomString;
 
-    preset[@"PictureDetelecine"] = @(self.detelecine);
+    preset[@"PictureDetelecine"] = self.detelecine;
     preset[@"PictureDetelecineCustom"] = self.detelecineCustomString;
 
     preset[@"PictureDenoiseFilter"] = self.denoise;
@@ -348,134 +344,38 @@ NSDictionary *_HandBrake_nlmeansTunesDict;
 {
     self.notificationsEnabled = NO;
 
-    /* If the preset has an objectForKey:@"UsesPictureFilters", and handle the filters here */
-    if (preset[@"UsesPictureFilters"] && [preset[@"UsesPictureFilters"]  intValue] > 0)
+    // If the preset has an objectForKey:@"UsesPictureFilters", and handle the filters here
+    if ([preset[@"UsesPictureFilters"] boolValue])
     {
-        /* We only allow *either* Decomb or Deinterlace. So check for the PictureDecombDeinterlace key. */
-        self.useDecomb = 1;
-        self.decomb = 0;
-        self.deinterlace = 0;
-        if ([preset[@"PictureDecombDeinterlace"] intValue] == 1)
-        {
-            /* we are using decomb */
-            /* Decomb */
-            if ([preset[@"PictureDecomb"] intValue] > 0)
-            {
-                self.decomb = [preset[@"PictureDecomb"] intValue];
+        // We only allow *either* Decomb or Deinterlace. So check for the PictureDecombDeinterlace key.
+        self.useDecomb = [preset[@"PictureDecombDeinterlace"] boolValue];
 
-                /* if we are using "Custom" in the decomb setting, also set the custom string*/
-                if ([preset[@"PictureDecomb"] intValue] == 1)
-                {
-                    self.decombCustomString = preset[@"PictureDecombCustom"];
-                }
-            }
-        }
-        else
-        {
-            /* We are using Deinterlace */
-            /* Deinterlace */
-            if ([preset[@"PictureDeinterlace"] intValue] > 0)
-            {
-                self.useDecomb = 0;
-                self.deinterlace = [preset[@"PictureDeinterlace"] intValue];
-                /* if we are using "Custom" in the deinterlace setting, also set the custom string*/
-                if ([preset[@"PictureDeinterlace"] intValue] == 1)
-                {
-                    self.deinterlaceCustomString = preset[@"PictureDeinterlaceCustom"];
-                }
-            }
-        }
+        self.decomb = preset[@"PictureDecomb"];
+        self.decombCustomString = preset[@"PictureDecombCustom"];
 
-        /* Detelecine */
-        if ([preset[@"PictureDetelecine"] intValue] > 0)
-        {
-            self.detelecine = [preset[@"PictureDetelecine"] intValue];
-            /* if we are using "Custom" in the detelecine setting, also set the custom string*/
-            if ([preset[@"PictureDetelecine"] intValue] == 1)
-            {
-                self.detelecineCustomString = preset[@"PictureDetelecineCustom"];
-            }
-        }
-        else
-        {
-            self.detelecine = 0;
-        }
+        self.deinterlace = preset[@"PictureDeinterlace"];
+        self.deinterlaceCustomString = preset[@"PictureDeinterlaceCustom"];
 
-        /* Denoise */
-        if (preset[@"PictureDenoise"])
-        {
-            // Old preset denoise format, try to map it to the new one
-            if ([preset[@"PictureDenoise"] intValue] > 0)
-            {
-                self.denoise = @"hqdn3d";
-                /* if we are using "Custom" in the denoise setting, also set the custom string*/
-                if ([preset[@"PictureDenoise"] intValue] == 1)
-                {
-                    self.denoisePreset = @"custom";
-                    self.denoiseCustomString = preset[@"PictureDenoiseCustom"];
-                }
-                switch ([preset[@"PictureDenoise"] intValue]) {
-                    case 2:
-                        self.denoisePreset = @"light";
-                        break;
-                    case 3:
-                        self.denoisePreset = @"medium";
-                        break;
-                    case 4:
-                        self.denoisePreset = @"strong";
-                        break;
-                    default:
-                        self.denoisePreset = @"medium";
-                        break;
-                }
-            }
-            else
-            {
-                self.denoise = @"off";
-            }
-        }
-        else
-        {
-            // New format, read the values directly
-            if ([[_HandBrake_denoiseTypesDict allValues] containsObject:preset[@"PictureDenoiseFilter"]])
-            {
-                self.denoise = preset[@"PictureDenoiseFilter"];
-            }
-            else
-            {
-                self.denoise = [[_HandBrake_denoiseTypesDict allValues] firstObject];
-            }
+        //Detelecine
+        self.detelecine = preset[@"PictureDetelecine"];
+        self.detelecineCustomString = preset[@"PictureDetelecineCustom"];
 
-            if ([[_HandBrake_denoisePresetsDict allValues] containsObject:preset[@"PictureDenoisePreset"]])
-            {
-                self.denoisePreset = preset[@"PictureDenoisePreset"];
-            }
-            else
-            {
-                self.denoisePreset = [[_HandBrake_denoisePresetsDict allValues] firstObject];
-            }
+        // Denoise
+        self.denoise = preset[@"PictureDenoiseFilter"];
+        self.denoisePreset = preset[@"PictureDenoisePreset"];
+        self.denoiseTune = preset[@"PictureDenoiseTune"];
 
-            if ([[_HandBrake_nlmeansTunesDict allValues] containsObject:preset[@"PictureDenoiseTune"]])
-            {
-                self.denoiseTune = preset[@"PictureDenoiseTune"];
-            }
-            else
-            {
-                self.denoiseTune = [[_HandBrake_nlmeansTunesDict allKeys] firstObject];
-            }
+        self.denoiseCustomString = preset[@"PictureDenoiseCustom"];
 
-            self.denoiseCustomString = preset[@"PictureDenoiseCustom"];
-        }
-
-        /* Deblock */
+        // Deblock
         if ([preset[@"PictureDeblock"] intValue] == 1)
         {
-            /* if its a one, then its the old on/off deblock, set on to 5*/
+            // if its a one, then its the old on/off deblock, set on to 5
             self.deblock = 5;
         }
         else
         {
-            /* use the settings intValue */
+            // use the settings intValue
             self.deblock = [preset[@"PictureDeblock"] intValue];
         }
 

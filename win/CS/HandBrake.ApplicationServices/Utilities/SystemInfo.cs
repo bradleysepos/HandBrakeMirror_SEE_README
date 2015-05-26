@@ -14,7 +14,7 @@ namespace HandBrake.ApplicationServices.Utilities
     using System.Management;
     using System.Windows.Forms;
 
-    using HandBrake.Interop.HbLib;
+    using HandBrake.ApplicationServices.Interop.HbLib;
 
     using Microsoft.Win32;
 
@@ -71,11 +71,6 @@ namespace HandBrake.ApplicationServices.Utilities
             {
                 try
                 {
-                    if (!GeneralUtilities.IsLibHbPresent)
-                    {
-                        return false; // Feature is disabled.
-                    }
-
                     return HBFunctions.hb_qsv_available() == 1;
                 }
                 catch (Exception)

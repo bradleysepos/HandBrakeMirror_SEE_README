@@ -22,15 +22,16 @@ namespace HandBrake.ApplicationServices.Services.Scan
     using HandBrake.ApplicationServices.Services.Scan.Interfaces;
     using HandBrake.ApplicationServices.Services.Scan.Model;
     using HandBrake.ApplicationServices.Utilities;
-    using HandBrake.Interop;
-    using HandBrake.Interop.EventArgs;
-    using HandBrake.Interop.Interfaces;
-    using HandBrake.Interop.Model;
-    using HandBrake.Interop.Model.Scan;
+    using HandBrake.ApplicationServices.Interop;
+    using HandBrake.ApplicationServices.Interop.EventArgs;
+    using HandBrake.ApplicationServices.Interop.HbLib;
+    using HandBrake.ApplicationServices.Interop.Interfaces;
+    using HandBrake.ApplicationServices.Interop.Json.Scan;
+    using HandBrake.ApplicationServices.Interop.Model;
+    using HandBrake.ApplicationServices.Interop.Model.Preview;
 
     using Chapter = HandBrake.ApplicationServices.Services.Scan.Model.Chapter;
-    using ScanProgressEventArgs = HandBrake.Interop.EventArgs.ScanProgressEventArgs;
-    using Size = System.Drawing.Size;
+    using ScanProgressEventArgs = HandBrake.ApplicationServices.Interop.EventArgs.ScanProgressEventArgs;
     using Subtitle = HandBrake.ApplicationServices.Services.Scan.Model.Subtitle;
     using SubtitleType = HandBrake.ApplicationServices.Services.Encode.Model.Models.SubtitleType;
     using Title = HandBrake.ApplicationServices.Services.Scan.Model.Title;
@@ -85,7 +86,7 @@ namespace HandBrake.ApplicationServices.Services.Scan
         /// <summary>
         /// The post scan operation.
         /// </summary>
-        private Action<bool> postScanOperation;
+        private Action<bool, Source> postScanOperation;
 
         #endregion
 
@@ -96,6 +97,7 @@ namespace HandBrake.ApplicationServices.Services.Scan
         {
             this.logging = new StringBuilder();
             this.header = GeneralUtilities.CreateLogHeader();
+            this.IsScanning = false;
         }
 
         #region Events
@@ -103,7 +105,7 @@ namespace HandBrake.ApplicationServices.Services.Scan
         /// <summary>
         /// Scan has Started
         /// </summary>
-        public event EventHandler ScanStared;
+        public event EventHandler ScanStarted;
 
         /// <summary>
         /// Scan has completed
@@ -123,11 +125,6 @@ namespace HandBrake.ApplicationServices.Services.Scan
         /// Gets a value indicating whether IsScanning.
         /// </summary>
         public bool IsScanning { get; private set; }
-
-        /// <summary>
-        /// Gets the Souce Data.
-        /// </summary>
-        public Source SouceData { get; private set; }
 
         /// <summary>
         /// Gets ActivityLog.
@@ -164,15 +161,19 @@ namespace HandBrake.ApplicationServices.Services.Scan
         /// <param name="configuraiton">
         /// The configuraiton.
         /// </param>
-        public void Scan(string sourcePath, int title, Action<bool> postAction, HBConfiguration configuraiton)
+        public void Scan(string sourcePath, int title, Action<bool, Source> postAction, HBConfiguration configuraiton)
         {
             // Try to cleanup any previous scan instances.
             if (this.instance != null)
             {
                 try
                 {
-                    this.scanLog.Close();
-                    this.scanLog.Dispose();
+                    lock (LogLock)
+                    {
+                        this.scanLog.Close();
+                        this.scanLog.Dispose();
+                        this.scanLog = null;
+                    }
                     this.instance.Dispose();
                 }
                 catch (Exception)
@@ -230,10 +231,14 @@ namespace HandBrake.ApplicationServices.Services.Scan
                 this.IsScanning = false;
                 this.instance.StopScan();
 
-                if (this.scanLog != null)
+                lock (LogLock)
                 {
-                    this.scanLog.Close();
-                    this.scanLog.Dispose();
+                    if (this.scanLog != null)
+                    {
+                        this.scanLog.Close();
+                        this.scanLog.Dispose();
+                        this.scanLog = null;
+                    }
                 }
             }
             catch (Exception)
@@ -264,12 +269,11 @@ namespace HandBrake.ApplicationServices.Services.Scan
                 return null;
             }
 
-            EncodeJob encodeJob = InteropModelCreator.GetEncodeJob(job, configuraiton);
-
             BitmapImage bitmapImage = null;
             try
             {
-                bitmapImage = this.instance.GetPreview(encodeJob, preview);
+                PreviewSettings settings = new PreviewSettings(job);
+                bitmapImage = this.instance.GetPreview(settings, preview);
             }
             catch (AccessViolationException e)
             {
@@ -317,8 +321,8 @@ namespace HandBrake.ApplicationServices.Services.Scan
                 this.ServiceLogMessage("Starting Scan ...");
                 this.instance.StartScan(sourcePath.ToString(), previewCount, minDuration, title != 0 ? title : 0);
 
-                if (this.ScanStared != null)
-                    this.ScanStared(this, System.EventArgs.Empty);
+                if (this.ScanStarted != null)
+                    this.ScanStarted(this, System.EventArgs.Empty);
             }
             catch (Exception exc)
             {
@@ -326,7 +330,7 @@ namespace HandBrake.ApplicationServices.Services.Scan
                 this.Stop();
 
                 if (this.ScanCompleted != null)
-                    this.ScanCompleted(this, new ScanCompletedEventArgs(false, exc, "An Error has occured in ScanService.ScanSource()"));
+                    this.ScanCompleted(this, new ScanCompletedEventArgs(false, exc, "An Error has occured in ScanService.ScanSource()", null));
             }
         }
 
@@ -370,20 +374,30 @@ namespace HandBrake.ApplicationServices.Services.Scan
             }
 
             // Process into internal structures.
+            Source sourceData = null;
             if (this.instance != null && this.instance.Titles != null)
             {
-                this.SouceData = new Source { Titles = ConvertTitles(this.instance.Titles, this.instance.FeatureTitle), ScanPath = path };
+                sourceData = new Source { Titles = ConvertTitles(this.instance.Titles), ScanPath = path };
             }
 
             this.IsScanning = false;
 
             if (this.postScanOperation != null)
             {
-                this.postScanOperation(true);
+                try
+                {
+                    this.postScanOperation(true, sourceData);
+                }
+                catch (Exception exc)
+                {
+                    Debug.WriteLine(exc);
+                }
+
+                this.postScanOperation = null; // Reset
             }
             else
             {
-                if (this.ScanCompleted != null) this.ScanCompleted(this, new ScanCompletedEventArgs(false, null, string.Empty));
+                if (this.ScanCompleted != null) this.ScanCompleted(this, new ScanCompletedEventArgs(false, null, string.Empty, sourceData));
             }
         }
 
@@ -446,77 +460,89 @@ namespace HandBrake.ApplicationServices.Services.Scan
         /// <param name="titles">
         /// The titles.
         /// </param>
-        /// <param name="featureTitle">
-        /// The feature Title.
-        /// </param>
         /// <returns>
         /// The convert titles.
         /// </returns>
-        internal static List<Title> ConvertTitles(IEnumerable<Interop.Model.Scan.Title> titles, int featureTitle)
+        internal static List<Title> ConvertTitles(JsonScanObject titles)
         {
             List<Title> titleList = new List<Title>();
-            foreach (Interop.Model.Scan.Title title in titles)
+            foreach (SourceTitle title in titles.TitleList)
             {
                 Title converted = new Title
                     {
-                        TitleNumber = title.TitleNumber,
-                        Duration = title.Duration,
-                        Resolution = new Size(title.Resolution.Width, title.Resolution.Height),
+                        TitleNumber = title.Index,
+                        Duration = new TimeSpan(0, title.Duration.Hours, title.Duration.Minutes, title.Duration.Seconds),
+                        Resolution = new Size(title.Geometry.Width, title.Geometry.Height),
                         AngleCount = title.AngleCount,
-                        ParVal = new Size(title.ParVal.Width, title.ParVal.Height),
-                        AutoCropDimensions = title.AutoCropDimensions,
-                        Fps = title.Framerate,
+                        ParVal = new Size(title.Geometry.PAR.Num, title.Geometry.PAR.Den),
+                        AutoCropDimensions = new Cropping
+                        {
+                            Top = title.Crop[0],
+                            Bottom = title.Crop[1],
+                            Left = title.Crop[2],
+                            Right = title.Crop[3]
+                        },
+                        Fps = ((double)title.FrameRate.Num) / title.FrameRate.Den,
                         SourceName = title.Path,
-                        MainTitle = title.TitleNumber == featureTitle,
-                        Playlist = title.InputType == InputType.Bluray ? string.Format(" {0:d5}.MPLS", title.Playlist).Trim() : null,
-                        FramerateNumerator = title.FramerateNumerator,
-                        FramerateDenominator = title.FramerateDenominator
+                        MainTitle = titles.MainFeature == title.Index,
+                        Playlist = title.Type == 1 ? string.Format(" {0:d5}.MPLS", title.Playlist).Trim() : null,
+                        FramerateNumerator = title.FrameRate.Num,
+                        FramerateDenominator = title.FrameRate.Den
                     };
 
-                foreach (Interop.Model.Scan.Chapter chapter in title.Chapters)
+                int currentTrack = 1;
+                foreach (SourceChapter chapter in title.ChapterList)
                 {
                     string chapterName = !string.IsNullOrEmpty(chapter.Name) ? chapter.Name : string.Empty;
-                    converted.Chapters.Add(new Chapter(chapter.ChapterNumber, chapterName, chapter.Duration));
+                    converted.Chapters.Add(new Chapter(currentTrack, chapterName, new TimeSpan(chapter.Duration.Hours, chapter.Duration.Minutes, chapter.Duration.Seconds)));
+                    currentTrack++;
                 }
 
-                foreach (AudioTrack track in title.AudioTracks)
+                int currentAudioTrack = 1;
+                foreach (SourceAudioTrack track in title.AudioList)
                 {
-                    converted.AudioTracks.Add(new Audio(track.TrackNumber, track.Language, track.LanguageCode, track.Description, string.Empty, track.SampleRate, track.Bitrate));
+                    converted.AudioTracks.Add(new Audio(currentAudioTrack, track.Language, track.LanguageCode, track.Description, string.Empty, track.SampleRate, track.BitRate));
+                    currentAudioTrack++;
                 }
 
-                foreach (Interop.Model.Scan.Subtitle track in title.Subtitles)
+                int currentSubtitleTrack = 1;
+                foreach (SourceSubtitleTrack track in title.SubtitleList)
                 {
                     SubtitleType convertedType = new SubtitleType();
 
-                    switch (track.SubtitleSource)
+                    switch (track.Source)
                     {
-                        case SubtitleSource.VobSub:
+                        case 0:
                             convertedType = SubtitleType.VobSub;
                             break;
-                        case SubtitleSource.UTF8:
+                        case 4:
                             convertedType = SubtitleType.UTF8Sub;
                             break;
-                        case SubtitleSource.TX3G:
+                        case 5:
                             convertedType = SubtitleType.TX3G;
                             break;
-                        case SubtitleSource.SSA:
+                        case 6:
                             convertedType = SubtitleType.SSA;
                             break;
-                        case SubtitleSource.SRT:
+                        case 1:
                             convertedType = SubtitleType.SRT;
                             break;
-                        case SubtitleSource.CC608:
+                        case 2:
                             convertedType = SubtitleType.CC;
                             break;
-                        case SubtitleSource.CC708:
+                        case 3:
                             convertedType = SubtitleType.CC;
                             break;
-                        case SubtitleSource.PGS:
+                        case 7:
                             convertedType = SubtitleType.PGS;
                             break;
                     }
 
-                    converted.Subtitles.Add(new Subtitle(track.SubtitleSourceInt, track.TrackNumber, track.Language, track.LanguageCode, convertedType, track.CanBurn, track.CanSetForcedOnly));
+                    bool canBurn = HBFunctions.hb_subtitle_can_burn(track.Source) > 0;
+                    bool canSetForcedOnly = HBFunctions.hb_subtitle_can_force(track.Source) > 0;
+
+                    converted.Subtitles.Add(new Subtitle(track.Source, currentSubtitleTrack, track.Language, track.LanguageCode, convertedType, canBurn, canSetForcedOnly));
+                    currentSubtitleTrack++;
                 }
 
                 titleList.Add(converted);

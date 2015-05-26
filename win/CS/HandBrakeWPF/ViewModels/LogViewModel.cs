@@ -30,7 +30,7 @@ namespace HandBrakeWPF.ViewModels
         /// <summary>
         /// Backing field for the encodeService service
         /// </summary>
-        private readonly IEncodeServiceWrapper encodeService;
+        private readonly IEncode encodeService;
 
         /// <summary>
         /// Backing field for the Scan Service
@@ -58,7 +58,7 @@ namespace HandBrakeWPF.ViewModels
         /// <param name="scanService">
         /// The scan service.
         /// </param>
-        public LogViewModel(IEncodeServiceWrapper encodeService, IScan scanService)
+        public LogViewModel(IEncode encodeService, IScan scanService)
         {
             this.encodeService = encodeService;
             this.scanService = scanService;
@@ -132,7 +132,7 @@ namespace HandBrakeWPF.ViewModels
             this.encodeService.EncodeCompleted += EncodeServiceEncodeCompleted;
             this.encodeService.EncodeStatusChanged += this.EncodeServiceEncodeStatusChanged;
             this.scanService.ScanStatusChanged += this.ScanServiceScanStatusChanged;
-            this.scanService.ScanStared += this.scanService_ScanStared;
+            this.scanService.ScanStarted += this.scanService_ScanStared;
             this.encodeService.EncodeStarted += this.encodeService_EncodeStarted;
             base.OnActivate();
 
@@ -185,7 +185,7 @@ namespace HandBrakeWPF.ViewModels
             this.encodeService.EncodeCompleted -= EncodeServiceEncodeCompleted;
             this.encodeService.EncodeStatusChanged -= this.EncodeServiceEncodeStatusChanged;
             this.scanService.ScanStatusChanged -= this.ScanServiceScanStatusChanged;
-            this.scanService.ScanStared -= this.scanService_ScanStared;
+            this.scanService.ScanStarted -= this.scanService_ScanStared;
             this.encodeService.EncodeStarted -= this.encodeService_EncodeStarted;
 
             base.OnDeactivate(close);

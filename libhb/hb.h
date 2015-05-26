@@ -14,10 +14,14 @@
 extern "C" {
 #endif
 
-#include "project.h"
 #include "common.h"
+#include "project.h"
+#include "compat.h"
 #include "hb_dict.h"
 #include "hb_json.h"
+#include "preset.h"
+#include "plist.h"
+#include "param.h"
 
 /* hb_init()
    Initializes a libhb session (launches his own thread, detects CPUs,
@@ -28,6 +32,10 @@ void          hb_register( hb_work_object_t * );
 void          hb_register_logger( void (*log_cb)(const char* message) );
 hb_handle_t * hb_init( int verbose, int update_check );
 hb_handle_t * hb_init_dl ( int verbose, int update_check ); // hb_init for use with dylib
+
+void          hb_hwd_set_enable( hb_handle_t *h, uint8_t enable );
+int           hb_hwd_enabled( hb_handle_t *h );
+hb_hwd_t    * hb_hwd_get_context();
 
 /* hb_get_version() */
 char        * hb_get_version( hb_handle_t * );
@@ -117,9 +125,6 @@ hb_interjob_t * hb_interjob_get( hb_handle_t * );
    Look at test/test.c to see how to use it. */
 void hb_get_state( hb_handle_t *, hb_state_t * );
 void hb_get_state2( hb_handle_t *, hb_state_t * );
-/* hb_get_scancount() is called by the MacGui in UpdateUI to
-   check for a new scan during HB_STATE_WORKING phase  */
-int hb_get_scancount( hb_handle_t * );
 
 /* hb_close()
    Aborts all current jobs if any, frees memory. */

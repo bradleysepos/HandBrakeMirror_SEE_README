@@ -16,8 +16,26 @@ static HBOutputRedirect *g_stderrRedirect = nil;
 static int stdoutwrite(void *inFD, const char *buffer, int size);
 static int stderrwrite(void *inFD, const char *buffer, int size);
 
+@interface HBOutputRedirect ()
+{
+    /// Set that contains all registered listeners for this output.
+    NSMutableSet *listeners;
+
+    /// Selector that is called on listeners to forward the output.
+    SEL forwardingSelector;
+
+    /// Output stream (@c stdout or @c stderr) redirected by this object.
+    FILE *stream;
+
+    /// Pointer to old write function for the stream.
+    int	(*oldWriteFunc)(void *, const char *, int);
+}
+
+@end
+
+
 @interface HBOutputRedirect (Private)
-- (id)initWithStream:(FILE *)aStream selector:(SEL)aSelector;
+- (instancetype)initWithStream:(FILE *)aStream selector:(SEL)aSelector;
 - (void)startRedirect;
 - (void)stopRedirect;
 - (void)forwardOutput:(NSData *)data;
@@ -28,25 +46,22 @@ static int stderrwrite(void *inFD, const char *buffer, int size);
  */
 int	stdoutwrite(void *inFD, const char *buffer, int size)
 {
-	NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
-	NSData *data = [[NSData alloc] initWithBytes:buffer length:size];
-	[g_stdoutRedirect performSelectorOnMainThread:@selector(forwardOutput:) withObject:data waitUntilDone:NO];
-	[data release];
-	[pool release];
-	return size;
+    @autoreleasepool
+    {
+        NSData *data = [[NSData alloc] initWithBytes:buffer length:size];
+        [g_stdoutRedirect performSelectorOnMainThread:@selector(forwardOutput:) withObject:data waitUntilDone:NO];
+    }
+    return size;
 }
 
-/**
- * Function that replaces stderr->_write and forwards stderr to g_stderrRedirect.
- */
 int	stderrwrite(void *inFD, const char *buffer, int size)
 {
-	NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
-	NSData *data = [[NSData alloc] initWithBytes:buffer length:size];
-	[g_stderrRedirect performSelectorOnMainThread:@selector(forwardOutput:) withObject:data waitUntilDone:NO];
-	[data release];
-	[pool release];
-	return size;
+    @autoreleasepool
+    {
+        NSData *data = [[NSData alloc] initWithBytes:buffer length:size];
+        [g_stderrRedirect performSelectorOnMainThread:@selector(forwardOutput:) withObject:data waitUntilDone:NO];
+    }
+    return size;
 }
 
 @implementation HBOutputRedirect
@@ -84,7 +99,6 @@ int	stderrwrite(void *inFD, const char *buffer, int size)
 	if (![listeners containsObject:aListener])
 	{
 		[listeners addObject:aListener];
-		[aListener release];
 	}
 	
 	if ([listeners count] > 0)
@@ -98,7 +112,6 @@ int	stderrwrite(void *inFD, const char *buffer, int size)
 {
 	if ([listeners containsObject:aListener])
 	{
-		[aListener retain];
 		[listeners removeObject:aListener];
 	}
 
@@ -108,7 +121,6 @@ int	stderrwrite(void *inFD, const char *buffer, int size)
 	if ([listeners count] == 0)
 	{
 		[self stopRedirect];
-		[self autorelease];
 
 		if (self == g_stdoutRedirect)
 			g_stdoutRedirect = nil;
@@ -130,7 +142,7 @@ int	stderrwrite(void *inFD, const char *buffer, int size)
  *
  * @return New HBOutputRedirect object.
  */
-- (id)initWithStream:(FILE *)aStream selector:(SEL)aSelector
+- (instancetype)initWithStream:(FILE *)aStream selector:(SEL)aSelector
 {
 	if (self = [super init])
 	{
@@ -140,15 +152,6 @@ int	stderrwrite(void *inFD, const char *buffer, int size)
 		oldWriteFunc = NULL;
 	}
 	return self;
-}
-
-/**
- * Frees all the listeners and deallocs the object.
- */
-- (void)dealloc
-{
-	[listeners release];
-	[super dealloc];
 }
 
 /**
@@ -188,7 +191,6 @@ int	stderrwrite(void *inFD, const char *buffer, int size)
     if (string)
     {
         [listeners makeObjectsPerformSelector:forwardingSelector withObject:string];
-        [string release];
     }
 }
 

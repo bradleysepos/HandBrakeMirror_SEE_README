@@ -18,10 +18,18 @@
     return self;
 }
 
-- (void)dealloc
+- (id)copyWithZone:(NSZone *)zone
 {
-    [_children release];
-    [super dealloc];
+    HBTreeNode *node = [[self class] allocWithZone:zone];
+    node->_children = [[NSMutableArray alloc] init];
+    node->_isLeaf = self.isLeaf;
+
+    for (HBTreeNode *children in self.children)
+    {
+        [node.children addObject:[children copy]];
+    }
+
+    return node;
 }
 
 - (NSUInteger)countOfChildren
@@ -31,7 +39,7 @@
 
 - (id)objectInChildrenAtIndex:(NSUInteger)index
 {
-    return [self.children objectAtIndex:index];
+    return (self.children)[index];
 }
 
 - (void)insertObject:(HBTreeNode *)presetObject inChildrenAtIndex:(NSUInteger)index
@@ -39,13 +47,18 @@
     [self.children insertObject:presetObject atIndex:index];
     [presetObject setDelegate:self.delegate];
 
-    [self.delegate nodeDidChange];
+    for (HBTreeNode *node in self.children)
+    {
+        node.delegate = self.delegate;
+    }
+
+    [self.delegate nodeDidChange:self];
 }
 
 - (void)removeObjectFromChildrenAtIndex:(NSUInteger)index
 {
     [self.children removeObjectAtIndex:index];
-    [self.delegate nodeDidChange];
+    [self.delegate nodeDidChange:self];
 }
 
 #pragma mark - Enumeration
@@ -57,7 +70,7 @@
     NSMutableArray *indexesQueue = [[NSMutableArray alloc] init];
 
     [queue addObject:self];
-    [indexesQueue addObject:[[[NSIndexPath alloc] init] autorelease]];
+    [indexesQueue addObject:[[NSIndexPath alloc] init]];
 
     HBTreeNode *node = nil;
     while ((node = [queue lastObject]) != nil)
@@ -87,9 +100,56 @@
             [queue addObject:childNode];
         }
     }
-    
-    [queue release];
-    [indexesQueue release];
+}
+
+- (NSIndexPath *)indexPathOfObject:(id)obj
+{
+    __block NSIndexPath *retValue = nil;
+
+    // Visit the whole tree to find the index path.
+    [self enumerateObjectsUsingBlock:^(id obj2, NSIndexPath *idx, BOOL *stop)
+    {
+         if ([obj2 isEqualTo:obj])
+         {
+             retValue = idx;
+             *stop = YES;
+         }
+     }];
+
+    return retValue;
+}
+
+- (void)removeObjectAtIndexPath:(NSIndexPath *)idx
+{
+    HBTreeNode *parentNode = self;
+
+    // Find the object parent array
+    // and delete it.
+    NSUInteger currIdx = 0;
+    NSUInteger i = 0;
+    for (i = 0; i < idx.length - 1; i++)
+    {
+        currIdx = [idx indexAtPosition:i];
+
+        if (parentNode.children.count > currIdx)
+        {
+            parentNode = (parentNode.children)[currIdx];
+        }
+    }
+
+    currIdx = [idx indexAtPosition:i];
+
+    if (parentNode.children.count > currIdx)
+    {
+        id removedNode = parentNode.children[currIdx];
+
+        [parentNode removeObjectFromChildrenAtIndex:currIdx];
+
+        if ([self.delegate respondsToSelector:@selector(treeDidRemoveNode:)])
+        {
+            [self.delegate treeDidRemoveNode:removedNode];
+        }
+    }
 }
 
 @end

@@ -8,6 +8,7 @@
  */
 
 #include <jansson.h>
+#include "hb.h"
 #include "hb_json.h"
 #include "libavutil/base64.h"
 
@@ -15,59 +16,60 @@
  * Convert an hb_state_t to a jansson dict
  * @param state - Pointer to hb_state_t to convert
  */
-static json_t* hb_state_to_dict( hb_state_t * state)
+hb_dict_t* hb_state_to_dict( hb_state_t * state)
 {
-    json_t *dict = NULL;
+    hb_dict_t *dict = NULL;
     json_error_t error;
 
     switch (state->state)
     {
     case HB_STATE_IDLE:
         dict = json_pack_ex(&error, 0, "{s:o}",
-                    "State", json_integer(state->state));
+                    "State", hb_value_int(state->state));
         break;
     case HB_STATE_SCANNING:
     case HB_STATE_SCANDONE:
         dict = json_pack_ex(&error, 0,
             "{s:o, s{s:o, s:o, s:o, s:o, s:o}}",
-            "State", json_integer(state->state),
+            "State", hb_value_int(state->state),
             "Scanning",
-                "Progress",     json_real(state->param.scanning.progress),
-                "Preview",      json_integer(state->param.scanning.preview_cur),
-                "PreviewCount", json_integer(state->param.scanning.preview_count),
-                "Title",        json_integer(state->param.scanning.title_cur),
-                "TitleCount",   json_integer(state->param.scanning.title_count));
+                "Progress",     hb_value_double(state->param.scanning.progress),
+                "Preview",      hb_value_int(state->param.scanning.preview_cur),
+                "PreviewCount", hb_value_int(state->param.scanning.preview_count),
+                "Title",        hb_value_int(state->param.scanning.title_cur),
+                "TitleCount",   hb_value_int(state->param.scanning.title_count));
         break;
     case HB_STATE_WORKING:
     case HB_STATE_PAUSED:
     case HB_STATE_SEARCHING:
         dict = json_pack_ex(&error, 0,
-            "{s:o, s{s:o, s:o, s:o, s:o, s:o, s:o, s:o, s:o, s:o}}",
-            "State", json_integer(state->state),
+            "{s:o, s{s:o, s:o, s:o, s:o, s:o, s:o, s:o, s:o, s:o, s:o}}",
+            "State", hb_value_int(state->state),
             "Working",
-                "Progress",     json_real(state->param.working.progress),
-                "Job",          json_integer(state->param.working.job_cur),
-                "JobCount",     json_integer(state->param.working.job_count),
-                "Rate",         json_real(state->param.working.rate_cur),
-                "RateAvg",      json_real(state->param.working.rate_avg),
-                "Hours",        json_integer(state->param.working.hours),
-                "Minutes",      json_integer(state->param.working.minutes),
-                "Seconds",      json_integer(state->param.working.seconds),
-                "SequenceID",   json_integer(state->param.working.sequence_id));
+                "Progress",     hb_value_double(state->param.working.progress),
+                "PassID",       hb_value_int(state->param.working.pass_id),
+                "Pass",         hb_value_int(state->param.working.pass),
+                "PassCount",    hb_value_int(state->param.working.pass_count),
+                "Rate",         hb_value_double(state->param.working.rate_cur),
+                "RateAvg",      hb_value_double(state->param.working.rate_avg),
+                "Hours",        hb_value_int(state->param.working.hours),
+                "Minutes",      hb_value_int(state->param.working.minutes),
+                "Seconds",      hb_value_int(state->param.working.seconds),
+                "SequenceID",   hb_value_int(state->param.working.sequence_id));
         break;
     case HB_STATE_WORKDONE:
         dict = json_pack_ex(&error, 0,
             "{s:o, s{s:o}}",
-            "State", json_integer(state->state),
+            "State", hb_value_int(state->state),
             "WorkDone",
-                "Error",    json_integer(state->param.workdone.error));
+                "Error",    hb_value_int(state->param.workdone.error));
         break;
     case HB_STATE_MUXING:
         dict = json_pack_ex(&error, 0,
             "{s:o, s{s:o}}",
-            "State", json_integer(state->state),
+            "State", hb_value_int(state->state),
             "Muxing",
-                "Progress", json_real(state->param.muxing.progress));
+                "Progress", hb_value_double(state->param.muxing.progress));
         break;
     default:
         hb_error("hb_state_to_json: unrecognized state %d", state->state);
@@ -89,23 +91,22 @@ char* hb_get_state_json( hb_handle_t * h )
     hb_state_t state;
 
     hb_get_state(h, &state);
-    json_t *dict = hb_state_to_dict(&state);
+    hb_dict_t *dict = hb_state_to_dict(&state);
 
-    char *json_state = json_dumps(dict, JSON_INDENT(4)|JSON_PRESERVE_ORDER);
-    json_decref(dict);
+    char *json_state = hb_value_get_json(dict);
+    hb_value_free(&dict);
 
     return json_state;
 }
 
-/**
- * Convert an hb_title_t to a jansson dict
- * @param title - Pointer to the hb_title_t to convert
- */
-static json_t* hb_title_to_dict( const hb_title_t * title )
+static hb_dict_t* hb_title_to_dict_internal( hb_title_t *title )
 {
-    json_t *dict;
+    hb_dict_t *dict;
     json_error_t error;
     int ii;
+
+    if (title == NULL)
+        return NULL;
 
     dict = json_pack_ex(&error, 0,
     "{"
@@ -123,40 +124,40 @@ static json_t* hb_title_to_dict( const hb_title_t * title )
         "s:{s:o, s:o},"
         // InterlaceDetected, VideoCodec
         "s:o, s:o,"
-        // MetaData
+        // Metadata
         "s:{}"
     "}",
-    "Type",                 json_integer(title->type),
-    "Path",                 json_string(title->path),
-    "Name",                 json_string(title->name),
-    "Index",                json_integer(title->index),
-    "Playlist",             json_integer(title->playlist),
-    "AngleCount",           json_integer(title->angle_count),
+    "Type",                 hb_value_int(title->type),
+    "Path",                 hb_value_string(title->path),
+    "Name",                 hb_value_string(title->name),
+    "Index",                hb_value_int(title->index),
+    "Playlist",             hb_value_int(title->playlist),
+    "AngleCount",           hb_value_int(title->angle_count),
     "Duration",
-        "Ticks",            json_integer(title->duration),
-        "Hours",            json_integer(title->hours),
-        "Minutes",          json_integer(title->minutes),
-        "Seconds",          json_integer(title->seconds),
+        "Ticks",            hb_value_int(title->duration),
+        "Hours",            hb_value_int(title->hours),
+        "Minutes",          hb_value_int(title->minutes),
+        "Seconds",          hb_value_int(title->seconds),
     "Geometry",
-        "Width",            json_integer(title->geometry.width),
-        "Height",           json_integer(title->geometry.height),
+        "Width",            hb_value_int(title->geometry.width),
+        "Height",           hb_value_int(title->geometry.height),
         "PAR",
-            "Num",          json_integer(title->geometry.par.num),
-            "Den",          json_integer(title->geometry.par.den),
-    "Crop",                 json_integer(title->crop[0]),
-                            json_integer(title->crop[1]),
-                            json_integer(title->crop[2]),
-                            json_integer(title->crop[3]),
+            "Num",          hb_value_int(title->geometry.par.num),
+            "Den",          hb_value_int(title->geometry.par.den),
+    "Crop",                 hb_value_int(title->crop[0]),
+                            hb_value_int(title->crop[1]),
+                            hb_value_int(title->crop[2]),
+                            hb_value_int(title->crop[3]),
     "Color",
-        "Primary",          json_integer(title->color_prim),
-        "Transfer",         json_integer(title->color_transfer),
-        "Matrix",           json_integer(title->color_matrix),
+        "Primary",          hb_value_int(title->color_prim),
+        "Transfer",         hb_value_int(title->color_transfer),
+        "Matrix",           hb_value_int(title->color_matrix),
     "FrameRate",
-        "Num",              json_integer(title->vrate.num),
-        "Den",              json_integer(title->vrate.den),
-    "InterlaceDetected",    json_boolean(title->detected_interlacing),
-    "VideoCodec",           json_string(title->video_codec_name),
-    "MetaData"
+        "Num",              hb_value_int(title->vrate.num),
+        "Den",              hb_value_int(title->vrate.den),
+    "InterlaceDetected",    hb_value_bool(title->detected_interlacing),
+    "VideoCodec",           hb_value_string(title->video_codec_name),
+    "Metadata"
     );
     if (dict == NULL)
     {
@@ -166,63 +167,66 @@ static json_t* hb_title_to_dict( const hb_title_t * title )
 
     if (title->container_name != NULL)
     {
-        json_object_set_new(dict, "Container",
-                            json_string(title->container_name));
+        hb_dict_set(dict, "Container", hb_value_string(title->container_name));
     }
 
     // Add metadata
-    json_t *meta_dict = json_object_get(dict, "MetaData");
+    hb_dict_t *meta_dict = hb_dict_get(dict, "Metadata");
     if (title->metadata->name != NULL)
     {
-        json_object_set_new(meta_dict, "Name",
-                            json_string(title->metadata->name));
+        hb_dict_set(meta_dict, "Name", hb_value_string(title->metadata->name));
     }
     if (title->metadata->artist != NULL)
     {
-        json_object_set_new(meta_dict, "Artist",
-                            json_string(title->metadata->artist));
+        hb_dict_set(meta_dict, "Artist",
+                    hb_value_string(title->metadata->artist));
     }
     if (title->metadata->composer != NULL)
     {
-        json_object_set_new(meta_dict, "Composer",
-                            json_string(title->metadata->composer));
+        hb_dict_set(meta_dict, "Composer",
+                    hb_value_string(title->metadata->composer));
     }
     if (title->metadata->comment != NULL)
     {
-        json_object_set_new(meta_dict, "Comment",
-                            json_string(title->metadata->comment));
+        hb_dict_set(meta_dict, "Comment",
+                    hb_value_string(title->metadata->comment));
     }
     if (title->metadata->genre != NULL)
     {
-        json_object_set_new(meta_dict, "Genre",
-                            json_string(title->metadata->genre));
+        hb_dict_set(meta_dict, "Genre",
+                    hb_value_string(title->metadata->genre));
     }
     if (title->metadata->album != NULL)
     {
-        json_object_set_new(meta_dict, "Album",
-                            json_string(title->metadata->album));
+        hb_dict_set(meta_dict, "Album",
+                    hb_value_string(title->metadata->album));
     }
     if (title->metadata->album_artist != NULL)
     {
-        json_object_set_new(meta_dict, "AlbumArtist",
-                            json_string(title->metadata->album_artist));
+        hb_dict_set(meta_dict, "AlbumArtist",
+                    hb_value_string(title->metadata->album_artist));
     }
     if (title->metadata->description != NULL)
     {
-        json_object_set_new(meta_dict, "Description",
-                            json_string(title->metadata->description));
+        hb_dict_set(meta_dict, "Description",
+                    hb_value_string(title->metadata->description));
     }
     if (title->metadata->long_description != NULL)
     {
-        json_object_set_new(meta_dict, "LongDescription",
-                            json_string(title->metadata->long_description));
+        hb_dict_set(meta_dict, "LongDescription",
+                    hb_value_string(title->metadata->long_description));
+    }
+    if (title->metadata->release_date != NULL)
+    {
+        hb_dict_set(meta_dict, "ReleaseDate",
+                    hb_value_string(title->metadata->release_date));
     }
 
     // process chapter list
-    json_t * chapter_list = json_array();
+    hb_dict_t * chapter_list = hb_value_array_init();
     for (ii = 0; ii < hb_list_count(title->list_chapter); ii++)
     {
-        json_t *chapter_dict;
+        hb_dict_t *chapter_dict;
         char *name = "";
         hb_chapter_t *chapter = hb_list_item(title->list_chapter, ii);
         if (chapter->title != NULL)
@@ -230,93 +234,103 @@ static json_t* hb_title_to_dict( const hb_title_t * title )
 
         chapter_dict = json_pack_ex(&error, 0,
             "{s:o, s:{s:o, s:o, s:o, s:o}}",
-            "Name",         json_string(name),
+            "Name",         hb_value_string(name),
             "Duration",
-                "Ticks",    json_integer(chapter->duration),
-                "Hours",    json_integer(chapter->hours),
-                "Minutes",  json_integer(chapter->minutes),
-                "Seconds",  json_integer(chapter->seconds)
+                "Ticks",    hb_value_int(chapter->duration),
+                "Hours",    hb_value_int(chapter->hours),
+                "Minutes",  hb_value_int(chapter->minutes),
+                "Seconds",  hb_value_int(chapter->seconds)
         );
         if (chapter_dict == NULL)
         {
             hb_error("json pack failure: %s", error.text);
             return NULL;
         }
-        json_array_append_new(chapter_list, chapter_dict);
+        hb_value_array_append(chapter_list, chapter_dict);
     }
-    json_object_set_new(dict, "ChapterList", chapter_list);
+    hb_dict_set(dict, "ChapterList", chapter_list);
 
     // process audio list
-    json_t * audio_list = json_array();
+    hb_dict_t * audio_list = hb_value_array_init();
     for (ii = 0; ii < hb_list_count(title->list_audio); ii++)
     {
-        json_t *audio_dict;
+        hb_dict_t *audio_dict;
         hb_audio_t *audio = hb_list_item(title->list_audio, ii);
 
         audio_dict = json_pack_ex(&error, 0,
-        "{s:o, s:o, s:o, s:o, s:o, s:o}",
-            "Description",      json_string(audio->config.lang.description),
-            "Language",         json_string(audio->config.lang.simple),
-            "LanguageCode",     json_string(audio->config.lang.iso639_2),
-            "Codec",            json_integer(audio->config.in.codec),
-            "SampleRate",       json_integer(audio->config.in.samplerate),
-            "BitRate",          json_integer(audio->config.in.bitrate),
-            "ChannelLayout",    json_integer(audio->config.in.channel_layout));
+        "{s:o, s:o, s:o, s:o, s:o, s:o, s:o}",
+            "Description",      hb_value_string(audio->config.lang.description),
+            "Language",         hb_value_string(audio->config.lang.simple),
+            "LanguageCode",     hb_value_string(audio->config.lang.iso639_2),
+            "Codec",            hb_value_int(audio->config.in.codec),
+            "SampleRate",       hb_value_int(audio->config.in.samplerate),
+            "BitRate",          hb_value_int(audio->config.in.bitrate),
+            "ChannelLayout",    hb_value_int(audio->config.in.channel_layout));
         if (audio_dict == NULL)
         {
             hb_error("json pack failure: %s", error.text);
             return NULL;
         }
-        json_array_append_new(audio_list, audio_dict);
+        hb_value_array_append(audio_list, audio_dict);
     }
-    json_object_set_new(dict, "AudioList", audio_list);
+    hb_dict_set(dict, "AudioList", audio_list);
 
     // process subtitle list
-    json_t * subtitle_list = json_array();
+    hb_dict_t * subtitle_list = hb_value_array_init();
     for (ii = 0; ii < hb_list_count(title->list_subtitle); ii++)
     {
-        json_t *subtitle_dict;
+        hb_dict_t *subtitle_dict;
         hb_subtitle_t *subtitle = hb_list_item(title->list_subtitle, ii);
 
         subtitle_dict = json_pack_ex(&error, 0,
             "{s:o, s:o, s:o, s:o}",
-            "Format",       json_integer(subtitle->format),
-            "Source",       json_integer(subtitle->source),
-            "Language",     json_string(subtitle->lang),
-            "LanguageCode", json_string(subtitle->iso639_2));
+            "Format",       hb_value_int(subtitle->format),
+            "Source",       hb_value_int(subtitle->source),
+            "Language",     hb_value_string(subtitle->lang),
+            "LanguageCode", hb_value_string(subtitle->iso639_2));
         if (subtitle_dict == NULL)
         {
             hb_error("json pack failure: %s", error.text);
             return NULL;
         }
-        json_array_append_new(subtitle_list, subtitle_dict);
+        hb_value_array_append(subtitle_list, subtitle_dict);
     }
-    json_object_set_new(dict, "SubtitleList", subtitle_list);
+    hb_dict_set(dict, "SubtitleList", subtitle_list);
 
     return dict;
+}
+
+/**
+ * Convert an hb_title_t to a jansson dict
+ * @param title - Pointer to the hb_title_t to convert
+ */
+hb_dict_t* hb_title_to_dict( hb_handle_t *h, int title_index )
+{
+    hb_title_t *title = hb_find_title_by_index(h, title_index);
+    return hb_title_to_dict_internal(title);
 }
 
 /**
  * Convert an hb_title_set_t to a jansson dict
  * @param title - Pointer to the hb_title_set_t to convert
  */
-static json_t* hb_title_set_to_dict( const hb_title_set_t * title_set )
+hb_dict_t* hb_title_set_to_dict( const hb_title_set_t * title_set )
 {
-    json_t *dict;
+    hb_dict_t *dict;
     json_error_t error;
     int ii;
 
     dict = json_pack_ex(&error, 0,
         "{s:o, s:[]}",
-        "MainFeature", json_integer(title_set->feature),
+        "MainFeature", hb_value_int(title_set->feature),
         "TitleList");
     // process title list
-    json_t *title_list = json_object_get(dict, "TitleList");
+    hb_dict_t *title_list = hb_dict_get(dict, "TitleList");
     for (ii = 0; ii < hb_list_count(title_set->list_title); ii++)
     {
         hb_title_t *title = hb_list_item(title_set->list_title, ii);
-        json_t *title_dict = hb_title_to_dict(title);
-        json_array_append_new(title_list, title_dict);
+        hb_dict_t *title_dict = hb_title_to_dict_internal(title);
+        hb_value_array_append(title_list, title_dict);
     }
 
     return dict;
@@ -326,12 +340,14 @@ static json_t* hb_title_set_to_dict( const hb_title_set_t * title_set )
  * Convert an hb_title_t to a json string
  * @param title - Pointer to hb_title_t to convert
  */
-char* hb_title_to_json( const hb_title_t * title )
+char* hb_title_to_json( hb_handle_t *h, int title_index )
 {
-    json_t *dict = hb_title_to_dict(title);
+    hb_dict_t *dict = hb_title_to_dict(h, title_index);
+    if (dict == NULL)
+        return NULL;
 
-    char *json_title = json_dumps(dict, JSON_INDENT(4)|JSON_PRESERVE_ORDER);
-    json_decref(dict);
+    char *json_title = hb_value_get_json(dict);
+    hb_value_free(&dict);
 
     return json_title;
 }
@@ -342,21 +358,21 @@ char* hb_title_to_json( const hb_title_t * title )
  */
 char* hb_get_title_set_json( hb_handle_t * h )
 {
-    json_t *dict = hb_title_set_to_dict(hb_get_title_set(h));
+    hb_dict_t *dict = hb_title_set_to_dict(hb_get_title_set(h));
 
-    char *json_title_set = json_dumps(dict, JSON_INDENT(4)|JSON_PRESERVE_ORDER);
-    json_decref(dict);
+    char *json_title_set = hb_value_get_json(dict);
+    hb_value_free(&dict);
 
     return json_title_set;
 }
 
 /**
- * Convert an hb_job_t to a json string
+ * Convert an hb_job_t to an hb_dict_t
  * @param job - Pointer to the hb_job_t to convert
  */
-char* hb_job_to_json( const hb_job_t * job )
+hb_dict_t* hb_job_to_dict( const hb_job_t * job )
 {
-    json_t * dict;
+    hb_dict_t * dict;
     json_error_t error;
     int subtitle_search_burn;
     int ii;
@@ -374,49 +390,54 @@ char* hb_job_to_json( const hb_job_t * job )
     // SequenceID
     "s:o,"
     // Destination {Mux, ChapterMarkers, ChapterList}
-    "s:{s:o, s:o, s[]},"
+    "s:{s:o, s:o, s:[]},"
     // Source {Title, Angle}
     "s:{s:o, s:o,},"
     // PAR {Num, Den}
     "s:{s:o, s:o},"
-    // Video {Codec}
-    "s:{s:o},"
+    // Video {Codec, QSV {Decode, AsyncDepth}}
+    "s:{s:o, s:o, s:o, s:{s:o, s:o}},"
     // Audio {CopyMask, FallbackEncoder, AudioList []}
-    "s:{s:o, s:o, s:[]},"
+    "s:{s:[], s:o, s:[]},"
     // Subtitles {Search {Enable, Forced, Default, Burn}, SubtitleList []}
     "s:{s:{s:o, s:o, s:o, s:o}, s:[]},"
-    // MetaData
+    // Metadata
     "s:{},"
     // Filters {Grayscale, FilterList []}
     "s:{s:o, s:[]}"
     "}",
-        "SequenceID",           json_integer(job->sequence_id),
+        "SequenceID",           hb_value_int(job->sequence_id),
         "Destination",
-            "Mux",              json_integer(job->mux),
-            "ChapterMarkers",   json_boolean(job->chapter_markers),
+            "Mux",              hb_value_int(job->mux),
+            "ChapterMarkers",   hb_value_bool(job->chapter_markers),
             "ChapterList",
         "Source",
-            "Title",            json_integer(job->title->index),
-            "Angle",            json_integer(job->angle),
+            "Title",            hb_value_int(job->title->index),
+            "Angle",            hb_value_int(job->angle),
         "PAR",
-            "Num",              json_integer(job->par.num),
-            "Den",              json_integer(job->par.den),
+            "Num",              hb_value_int(job->par.num),
+            "Den",              hb_value_int(job->par.den),
         "Video",
-            "Codec",            json_integer(job->vcodec),
+            "Encoder",          hb_value_int(job->vcodec),
+            "OpenCL",           hb_value_bool(job->use_opencl),
+            "HWDecode",         hb_value_bool(job->use_hwd),
+            "QSV",
+                "Decode",       hb_value_bool(job->qsv.decode),
+                "AsyncDepth",   hb_value_int(job->qsv.async_depth),
         "Audio",
-            "CopyMask",         json_integer(job->acodec_copy_mask),
-            "FallbackEncoder",  json_integer(job->acodec_fallback),
+            "CopyMask",
+            "FallbackEncoder",  hb_value_int(job->acodec_fallback),
             "AudioList",
         "Subtitle",
             "Search",
-                "Enable",       json_boolean(job->indepth_scan),
-                "Forced",       json_boolean(job->select_subtitle_config.force),
-                "Default",      json_boolean(job->select_subtitle_config.default_track),
-                "Burn",         json_boolean(subtitle_search_burn),
+                "Enable",       hb_value_bool(job->indepth_scan),
+                "Forced",       hb_value_bool(job->select_subtitle_config.force),
+                "Default",      hb_value_bool(job->select_subtitle_config.default_track),
+                "Burn",         hb_value_bool(subtitle_search_burn),
             "SubtitleList",
-        "MetaData",
-        "Filter",
-            "Grayscale",        json_boolean(job->grayscale),
+        "Metadata",
+        "Filters",
+            "Grayscale",        hb_value_bool(job->grayscale),
             "FilterList"
     );
     if (dict == NULL)
@@ -424,236 +445,270 @@ char* hb_job_to_json( const hb_job_t * job )
         hb_error("json pack failure: %s", error.text);
         return NULL;
     }
-    json_t *dest_dict = json_object_get(dict, "Destination");
+    hb_dict_t *dest_dict = hb_dict_get(dict, "Destination");
     if (job->file != NULL)
     {
-        json_object_set_new(dest_dict, "File", json_string(job->file));
+        hb_dict_set(dest_dict, "File", hb_value_string(job->file));
     }
     if (job->mux & HB_MUX_MASK_MP4)
     {
-        json_t *mp4_dict;
+        hb_dict_t *mp4_dict;
         mp4_dict = json_pack_ex(&error, 0, "{s:o, s:o}",
-            "Mp4Optimize",      json_boolean(job->mp4_optimize),
-            "IpodAtom",         json_boolean(job->ipod_atom));
-        json_object_set_new(dest_dict, "Mp4Options", mp4_dict);
+            "Mp4Optimize",      hb_value_bool(job->mp4_optimize),
+            "IpodAtom",         hb_value_bool(job->ipod_atom));
+        hb_dict_set(dest_dict, "Mp4Options", mp4_dict);
     }
-    json_t *source_dict = json_object_get(dict, "Source");
-    json_t *range_dict;
+    hb_dict_t *source_dict = hb_dict_get(dict, "Source");
+    hb_dict_t *range_dict;
     if (job->start_at_preview > 0)
     {
-        range_dict = json_pack_ex(&error, 0, "{s:o, s:o, s:o}",
-            "StartAtPreview",   json_integer(job->start_at_preview),
-            "PtsToStop",        json_integer(job->pts_to_stop),
-            "SeekPoints",       json_integer(job->seek_points));
+        range_dict = json_pack_ex(&error, 0, "{s:o, s:o, s:o, s:o}",
+            "Type",       hb_value_string("preview"),
+            "Start",      hb_value_int(job->start_at_preview),
+            "End",        hb_value_int(job->pts_to_stop),
+            "SeekPoints", hb_value_int(job->seek_points));
     }
     else if (job->pts_to_start != 0)
     {
-        range_dict = json_pack_ex(&error, 0, "{s:o, s:o}",
-            "PtsToStart",   json_integer(job->pts_to_start),
-            "PtsToStop",    json_integer(job->pts_to_stop));
+        range_dict = json_pack_ex(&error, 0, "{s:o, s:o, s:o}",
+            "Type",  hb_value_string("time"),
+            "Start", hb_value_int(job->pts_to_start),
+            "End",   hb_value_int(job->pts_to_stop));
     }
     else if (job->frame_to_start != 0)
     {
-        range_dict = json_pack_ex(&error, 0, "{s:o, s:o}",
-            "FrameToStart", json_integer(job->frame_to_start),
-            "FrameToStop",  json_integer(job->frame_to_stop));
+        range_dict = json_pack_ex(&error, 0, "{s:o, s:o, s:o}",
+            "Type",  hb_value_string("frame"),
+            "Start", hb_value_int(job->frame_to_start),
+            "End",   hb_value_int(job->frame_to_stop));
     }
     else
     {
-        range_dict = json_pack_ex(&error, 0, "{s:o, s:o}",
-            "ChapterStart", json_integer(job->chapter_start),
-            "ChapterEnd",   json_integer(job->chapter_end));
+        range_dict = json_pack_ex(&error, 0, "{s:o, s:o, s:o}",
+            "Type",  hb_value_string("chapter"),
+            "Start", hb_value_int(job->chapter_start),
+            "End",   hb_value_int(job->chapter_end));
     }
-    json_object_set_new(source_dict, "Range", range_dict);
+    hb_dict_set(source_dict, "Range", range_dict);
 
-    json_t *video_dict = json_object_get(dict, "Video");
+    hb_dict_t *video_dict = hb_dict_get(dict, "Video");
     if (job->color_matrix_code > 0)
     {
-        json_object_set_new(video_dict, "ColorMatrixCode",
-                            json_integer(job->color_matrix_code));
+        hb_dict_set(video_dict, "ColorMatrixCode",
+                            hb_value_int(job->color_matrix_code));
     }
     if (job->vquality >= 0)
     {
-        json_object_set_new(video_dict, "Quality", json_real(job->vquality));
+        hb_dict_set(video_dict, "Quality", hb_value_double(job->vquality));
     }
     else
     {
-        json_object_set_new(video_dict, "Bitrate", json_integer(job->vbitrate));
-        json_object_set_new(video_dict, "TwoPass", json_boolean(job->twopass));
-        json_object_set_new(video_dict, "Turbo",
-                            json_boolean(job->fastfirstpass));
+        hb_dict_set(video_dict, "Bitrate", hb_value_int(job->vbitrate));
+        hb_dict_set(video_dict, "TwoPass", hb_value_bool(job->twopass));
+        hb_dict_set(video_dict, "Turbo",
+                            hb_value_bool(job->fastfirstpass));
     }
     if (job->encoder_preset != NULL)
     {
-        json_object_set_new(video_dict, "Preset",
-                            json_string(job->encoder_preset));
+        hb_dict_set(video_dict, "Preset",
+                            hb_value_string(job->encoder_preset));
     }
     if (job->encoder_tune != NULL)
     {
-        json_object_set_new(video_dict, "Tune",
-                            json_string(job->encoder_tune));
+        hb_dict_set(video_dict, "Tune", hb_value_string(job->encoder_tune));
     }
     if (job->encoder_profile != NULL)
     {
-        json_object_set_new(video_dict, "Profile",
-                            json_string(job->encoder_profile));
+        hb_dict_set(video_dict, "Profile",
+                    hb_value_string(job->encoder_profile));
     }
     if (job->encoder_level != NULL)
     {
-        json_object_set_new(video_dict, "Level",
-                            json_string(job->encoder_level));
+        hb_dict_set(video_dict, "Level", hb_value_string(job->encoder_level));
     }
     if (job->encoder_options != NULL)
     {
-        json_object_set_new(video_dict, "Options",
-                            json_string(job->encoder_options));
+        hb_dict_set(video_dict, "Options",
+                    hb_value_string(job->encoder_options));
     }
-    json_t *meta_dict = json_object_get(dict, "MetaData");
+    hb_dict_t *meta_dict = hb_dict_get(dict, "Metadata");
     if (job->metadata->name != NULL)
     {
-        json_object_set_new(meta_dict, "Name",
-                            json_string(job->metadata->name));
+        hb_dict_set(meta_dict, "Name", hb_value_string(job->metadata->name));
     }
     if (job->metadata->artist != NULL)
     {
-        json_object_set_new(meta_dict, "Artist",
-                            json_string(job->metadata->artist));
+        hb_dict_set(meta_dict, "Artist",
+                    hb_value_string(job->metadata->artist));
     }
     if (job->metadata->composer != NULL)
     {
-        json_object_set_new(meta_dict, "Composer",
-                            json_string(job->metadata->composer));
+        hb_dict_set(meta_dict, "Composer",
+                    hb_value_string(job->metadata->composer));
     }
     if (job->metadata->comment != NULL)
     {
-        json_object_set_new(meta_dict, "Comment",
-                            json_string(job->metadata->comment));
+        hb_dict_set(meta_dict, "Comment",
+                    hb_value_string(job->metadata->comment));
     }
     if (job->metadata->genre != NULL)
     {
-        json_object_set_new(meta_dict, "Genre",
-                            json_string(job->metadata->genre));
+        hb_dict_set(meta_dict, "Genre", hb_value_string(job->metadata->genre));
     }
     if (job->metadata->album != NULL)
     {
-        json_object_set_new(meta_dict, "Album",
-                            json_string(job->metadata->album));
+        hb_dict_set(meta_dict, "Album", hb_value_string(job->metadata->album));
     }
     if (job->metadata->album_artist != NULL)
     {
-        json_object_set_new(meta_dict, "AlbumArtist",
-                            json_string(job->metadata->album_artist));
+        hb_dict_set(meta_dict, "AlbumArtist",
+                    hb_value_string(job->metadata->album_artist));
     }
     if (job->metadata->description != NULL)
     {
-        json_object_set_new(meta_dict, "Description",
-                            json_string(job->metadata->description));
+        hb_dict_set(meta_dict, "Description",
+                    hb_value_string(job->metadata->description));
     }
     if (job->metadata->long_description != NULL)
     {
-        json_object_set_new(meta_dict, "LongDescription",
-                            json_string(job->metadata->long_description));
+        hb_dict_set(meta_dict, "LongDescription",
+                    hb_value_string(job->metadata->long_description));
+    }
+    if (job->metadata->release_date != NULL)
+    {
+        hb_dict_set(meta_dict, "ReleaseDate",
+                    hb_value_string(job->metadata->release_date));
     }
 
     // process chapter list
-    json_t *chapter_list = json_object_get(dest_dict, "ChapterList");
+    hb_dict_t *chapter_list = hb_dict_get(dest_dict, "ChapterList");
     for (ii = 0; ii < hb_list_count(job->list_chapter); ii++)
     {
-        json_t *chapter_dict;
+        hb_dict_t *chapter_dict;
         char *title = "";
         hb_chapter_t *chapter = hb_list_item(job->list_chapter, ii);
         if (chapter->title != NULL)
             title = chapter->title;
 
         chapter_dict = json_pack_ex(&error, 0, "{s:o}",
-                                "Name", json_string(title));
-        json_array_append_new(chapter_list, chapter_dict);
+                                "Name", hb_value_string(title));
+        hb_value_array_append(chapter_list, chapter_dict);
     }
 
     // process filter list
-    json_t *filters_dict = json_object_get(dict, "Filter");
-    json_t *filter_list = json_object_get(filters_dict, "FilterList");
+    hb_dict_t *filters_dict = hb_dict_get(dict, "Filters");
+    hb_value_array_t *filter_list = hb_dict_get(filters_dict, "FilterList");
     for (ii = 0; ii < hb_list_count(job->list_filter); ii++)
     {
-        json_t *filter_dict;
+        hb_dict_t *filter_dict;
         hb_filter_object_t *filter = hb_list_item(job->list_filter, ii);
 
         filter_dict = json_pack_ex(&error, 0, "{s:o}",
-                                "ID", json_integer(filter->id));
+                                "ID", hb_value_int(filter->id));
         if (filter->settings != NULL)
         {
-            json_object_set_new(filter_dict, "Settings",
-                                json_string(filter->settings));
+            hb_dict_set(filter_dict, "Settings",
+                        hb_value_string(filter->settings));
         }
 
-        json_array_append_new(filter_list, filter_dict);
+        hb_value_array_append(filter_list, filter_dict);
     }
 
+    hb_dict_t *audios_dict = hb_dict_get(dict, "Audio");
+    // Construct audio CopyMask
+    hb_value_array_t *copy_mask = hb_dict_get(audios_dict, "CopyMask");
+    int acodec;
+    for (acodec = 1; acodec != HB_ACODEC_PASS_FLAG; acodec <<= 1)
+    {
+        if (acodec & job->acodec_copy_mask)
+        {
+            const char *name;
+            name = hb_audio_encoder_get_name(acodec | HB_ACODEC_PASS_FLAG);
+            if (name != NULL)
+            {
+                hb_value_t *val = hb_value_string(name);
+                hb_value_array_append(copy_mask, val);
+            }
+        }
+    }
     // process audio list
-    json_t *audios_dict = json_object_get(dict, "Audio");
-    json_t *audio_list = json_object_get(audios_dict, "AudioList");
+    hb_dict_t *audio_list = hb_dict_get(audios_dict, "AudioList");
     for (ii = 0; ii < hb_list_count(job->list_audio); ii++)
     {
-        json_t *audio_dict;
+        hb_dict_t *audio_dict;
         hb_audio_t *audio = hb_list_item(job->list_audio, ii);
 
         audio_dict = json_pack_ex(&error, 0,
-            "{s:o, s:o, s:o, s:o, s:o, s:o, s:o, s:o, s:o, s:o}",
-            "Track",                json_integer(audio->config.in.track),
-            "Encoder",              json_integer(audio->config.out.codec),
-            "Gain",                 json_real(audio->config.out.gain),
-            "DRC",                  json_real(audio->config.out.dynamic_range_compression),
-            "Mixdown",              json_integer(audio->config.out.mixdown),
-            "NormalizeMixLevel",    json_boolean(audio->config.out.normalize_mix_level),
-            "Samplerate",           json_integer(audio->config.out.samplerate),
-            "Bitrate",              json_integer(audio->config.out.bitrate),
-            "Quality",              json_real(audio->config.out.quality),
-            "CompressionLevel",     json_real(audio->config.out.compression_level));
+            "{s:o, s:o, s:o, s:o, s:o, s:o, s:o, s:o, s:o, s:o, s:o}",
+            "Track",                hb_value_int(audio->config.in.track),
+            "Encoder",              hb_value_int(audio->config.out.codec),
+            "Gain",                 hb_value_double(audio->config.out.gain),
+            "DRC",                  hb_value_double(audio->config.out.dynamic_range_compression),
+            "Mixdown",              hb_value_int(audio->config.out.mixdown),
+            "NormalizeMixLevel",    hb_value_bool(audio->config.out.normalize_mix_level),
+            "DitherMethod",         hb_value_int(audio->config.out.dither_method),
+            "Samplerate",           hb_value_int(audio->config.out.samplerate),
+            "Bitrate",              hb_value_int(audio->config.out.bitrate),
+            "Quality",              hb_value_double(audio->config.out.quality),
+            "CompressionLevel",     hb_value_double(audio->config.out.compression_level));
         if (audio->config.out.name != NULL)
         {
-            json_object_set_new(audio_dict, "Name",
-                                json_string(audio->config.out.name));
+            hb_dict_set(audio_dict, "Name",
+                        hb_value_string(audio->config.out.name));
         }
 
-        json_array_append_new(audio_list, audio_dict);
+        hb_value_array_append(audio_list, audio_dict);
     }
 
     // process subtitle list
-    json_t *subtitles_dict = json_object_get(dict, "Subtitle");
-    json_t *subtitle_list = json_object_get(subtitles_dict, "SubtitleList");
+    hb_dict_t *subtitles_dict = hb_dict_get(dict, "Subtitle");
+    hb_dict_t *subtitle_list = hb_dict_get(subtitles_dict, "SubtitleList");
     for (ii = 0; ii < hb_list_count(job->list_subtitle); ii++)
     {
-        json_t *subtitle_dict;
+        hb_dict_t *subtitle_dict;
         hb_subtitle_t *subtitle = hb_list_item(job->list_subtitle, ii);
 
         if (subtitle->source == SRTSUB)
         {
             subtitle_dict = json_pack_ex(&error, 0,
                 "{s:o, s:o, s:o, s:{s:o, s:o, s:o}}",
-                "Default",  json_boolean(subtitle->config.default_track),
-                "Burn",     json_boolean(subtitle->config.dest == RENDERSUB),
-                "Offset",   json_integer(subtitle->config.offset),
+                "Default",  hb_value_bool(subtitle->config.default_track),
+                "Burn",     hb_value_bool(subtitle->config.dest == RENDERSUB),
+                "Offset",   hb_value_int(subtitle->config.offset),
                 "SRT",
-                    "Filename", json_string(subtitle->config.src_filename),
-                    "Language", json_string(subtitle->iso639_2),
-                    "Codeset",  json_string(subtitle->config.src_codeset));
+                    "Filename", hb_value_string(subtitle->config.src_filename),
+                    "Language", hb_value_string(subtitle->iso639_2),
+                    "Codeset",  hb_value_string(subtitle->config.src_codeset));
         }
         else
         {
             subtitle_dict = json_pack_ex(&error, 0,
-            "{s:o, s:o, s:o, s:o, s:o, s:o}",
-                "ID",       json_integer(subtitle->id),
-                "Track",    json_integer(subtitle->track),
-                "Default",  json_boolean(subtitle->config.default_track),
-                "Force",    json_boolean(subtitle->config.force),
-                "Burn",     json_boolean(subtitle->config.dest == RENDERSUB),
-                "Offset",   json_integer(subtitle->config.offset));
+            "{s:o, s:o, s:o, s:o, s:o}",
+                "Track",    hb_value_int(subtitle->track),
+                "Default",  hb_value_bool(subtitle->config.default_track),
+                "Forced",   hb_value_bool(subtitle->config.force),
+                "Burn",     hb_value_bool(subtitle->config.dest == RENDERSUB),
+                "Offset",   hb_value_int(subtitle->config.offset));
         }
-        json_array_append_new(subtitle_list, subtitle_dict);
+        hb_value_array_append(subtitle_list, subtitle_dict);
     }
 
-    char *json_job = json_dumps(dict, JSON_INDENT(4));
-    json_decref(dict);
+    return dict;
+}
+
+/**
+ * Convert an hb_job_t to a json string
+ * @param job - Pointer to the hb_job_t to convert
+ */
+char* hb_job_to_json( const hb_job_t * job )
+{
+    hb_dict_t *dict = hb_job_to_dict(job);
+
+    if (dict == NULL)
+        return NULL;
+
+    char *json_job = hb_value_get_json(dict);
+    hb_value_free(&dict);
 
     return json_job;
 }
@@ -667,33 +722,98 @@ static int *        unpack_b(int *b)        { return b; }
 static char**       unpack_s(char **s)      { return s; }
 static json_t**     unpack_o(json_t** o)    { return o; }
 
+void hb_json_job_scan( hb_handle_t * h, const char * json_job )
+{
+    hb_dict_t * dict;
+    int result;
+    json_error_t error;
+
+    dict = hb_value_json(json_job);
+
+    int title_index, use_hwd = 0;
+    char *path = NULL;
+
+    result = json_unpack_ex(dict, &error, 0, "{s:{s:s, s:i}, s?{s?b}}",
+                            "Source",
+                                "Path",     unpack_s(&path),
+                                "Title",    unpack_i(&title_index),
+                            "Video",
+                                "HWDecode", unpack_b(&use_hwd)
+                           );
+    if (result < 0)
+    {
+        hb_error("json unpack failure, failed to find title: %s", error.text);
+        return;
+    }
+
+    // If the job wants to use Hardware decode, it must also be
+    // enabled during scan.  So enable it here.
+    hb_hwd_set_enable(h, use_hwd);
+    hb_scan(h, path, title_index, 10, 0, 0);
+
+    // Wait for scan to complete
+    hb_state_t state;
+    do
+    {
+        hb_snooze(50);
+        hb_get_state2(h, &state);
+    } while (state.state == HB_STATE_SCANNING);
+}
+
+static int validate_audio_codec_mux(int codec, int mux, int track)
+{
+    const hb_encoder_t *enc = NULL;
+    while ((enc = hb_audio_encoder_get_next(enc)) != NULL)
+    {
+        if ((enc->codec == codec) && (enc->muxers & mux) == 0)
+        {
+            hb_error("track %d: incompatible encoder '%s' for muxer '%s'",
+                     track + 1, enc->short_name,
+                     hb_container_get_short_name(mux));
+            return -1;
+        }
+    }
+    return 0;
+}
+
 /**
  * Convert a json string representation of a job to an hb_job_t
  * @param h        - Pointer to the hb_hanle_t hb instance which contains the
  *                   title that the job refers to.
  * @param json_job - Pointer to json string representation of a job
  */
-hb_job_t* hb_json_to_job( hb_handle_t * h, const char * json_job )
+hb_job_t* hb_dict_to_job( hb_handle_t * h, hb_dict_t *dict )
 {
-    json_t * dict;
     hb_job_t * job;
     int result;
     json_error_t error;
     int titleindex;
 
-    dict = json_loads(json_job, 0, NULL);
+    if (dict == NULL)
+        return NULL;
 
     result = json_unpack_ex(dict, &error, 0, "{s:{s:i}}",
                             "Source", "Title", unpack_i(&titleindex));
     if (result < 0)
     {
-        hb_error("json unpack failure, failed to find title: %s", error.text);
+        hb_error("hb_dict_to_job: failed to find title: %s", error.text);
         return NULL;
     }
 
     job = hb_job_init_by_index(h, titleindex);
+    if (job == NULL)
+    {
+        hb_error("hb_dict_to_job: Title %d doesn't exist", titleindex);
+        return NULL;
+    }
 
+    hb_value_array_t *chapter_list = NULL;
+    hb_value_array_t *audio_list = NULL;
+    hb_value_array_t *subtitle_list = NULL;
+    hb_value_array_t *filter_list = NULL;
+    hb_value_t *mux = NULL, *vcodec = NULL, *acodec_copy_mask, *acodec_fallback;
     char *destfile = NULL;
+    char *range_type = NULL;
     char *video_preset = NULL, *video_tune = NULL;
     char *video_profile = NULL, *video_level = NULL;
     char *video_options = NULL;
@@ -701,57 +821,56 @@ hb_job_t* hb_json_to_job( hb_handle_t * h, const char * json_job )
     char *meta_name = NULL, *meta_artist = NULL, *meta_album_artist = NULL;
     char *meta_release = NULL, *meta_comment = NULL, *meta_genre = NULL;
     char *meta_composer = NULL, *meta_desc = NULL, *meta_long_desc = NULL;
-    json_int_t pts_to_start = 0, pts_to_stop = 0;
+    json_int_t range_start = -1, range_end = -1, range_seek_points = -1;
 
     result = json_unpack_ex(dict, &error, 0,
     "{"
     // SequenceID
     "s:i,"
-    // Destination {File, Mux, ChapterMarkers, Mp4Options {
-    //                          Mp4Optimize, IpodAtom}
-    "s:{s?s, s:i, s:b s?{s?b, s?b}},"
-    // Source {Angle, Range {ChapterStart, ChapterEnd, PtsToStart, PtsToStop,
-    //                  FrameToStart, FrameToStop, StartAtPreview, SeekPoints}
-    "s:{s?i, s:{s?i, s?i, s?I, s?I, s?i, s?i, s?i, s?i}},"
+    // Destination {File, Mux, ChapterMarkers, ChapterList,
+    //              Mp4Options {Mp4Optimize, IpodAtom}}
+    "s:{s?s, s:o, s:b, s?o s?{s?b, s?b}},"
+    // Source {Angle, Range {Type, Start, End, SeekPoints}}
+    "s:{s?i, s?{s:s, s?I, s?I, s?I}},"
     // PAR {Num, Den}
     "s?{s:i, s:i},"
-    // Video {Codec, Quality, Bitrate, Preset, Tune, Profile, Level,
-    //        Options, TwoPass, Turbo, ColorMatrixCode}
-    "s:{s:i, s?f, s?i, s?s, s?s, s?s, s?s, s?s, s?b, s?b, s?i},"
-    // Audio {CopyMask, FallbackEncoder}
-    "s?{s?i, s?i},"
-    // Subtitle {Search {Enable, Forced, Default, Burn}}
-    "s?{s?{s:b, s?b, s?b, s?b}},"
-    // MetaData {Name, Artist, Composer, AlbumArtist, ReleaseDate,
+    // Video {Codec, Quality, Bitrate, Preset, Tune, Profile, Level, Options
+    //        TwoPass, Turbo, ColorMatrixCode,
+    //        OpenCL, HWDecode, QSV {Decode, AsyncDepth}}
+    "s:{s:o, s?f, s?i, s?s, s?s, s?s, s?s, s?s,"
+    "   s?b, s?b, s?i,"
+    "   s?b, s?b, s?{s?b, s?i}},"
+    // Audio {CopyMask, FallbackEncoder, AudioList}
+    "s?{s?o, s?o, s?o},"
+    // Subtitle {Search {Enable, Forced, Default, Burn}, SubtitleList}
+    "s?{s?{s:b, s?b, s?b, s?b}, s?o},"
+    // Metadata {Name, Artist, Composer, AlbumArtist, ReleaseDate,
     //           Comment, Genre, Description, LongDescription}
     "s?{s?s, s?s, s?s, s?s, s?s, s?s, s?s, s?s, s?s},"
-    // Filters {}
-    "s?{s?b}"
+    // Filters {FilterList}
+    "s?{s?b, s?o}"
     "}",
         "SequenceID",               unpack_i(&job->sequence_id),
         "Destination",
             "File",                 unpack_s(&destfile),
-            "Mux",                  unpack_i(&job->mux),
+            "Mux",                  unpack_o(&mux),
             "ChapterMarkers",       unpack_b(&job->chapter_markers),
+            "ChapterList",          unpack_o(&chapter_list),
             "Mp4Options",
                 "Mp4Optimize",      unpack_b(&job->mp4_optimize),
                 "IpodAtom",         unpack_b(&job->ipod_atom),
         "Source",
             "Angle",                unpack_i(&job->angle),
             "Range",
-                "ChapterStart",     unpack_i(&job->chapter_start),
-                "ChapterEnd",       unpack_i(&job->chapter_end),
-                "PtsToStart",       unpack_I(&pts_to_start),
-                "PtsToStop",        unpack_I(&pts_to_stop),
-                "FrameToStart",     unpack_i(&job->frame_to_start),
-                "FrameToStop",      unpack_i(&job->frame_to_stop),
-                "StartAtPreview",   unpack_i(&job->start_at_preview),
-                "SeekPoints",       unpack_i(&job->seek_points),
+                "Type",             unpack_s(&range_type),
+                "Start",            unpack_I(&range_start),
+                "End",              unpack_I(&range_end),
+                "SeekPoints",       unpack_I(&range_seek_points),
         "PAR",
             "Num",                  unpack_i(&job->par.num),
             "Den",                  unpack_i(&job->par.den),
         "Video",
-            "Codec",                unpack_i(&job->vcodec),
+            "Encoder",              unpack_o(&vcodec),
             "Quality",              unpack_f(&job->vquality),
             "Bitrate",              unpack_i(&job->vbitrate),
             "Preset",               unpack_s(&video_preset),
@@ -762,16 +881,23 @@ hb_job_t* hb_json_to_job( hb_handle_t * h, const char * json_job )
             "TwoPass",              unpack_b(&job->twopass),
             "Turbo",                unpack_b(&job->fastfirstpass),
             "ColorMatrixCode",      unpack_i(&job->color_matrix_code),
+            "OpenCL",               unpack_b(&job->use_opencl),
+            "HWDecode",             unpack_b(&job->use_hwd),
+            "QSV",
+                "Decode",           unpack_b(&job->qsv.decode),
+                "AsyncDepth",       unpack_i(&job->qsv.async_depth),
         "Audio",
-            "CopyMask",             unpack_i(&job->acodec_copy_mask),
-            "FallbackEncoder",      unpack_i(&job->acodec_fallback),
+            "CopyMask",             unpack_o(&acodec_copy_mask),
+            "FallbackEncoder",      unpack_o(&acodec_fallback),
+            "AudioList",            unpack_o(&audio_list),
         "Subtitle",
             "Search",
                 "Enable",           unpack_b(&job->indepth_scan),
                 "Forced",           unpack_b(&job->select_subtitle_config.force),
                 "Default",          unpack_b(&job->select_subtitle_config.default_track),
                 "Burn",             unpack_b(&subtitle_search_burn),
-        "MetaData",
+            "SubtitleList",         unpack_o(&subtitle_list),
+        "Metadata",
             "Name",                 unpack_s(&meta_name),
             "Artist",               unpack_s(&meta_artist),
             "Composer",             unpack_s(&meta_composer),
@@ -781,17 +907,73 @@ hb_job_t* hb_json_to_job( hb_handle_t * h, const char * json_job )
             "Genre",                unpack_s(&meta_genre),
             "Description",          unpack_s(&meta_desc),
             "LongDescription",      unpack_s(&meta_long_desc),
-        "Filter",
-            "Grayscale",            unpack_b(&job->grayscale)
+        "Filters",
+            "Grayscale",            unpack_b(&job->grayscale),
+            "FilterList",           unpack_o(&filter_list)
     );
     if (result < 0)
     {
-        hb_error("json unpack failure: %s", error.text);
-        hb_job_close(&job);
-        return NULL;
+        hb_error("hb_dict_to_job: failed to parse dict: %s", error.text);
+        goto fail;
     }
-    job->pts_to_start = pts_to_start;
-    job->pts_to_stop = pts_to_stop;
+
+    // Lookup mux id
+    if (hb_value_type(mux) == HB_VALUE_TYPE_STRING)
+    {
+        const char *s = hb_value_get_string(mux);
+        job->mux = hb_container_get_from_name(s);
+        if (job->mux == 0)
+            job->mux = hb_container_get_from_extension(s);
+    }
+    else
+    {
+        job->mux = hb_value_get_int(mux);
+    }
+
+    // Lookup video codec
+    if (hb_value_type(vcodec) == HB_VALUE_TYPE_STRING)
+    {
+        const char *s = hb_value_get_string(vcodec);
+        job->vcodec = hb_video_encoder_get_from_name(s);
+    }
+    else
+    {
+        job->vcodec = hb_value_get_int(vcodec);
+    }
+
+    if (range_type != NULL)
+    {
+        if (!strcasecmp(range_type, "preview"))
+        {
+            if (range_start >= 0)
+                job->start_at_preview = range_start;
+            if (range_end >= 0)
+                job->pts_to_stop = range_end;
+            if (range_seek_points >= 0)
+                job->seek_points = range_seek_points;
+        }
+        else if (!strcasecmp(range_type, "chapter"))
+        {
+            if (range_start >= 0)
+                job->chapter_start = range_start;
+            if (range_end >= 0)
+                job->chapter_end = range_end;
+        }
+        else if (!strcasecmp(range_type, "time"))
+        {
+            if (range_start >= 0)
+                job->pts_to_start = range_start;
+            if (range_end >= 0)
+                job->pts_to_stop = range_end;
+        }
+        else if (!strcasecmp(range_type, "frame"))
+        {
+            if (range_start >= 0)
+                job->frame_to_start = range_start;
+            if (range_end >= 0)
+                job->frame_to_stop = range_end;
+        }
+    }
 
     if (destfile != NULL && destfile[0] != 0)
     {
@@ -844,31 +1026,23 @@ hb_job_t* hb_json_to_job( hb_handle_t * h, const char * json_job )
     }
 
     // process chapter list
-    json_t * chapter_list = NULL;
-    result = json_unpack_ex(dict, &error, 0,
-                            "{s:{s:o}}",
-                            "Destination",
-                                "ChapterList", unpack_o(&chapter_list));
-    if (result < 0)
+    if (chapter_list != NULL &&
+        hb_value_type(chapter_list) == HB_VALUE_TYPE_ARRAY)
     {
-        hb_error("json unpack failure: %s", error.text);
-        hb_job_close(&job);
-        return NULL;
-    }
-    if (json_is_array(chapter_list))
-    {
-        int ii;
-        json_t *chapter_dict;
-        json_array_foreach(chapter_list, ii, chapter_dict)
+        int ii, count;
+        hb_dict_t *chapter_dict;
+        count = hb_value_array_len(chapter_list);
+        for (ii = 0; ii < count; ii++)
         {
+            chapter_dict = hb_value_array_get(chapter_list, ii);
             char *name = NULL;
             result = json_unpack_ex(chapter_dict, &error, 0,
                                     "{s:s}", "Name", unpack_s(&name));
             if (result < 0)
             {
-                hb_error("json unpack failure: %s", error.text);
-                hb_job_close(&job);
-                return NULL;
+                hb_error("hb_dict_to_job: failed to find chapter name: %s",
+                         error.text);
+                goto fail;
             }
             if (name != NULL && name[0] != 0)
             {
@@ -883,22 +1057,15 @@ hb_job_t* hb_json_to_job( hb_handle_t * h, const char * json_job )
     }
 
     // process filter list
-    json_t * filter_list = NULL;
-    result = json_unpack_ex(dict, &error, 0,
-                            "{s:{s:o}}",
-                            "Filter", "FilterList", unpack_o(&filter_list));
-    if (result < 0)
+    if (filter_list != NULL &&
+        hb_value_type(filter_list) == HB_VALUE_TYPE_ARRAY)
     {
-        hb_error("json unpack failure: %s", error.text);
-        hb_job_close(&job);
-        return NULL;
-    }
-    if (json_is_array(filter_list))
-    {
-        int ii;
-        json_t *filter_dict;
-        json_array_foreach(filter_list, ii, filter_dict)
+        int ii, count;
+        hb_dict_t *filter_dict;
+        count = hb_value_array_len(filter_list);
+        for (ii = 0; ii < count; ii++)
         {
+            filter_dict = hb_value_array_get(filter_list, ii);
             int filter_id = -1;
             char *filter_settings = NULL;
             result = json_unpack_ex(filter_dict, &error, 0, "{s:i, s?s}",
@@ -906,9 +1073,9 @@ hb_job_t* hb_json_to_job( hb_handle_t * h, const char * json_job )
                                     "Settings", unpack_s(&filter_settings));
             if (result < 0)
             {
-                hb_error("json unpack failure: %s", error.text);
-                hb_job_close(&job);
-                return NULL;
+                hb_error("hb_dict_to_job: failed to find filter settings: %s",
+                         error.text);
+                goto fail;
             }
             if (filter_id >= HB_FILTER_FIRST && filter_id <= HB_FILTER_LAST)
             {
@@ -920,42 +1087,143 @@ hb_job_t* hb_json_to_job( hb_handle_t * h, const char * json_job )
     }
 
     // process audio list
-    json_t * audio_list = NULL;
-    result = json_unpack_ex(dict, &error, 0, "{s:{s:o}}",
-                            "Audio", "AudioList", unpack_o(&audio_list));
-    if (result < 0)
+    if (acodec_fallback != NULL)
     {
-        hb_error("json unpack failure: %s", error.text);
-        hb_job_close(&job);
-        return NULL;
-    }
-    if (json_is_array(audio_list))
-    {
-        int ii;
-        json_t *audio_dict;
-        json_array_foreach(audio_list, ii, audio_dict)
+        if (hb_value_type(acodec_fallback) == HB_VALUE_TYPE_STRING)
         {
+            const char *s = hb_value_get_string(acodec_fallback);
+            job->acodec_fallback = hb_audio_encoder_get_from_name(s);
+        }
+        else
+        {
+            job->acodec_fallback = hb_value_get_int(acodec_fallback);
+        }
+    }
+    if (acodec_copy_mask != NULL)
+    {
+        if (hb_value_type(acodec_copy_mask) == HB_VALUE_TYPE_ARRAY)
+        {
+            int count, ii;
+            count = hb_value_array_len(acodec_copy_mask);
+            for (ii = 0; ii < count; ii++)
+            {
+                hb_value_t *value = hb_value_array_get(acodec_copy_mask, ii);
+                if (hb_value_type(acodec_copy_mask) == HB_VALUE_TYPE_STRING)
+                {
+                    const char *s = hb_value_get_string(value);
+                    job->acodec_copy_mask |= hb_audio_encoder_get_from_name(s);
+                }
+                else
+                {
+                    job->acodec_copy_mask |= hb_value_get_int(value);
+                }
+            }
+        }
+        else if (hb_value_type(acodec_copy_mask) == HB_VALUE_TYPE_STRING)
+        {
+            // Split the string at ','
+            char *s = strdup(hb_value_get_string(acodec_copy_mask));
+            char *cur = s;
+            while (cur != NULL && cur[0] != 0)
+            {
+                char *next = strchr(cur, ',');
+                if (next != NULL)
+                {
+                    *next = 0;
+                    next++;
+                }
+                job->acodec_copy_mask |= hb_audio_encoder_get_from_name(cur);
+                cur = next;
+            }
+            free(s);
+        }
+        else
+        {
+            job->acodec_copy_mask = hb_value_get_int(acodec_copy_mask);
+        }
+    }
+    if (audio_list != NULL && hb_value_type(audio_list) == HB_VALUE_TYPE_ARRAY)
+    {
+        int ii, count;
+        hb_dict_t *audio_dict;
+        count = hb_value_array_len(audio_list);
+        for (ii = 0; ii < count; ii++)
+        {
+            audio_dict = hb_value_array_get(audio_list, ii);
             hb_audio_config_t audio;
+            hb_value_t *acodec = NULL, *samplerate = NULL, *mixdown = NULL;
+            hb_value_t *dither = NULL;
 
             hb_audio_config_init(&audio);
             result = json_unpack_ex(audio_dict, &error, 0,
-                "{s:i, s?s, s?i, s?F, s?F, s?i, s?b, s?i, s?i, s?F, s?F}",
+                "{s:i, s?s, s?o, s?F, s?F, s?o, s?b, s?o, s?o, s?i, s?F, s?F}",
                 "Track",                unpack_i(&audio.in.track),
                 "Name",                 unpack_s(&audio.out.name),
-                "Encoder",              unpack_i((int*)&audio.out.codec),
+                "Encoder",              unpack_o(&acodec),
                 "Gain",                 unpack_f(&audio.out.gain),
                 "DRC",                  unpack_f(&audio.out.dynamic_range_compression),
-                "Mixdown",              unpack_i(&audio.out.mixdown),
+                "Mixdown",              unpack_o(&mixdown),
                 "NormalizeMixLevel",    unpack_b(&audio.out.normalize_mix_level),
-                "Samplerate",           unpack_i(&audio.out.samplerate),
+                "DitherMethod",         unpack_o(&dither),
+                "Samplerate",           unpack_o(&samplerate),
                 "Bitrate",              unpack_i(&audio.out.bitrate),
                 "Quality",              unpack_f(&audio.out.quality),
                 "CompressionLevel",     unpack_f(&audio.out.compression_level));
             if (result < 0)
             {
-                hb_error("json unpack failure: %s", error.text);
-                hb_job_close(&job);
-                return NULL;
+                hb_error("hb_dict_to_job: failed to find audio settings: %s",
+                         error.text);
+                goto fail;
+            }
+            if (acodec != NULL)
+            {
+                if (hb_value_type(acodec) == HB_VALUE_TYPE_STRING)
+                {
+                    const char *s = hb_value_get_string(acodec);
+                    audio.out.codec = hb_audio_encoder_get_from_name(s);
+                }
+                else
+                {
+                    audio.out.codec = hb_value_get_int(acodec);
+                }
+            }
+            if (mixdown != NULL)
+            {
+                if (hb_value_type(mixdown) == HB_VALUE_TYPE_STRING)
+                {
+                    const char *s = hb_value_get_string(mixdown);
+                    audio.out.mixdown = hb_mixdown_get_from_name(s);
+                }
+                else
+                {
+                    audio.out.mixdown = hb_value_get_int(mixdown);
+                }
+            }
+            if (samplerate != NULL)
+            {
+                if (hb_value_type(samplerate) == HB_VALUE_TYPE_STRING)
+                {
+                    const char *s = hb_value_get_string(samplerate);
+                    audio.out.samplerate = hb_audio_samplerate_get_from_name(s);
+                    if (audio.out.samplerate < 0)
+                        audio.out.samplerate = 0;
+                }
+                else
+                {
+                    audio.out.samplerate = hb_value_get_int(samplerate);
+                }
+            }
+            if (dither != NULL)
+            {
+                if (hb_value_type(dither) == HB_VALUE_TYPE_STRING)
+                {
+                    const char *s = hb_value_get_string(dither);
+                    audio.out.dither_method = hb_audio_dither_get_from_name(s);
+                }
+                else
+                {
+                    audio.out.dither_method = hb_value_get_int(dither);
+                }
             }
             if (audio.in.track >= 0)
             {
@@ -965,24 +1233,29 @@ hb_job_t* hb_json_to_job( hb_handle_t * h, const char * json_job )
         }
     }
 
-    // process subtitle list
-    json_t * subtitle_list = NULL;
-    result = json_unpack_ex(dict, &error, 0,
-                            "{s:{s:o}}",
-                            "Subtitle",
-                                "SubtitleList", unpack_o(&subtitle_list));
-    if (result < 0)
+    // Audio sanity checks
+    int count = hb_list_count(job->list_audio);
+    int ii;
+    for (ii = 0; ii < count; ii++)
     {
-        hb_error("json unpack failure: %s", error.text);
-        hb_job_close(&job);
-        return NULL;
-    }
-    if (json_is_array(subtitle_list))
-    {
-        int ii;
-        json_t *subtitle_dict;
-        json_array_foreach(subtitle_list, ii, subtitle_dict)
+        hb_audio_config_t *acfg;
+        acfg = hb_list_audio_config_item(job->list_audio, ii);
+        if (validate_audio_codec_mux(acfg->out.codec, job->mux, ii))
         {
+            goto fail;
+        }
+    }
+
+    // process subtitle list
+    if (subtitle_list != NULL &&
+        hb_value_type(subtitle_list) == HB_VALUE_TYPE_ARRAY)
+    {
+        int ii, count;
+        hb_dict_t *subtitle_dict;
+        count = hb_value_array_len(subtitle_list);
+        for (ii = 0; ii < count; ii++)
+        {
+            subtitle_dict = hb_value_array_get(subtitle_list, ii);
             hb_subtitle_config_t sub_config;
             int track = -1;
             int burn = 0;
@@ -1011,7 +1284,7 @@ hb_job_t* hb_json_to_job( hb_handle_t * h, const char * json_job )
                     result = json_unpack_ex(subtitle_dict, &error, 0,
                         "{s?b, s?b, s?b, s?i}",
                         "Default",  unpack_i(&sub_config.default_track),
-                        "Force",    unpack_b(&sub_config.force),
+                        "Forced",   unpack_b(&sub_config.force),
                         "Burn",     unpack_b(&burn),
                         "Offset",   unpack_I(&offset));
                     if (result < 0)
@@ -1056,8 +1329,19 @@ hb_job_t* hb_json_to_job( hb_handle_t * h, const char * json_job )
             }
         }
     }
-    json_decref(dict);
 
+    return job;
+
+fail:
+    hb_job_close(&job);
+    return NULL;
+}
+
+hb_job_t* hb_json_to_job( hb_handle_t * h, const char * json_job )
+{
+    hb_dict_t *dict = hb_value_json(json_job);
+    hb_job_t *job = hb_dict_to_job(h, dict);
+    hb_value_free(&dict);
     return job;
 }
 
@@ -1084,12 +1368,10 @@ char* hb_job_init_json(hb_handle_t *h, int title_index)
  */
 int hb_add_json( hb_handle_t * h, const char * json_job )
 {
-    hb_job_t *job = hb_json_to_job(h, json_job);
-    if (job == NULL)
-        return -1;
+    hb_job_t job;
 
-    hb_add(h, job);
-    hb_job_close(&job);
+    job.json = json_job;
+    hb_add(h, &job);
 
     return 0;
 }
@@ -1107,7 +1389,7 @@ char* hb_set_anamorphic_size_json(const char * json_param)
 {
     int json_result;
     json_error_t error;
-    json_t * dict;
+    hb_dict_t * dict;
     hb_geometry_t geo_result;
     hb_geometry_t src;
     hb_geometry_settings_t ui_geo;
@@ -1115,7 +1397,7 @@ char* hb_set_anamorphic_size_json(const char * json_param)
     // Clear dest geometry since some fields are optional.
     memset(&ui_geo, 0, sizeof(ui_geo));
 
-    dict = json_loads(json_param, 0, NULL);
+    dict = hb_value_json(json_param);
     json_result = json_unpack_ex(dict, &error, 0,
     "{"
     // SourceGeometry
@@ -1155,7 +1437,7 @@ char* hb_set_anamorphic_size_json(const char * json_param)
                                 unpack_i(&ui_geo.crop[2]),
                                 unpack_i(&ui_geo.crop[3])
     );
-    json_decref(dict);
+    hb_value_free(&dict);
 
     if (json_result < 0)
     {
@@ -1167,18 +1449,18 @@ char* hb_set_anamorphic_size_json(const char * json_param)
 
     dict = json_pack_ex(&error, 0,
         "{s:o, s:o, s:{s:o, s:o}}",
-            "Width",        json_integer(geo_result.width),
-            "Height",       json_integer(geo_result.height),
+            "Width",        hb_value_int(geo_result.width),
+            "Height",       hb_value_int(geo_result.height),
             "PAR",
-                "Num",      json_integer(geo_result.par.num),
-                "Den",      json_integer(geo_result.par.den));
+                "Num",      hb_value_int(geo_result.par.num),
+                "Den",      hb_value_int(geo_result.par.den));
     if (dict == NULL)
     {
         hb_error("hb_set_anamorphic_size_json: pack failure: %s", error.text);
         return NULL;
     }
-    char *result = json_dumps(dict, JSON_INDENT(4)|JSON_PRESERVE_ORDER);
-    json_decref(dict);
+    char *result = hb_value_get_json(dict);
+    hb_value_free(&dict);
 
     return result;
 }
@@ -1190,13 +1472,13 @@ char* hb_get_preview_json(hb_handle_t * h, const char *json_param)
 
     int json_result;
     json_error_t error;
-    json_t * dict;
+    hb_dict_t * dict;
     hb_geometry_settings_t settings;
 
     // Clear dest geometry since some fields are optional.
     memset(&settings, 0, sizeof(settings));
 
-    dict = json_loads(json_param, 0, NULL);
+    dict = hb_value_json(json_param);
     json_result = json_unpack_ex(dict, &error, 0,
     "{"
     // Title, Preview, Deinterlace
@@ -1232,7 +1514,7 @@ char* hb_get_preview_json(hb_handle_t * h, const char *json_param)
                                 unpack_i(&settings.crop[2]),
                                 unpack_i(&settings.crop[3])
     );
-    json_decref(dict);
+    hb_value_free(&dict);
 
     if (json_result < 0)
     {
@@ -1248,16 +1530,16 @@ char* hb_get_preview_json(hb_handle_t * h, const char *json_param)
 
     dict = json_pack_ex(&error, 0,
         "{s:o, s:o, s:o}",
-            "Format",       json_integer(image->format),
-            "Width",        json_integer(image->width),
-            "Height",       json_integer(image->height));
+            "Format",       hb_value_int(image->format),
+            "Width",        hb_value_int(image->width),
+            "Height",       hb_value_int(image->height));
     if (dict == NULL)
     {
         hb_error("hb_get_preview_json: pack failure: %s", error.text);
         return NULL;
     }
 
-    json_t * planes = json_array();
+    hb_value_array_t * planes = hb_value_array_init();
     for (ii = 0; ii < 4; ii++)
     {
         int base64size = AV_BASE64_SIZE(image->plane[ii].size);
@@ -1269,28 +1551,28 @@ char* hb_get_preview_json(hb_handle_t * h, const char *json_param)
                          image->plane[ii].data, image->plane[ii].size);
 
         base64size = strlen(plane_base64);
-        json_t *plane_dict;
+        hb_dict_t *plane_dict;
         plane_dict = json_pack_ex(&error, 0,
             "{s:o, s:o, s:o, s:o, s:o, s:o}",
-            "Width",        json_integer(image->plane[ii].width),
-            "Height",       json_integer(image->plane[ii].height),
-            "Stride",       json_integer(image->plane[ii].stride),
-            "HeightStride", json_integer(image->plane[ii].height_stride),
-            "Size",         json_integer(base64size),
-            "Data",         json_string(plane_base64)
+            "Width",        hb_value_int(image->plane[ii].width),
+            "Height",       hb_value_int(image->plane[ii].height),
+            "Stride",       hb_value_int(image->plane[ii].stride),
+            "HeightStride", hb_value_int(image->plane[ii].height_stride),
+            "Size",         hb_value_int(base64size),
+            "Data",         hb_value_string(plane_base64)
         );
         if (plane_dict == NULL)
         {
             hb_error("plane_dict: json pack failure: %s", error.text);
             return NULL;
         }
-        json_array_append_new(planes, plane_dict);
+        hb_value_array_append(planes, plane_dict);
     }
-    json_object_set_new(dict, "Planes", planes);
+    hb_dict_set(dict, "Planes", planes);
     hb_image_close(&image);
 
-    char *result = json_dumps(dict, JSON_INDENT(4)|JSON_PRESERVE_ORDER);
-    json_decref(dict);
+    char *result = hb_value_get_json(dict);
+    hb_value_free(&dict);
 
     return result;
 }
@@ -1299,7 +1581,7 @@ char* hb_get_preview_params_json(int title_idx, int preview_idx,
                             int deinterlace, hb_geometry_settings_t *settings)
 {
     json_error_t error;
-    json_t * dict;
+    hb_dict_t * dict;
 
     dict = json_pack_ex(&error, 0,
         "{"
@@ -1310,26 +1592,26 @@ char* hb_get_preview_params_json(int title_idx, int preview_idx,
         "   s:[oooo]"
         "  }"
         "}",
-        "Title",                json_integer(title_idx),
-        "Preview",              json_integer(preview_idx),
-        "Deinterlace",          json_boolean(deinterlace),
+        "Title",                hb_value_int(title_idx),
+        "Preview",              hb_value_int(preview_idx),
+        "Deinterlace",          hb_value_bool(deinterlace),
         "DestSettings",
             "Geometry",
-                "Width",        json_integer(settings->geometry.width),
-                "Height",       json_integer(settings->geometry.height),
+                "Width",        hb_value_int(settings->geometry.width),
+                "Height",       hb_value_int(settings->geometry.height),
                 "PAR",
-                    "Num",      json_integer(settings->geometry.par.num),
-                    "Den",      json_integer(settings->geometry.par.den),
-            "AnamorphicMode",   json_integer(settings->mode),
-            "Keep",             json_integer(settings->keep),
-            "ItuPAR",           json_boolean(settings->itu_par),
-            "Modulus",          json_integer(settings->modulus),
-            "MaxWidth",         json_integer(settings->maxWidth),
-            "MaxHeight",        json_integer(settings->maxHeight),
-            "Crop",             json_integer(settings->crop[0]),
-                                json_integer(settings->crop[1]),
-                                json_integer(settings->crop[2]),
-                                json_integer(settings->crop[3])
+                    "Num",      hb_value_int(settings->geometry.par.num),
+                    "Den",      hb_value_int(settings->geometry.par.den),
+            "AnamorphicMode",   hb_value_int(settings->mode),
+            "Keep",             hb_value_int(settings->keep),
+            "ItuPAR",           hb_value_bool(settings->itu_par),
+            "Modulus",          hb_value_int(settings->modulus),
+            "MaxWidth",         hb_value_int(settings->maxWidth),
+            "MaxHeight",        hb_value_int(settings->maxHeight),
+            "Crop",             hb_value_int(settings->crop[0]),
+                                hb_value_int(settings->crop[1]),
+                                hb_value_int(settings->crop[2]),
+                                hb_value_int(settings->crop[3])
     );
     if (dict == NULL)
     {
@@ -1337,8 +1619,8 @@ char* hb_get_preview_params_json(int title_idx, int preview_idx,
         return NULL;
     }
 
-    char *result = json_dumps(dict, JSON_INDENT(4)|JSON_PRESERVE_ORDER);
-    json_decref(dict);
+    char *result = hb_value_get_json(dict);
+    hb_value_free(&dict);
 
     return result;
 }
@@ -1347,9 +1629,9 @@ hb_image_t* hb_json_to_image(char *json_image)
 {
     int json_result;
     json_error_t error;
-    json_t * dict;
+    hb_dict_t * dict;
     int pix_fmt, width, height;
-    dict = json_loads(json_image, 0, NULL);
+    dict = hb_value_json(json_image);
     json_result = json_unpack_ex(dict, &error, 0,
         "{"
         // Format, Width, Height
@@ -1362,32 +1644,34 @@ hb_image_t* hb_json_to_image(char *json_image)
     if (json_result < 0)
     {
         hb_error("image: json unpack failure: %s", error.text);
-        json_decref(dict);
+        hb_value_free(&dict);
         return NULL;
     }
 
     hb_image_t *image = hb_image_init(pix_fmt, width, height);
     if (image == NULL)
     {
-        json_decref(dict);
+        hb_value_free(&dict);
         return NULL;
     }
 
-    json_t * planes = NULL;
+    hb_value_array_t * planes = NULL;
     json_result = json_unpack_ex(dict, &error, 0,
                                  "{s:o}", "Planes", unpack_o(&planes));
     if (json_result < 0)
     {
         hb_error("image::planes: json unpack failure: %s", error.text);
-        json_decref(dict);
+        hb_value_free(&dict);
         return image;
     }
-    if (json_is_array(planes))
+    if (hb_value_type(planes) == HB_VALUE_TYPE_ARRAY)
     {
-        int ii;
-        json_t *plane_dict;
-        json_array_foreach(planes, ii, plane_dict)
+        int ii, count;
+        hb_dict_t *plane_dict;
+        count = hb_value_array_len(planes);
+        for (ii = 0; ii < count; ii++)
         {
+            plane_dict = hb_value_array_get(planes, ii);
             char *data = NULL;
             int size;
             json_result = json_unpack_ex(plane_dict, &error, 0,
@@ -1397,7 +1681,7 @@ hb_image_t* hb_json_to_image(char *json_image)
             if (json_result < 0)
             {
                 hb_error("image::plane::data: json unpack failure: %s", error.text);
-                json_decref(dict);
+                hb_value_free(&dict);
                 return image;
             }
             if (image->plane[ii].size > 0 && data != NULL)
@@ -1407,7 +1691,7 @@ hb_image_t* hb_json_to_image(char *json_image)
             }
         }
     }
-    json_decref(dict);
+    hb_value_free(&dict);
 
     return image;
 }

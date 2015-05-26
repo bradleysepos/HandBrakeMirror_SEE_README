@@ -13,13 +13,10 @@
  */
 @interface HBOutputPanelController : NSWindowController
 
-- (IBAction)showOutputPanel:(id)sender;
 - (IBAction)clearOutput:(id)sender;
 - (IBAction)copyAllOutputToPasteboard:(id)sender;
 - (IBAction)openActivityLogFile:(id)sender;
 - (IBAction)openEncodeLogDirectory:(id)sender;
 - (IBAction)clearActivityLogFile:(id)sender;
-- (void)startEncodeLog:(NSURL *)logURL;
-- (void)endEncodeLog;
 
 @end

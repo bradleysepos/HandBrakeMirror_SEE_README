@@ -10,16 +10,16 @@
 
 #import "HBCore.h"
 #import "HBJob.h"
+#import "HBStateFormatter.h"
 #import "HBPicture+UIAdditions.h"
 
 @interface HBPreviewGenerator ()
 
-@property (nonatomic, readonly) NSMutableDictionary *picturePreviews;
-@property (nonatomic, readonly) NSUInteger imagesCount;
-@property (nonatomic, readonly) HBCore *scanCore;
-@property (nonatomic, readonly) HBJob *job;
+@property (nonatomic, readonly) NSCache *picturePreviews;
+@property (unsafe_unretained, nonatomic, readonly) HBCore *scanCore;
+@property (unsafe_unretained, nonatomic, readonly) HBJob *job;
 
-@property (nonatomic) HBCore *core;
+@property (nonatomic, strong) HBCore *core;
 
 @end
 
@@ -32,13 +32,23 @@
     {
         _scanCore = core;
         _job = job;
-        _picturePreviews = [[NSMutableDictionary alloc] init];
+
+        _picturePreviews = [[NSCache alloc] init];
+        // Limit the cache to 60 1080p previews, the cost is in pixels
+        _picturePreviews.totalCostLimit = 60 * 1920 * 1080;
+
         _imagesCount = [[[NSUserDefaults standardUserDefaults] objectForKey:@"PreviewsNumber"] intValue];
 
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(imagesSettingsDidChange) name:HBPictureChangedNotification object:job.picture];
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(imagesSettingsDidChange) name:HBFiltersChangedNotification object:job.filters];
     }
     return self;
+}
+
+- (void)dealloc
+{
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+    [self.core cancelEncode];
 }
 
 #pragma mark -
@@ -49,28 +59,35 @@
  *
  * @param index picture index in title.
  */
-- (CGImageRef) imageAtIndex: (NSUInteger) index shouldCache: (BOOL) cache
+- (CGImageRef) copyImageAtIndex: (NSUInteger) index shouldCache: (BOOL) cache
 {
     if (index >= self.imagesCount)
         return nil;
 
     // The preview for the specified index may not currently exist, so this method
     // generates it if necessary.
-    CGImageRef theImage = (CGImageRef)[self.picturePreviews objectForKey:@(index)];
+    CGImageRef theImage = (__bridge CGImageRef)([self.picturePreviews objectForKey:@(index)]);
 
     if (!theImage)
     {
         HBFilters *filters = self.job.filters;
-        BOOL deinterlace = (filters.deinterlace && !filters.useDecomb) || (filters.decomb && filters.useDecomb);
+        BOOL deinterlace = (![filters.deinterlace isEqualToString:@"off"] && !filters.useDecomb) ||
+                           (![filters.decomb isEqualToString:@"off"] && filters.useDecomb);
 
-        theImage = (CGImageRef)[(id)[self.scanCore copyImageAtIndex:index
+        theImage = (CGImageRef)[self.scanCore copyImageAtIndex:index
                                                            forTitle:self.job.title
                                                        pictureFrame:self.job.picture
-                                                        deinterlace:deinterlace] autorelease];
+                                                        deinterlace:deinterlace];
         if (cache && theImage)
         {
-            [self.picturePreviews setObject:(id)theImage forKey:@(index)];
+            // The cost is the number of pixels of the image
+            NSUInteger previewCost = CGImageGetWidth(theImage) * CGImageGetHeight(theImage);
+            [self.picturePreviews setObject:(__bridge id)(theImage) forKey:@(index) cost:previewCost];
         }
+    }
+    else
+    {
+        CFRetain(theImage);
     }
 
     return theImage;
@@ -85,8 +102,17 @@
     [self.picturePreviews removeAllObjects];
 }
 
+- (CGSize)imageSize
+{
+    return CGSizeMake(self.job.picture.displayWidth, self.job.picture.height);
+}
+
 - (void) imagesSettingsDidChange
 {
+    // Purge the existing picture previews so they get recreated the next time
+    // they are needed.
+
+    [self purgeImageCache];
     [self.delegate reloadPreviews];
 }
 
@@ -100,19 +126,17 @@
 
 + (NSURL *) generateFileURLForType:(NSString *) type
 {
-    NSString *previewDirectory = [NSString stringWithFormat:@"%@/Previews/%d", [HBUtilities appSupportPath], getpid()];
+    NSURL *previewDirectory =  [[HBUtilities appSupportURL] URLByAppendingPathComponent:[NSString stringWithFormat:@"/Previews/%d", getpid()] isDirectory:YES];
 
-    if (![[NSFileManager defaultManager] fileExistsAtPath:previewDirectory])
-    {
-        if (![[NSFileManager defaultManager] createDirectoryAtPath:previewDirectory
+    if (![[NSFileManager defaultManager] createDirectoryAtPath:previewDirectory.path
                                   withIntermediateDirectories:YES
                                                    attributes:nil
                                                         error:nil])
-            return nil;
+    {
+        return nil;
     }
 
-    return [[NSURL fileURLWithPath:previewDirectory]
-            URLByAppendingPathComponent:[NSString stringWithFormat:@"preview_temp.%@", type]];
+    return [previewDirectory URLByAppendingPathComponent:[NSString stringWithFormat:@"preview_temp.%@", type]];
 }
 
 /**
@@ -149,12 +173,9 @@
     }
 
     // See if there is an existing preview file, if so, delete it.
-    if (![[NSFileManager defaultManager] fileExistsAtPath:destURL.path])
-    {
-        [[NSFileManager defaultManager] removeItemAtPath:destURL.path error:NULL];
-    }
+    [[NSFileManager defaultManager] removeItemAtURL:destURL error:NULL];
 
-    HBJob *job = [[self.job copy] autorelease];
+    HBJob *job = [self.job copy];
     job.title = self.job.title;
     job.destURL = destURL;
 
@@ -168,50 +189,31 @@
     job.video.twoPass = NO;
 
     // Init the libhb core
-    int loggingLevel = [[[NSUserDefaults standardUserDefaults] objectForKey:@"LoggingLevel"] intValue];
-    self.core = [[[HBCore alloc] initWithLoggingLevel:loggingLevel] autorelease];
-    self.core.name = @"PreviewCore";
+    int level = [[[NSUserDefaults standardUserDefaults] objectForKey:@"LoggingLevel"] intValue];
+    self.core = [[HBCore alloc] initWithLogLevel:level name:@"PreviewCore"];
+
+    HBStateFormatter *formatter = [[HBStateFormatter alloc] init];
+    formatter.twoLines = NO;
+    formatter.showPassNumber = NO;
 
     // start the actual encode
     [self.core encodeJob:job
          progressHandler:^(HBState state, hb_state_t hb_state) {
-        switch (state) {
-            case HBStateWorking:
-            {
-                NSMutableString *info = [NSMutableString stringWithFormat: @"Encoding preview:  %.2f %%", 100.0 * hb_state.param.working.progress];
-
-                if (hb_state.param.working.seconds > -1)
-                {
-                    [info appendFormat:@" (%.2f fps, avg %.2f fps, ETA %02dh%02dm%02ds)",
-                     hb_state.param.working.rate_cur, hb_state.param.working.rate_avg, hb_state.param.working.hours,
-                     hb_state.param.working.minutes, hb_state.param.working.seconds];
-                }
-
-                double progress = 100.0 * hb_state.param.working.progress;
-                
-                [self.delegate updateProgress:progress info:info];
-                break;
-            }
-            case HBStateMuxing:
-                [self.delegate updateProgress:100.0 info:@"Muxing Preview…"];
-                break;
-
-            default:
-                break;
-        }
-    }
-    completionHandler:^(BOOL success) {
-        // Encode done, call the delegate and close libhb handle
-        if (success)
-        {
-            [self.delegate didCreateMovieAtURL:destURL];
-        }
-        else
-        {
-            [self.delegate didCancelMovieCreation];
-        }
-        self.core = nil;
-    }];
+             [self.delegate updateProgress:[formatter stateToPercentComplete:hb_state]
+                                      info:[formatter stateToString:hb_state title:@"preview"]];
+         }
+       completionHandler:^(BOOL success) {
+           // Encode done, call the delegate and close libhb handle
+           if (success)
+           {
+               [self.delegate didCreateMovieAtURL:destURL];
+           }
+           else
+           {
+               [self.delegate didCancelMovieCreation];
+           }
+           self.core = nil;
+       }];
 
     return YES;
 }
@@ -225,20 +227,6 @@
     {
         [self.core cancelEncode];
     }
-}
-
-#pragma mark -
-
-- (void) dealloc
-{
-    [[NSNotificationCenter defaultCenter] removeObserver:self];
-
-    [self.core cancelEncode];
-
-    [_picturePreviews release];
-    _picturePreviews = nil;
-
-    [super dealloc];
 }
 
 @end

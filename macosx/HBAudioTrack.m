@@ -7,7 +7,7 @@
 #import "HBAudioTrack.h"
 #import "HBAudioController.h"
 #import "HBJob.h"
-#import "NSCodingMacro.h"
+#import "HBCodingUtilities.h"
 #import "hb.h"
 
 NSString *keyAudioTrackIndex = @"keyAudioTrackIndex";
@@ -33,7 +33,6 @@ NSString *keyAudioBitrate = @"bitrate";
 
 static NSMutableArray *masterCodecArray = nil;
 static NSMutableArray *masterMixdownArray = nil;
-static NSMutableArray *masterSampleRateArray = nil;
 static NSMutableArray *masterBitRateArray = nil;
 
 @interface NSArray (HBAudioSupport)
@@ -108,20 +107,6 @@ static NSMutableArray *masterBitRateArray = nil;
         {
             [masterMixdownArray addObject:@{keyAudioMixdownName: @(mixdown->name),
                                             keyAudioMixdown:     @(mixdown->amixdown)}];
-        }
-
-        // Note that for the Auto value we use 0 for the sample rate because our controller will give back the track's
-        // input sample rate when it finds this 0 value as the selected sample rate.  We do this because the input
-        // sample rate depends on the track, which means it depends on the title, so cannot be nicely set up here.
-        masterSampleRateArray = [[NSMutableArray alloc] init]; // knowingly leaked
-        [masterSampleRateArray addObject:@{keyAudioSampleRateName: @"Auto",
-                                           keyAudioSamplerate:     @0}];
-        for (const hb_rate_t *audio_samplerate = hb_audio_samplerate_get_next(NULL);
-             audio_samplerate != NULL;
-             audio_samplerate  = hb_audio_samplerate_get_next(audio_samplerate))
-        {
-            [masterSampleRateArray addObject:@{keyAudioSampleRateName: @(audio_samplerate->name),
-                                               keyAudioSamplerate:     @(audio_samplerate->rate)}];
         }
 
         masterBitRateArray = [[NSMutableArray alloc] init]; // knowingly leaked
@@ -234,6 +219,22 @@ static NSMutableArray *masterBitRateArray = nil;
     }
 }
 
+- (void)validateSamplerate
+{
+    int codec      = [self.codec[keyAudioCodec] intValue];
+    int samplerate = [self.sampleRate[keyAudioSamplerate] intValue];
+
+    if (codec & HB_ACODEC_PASS_FLAG)
+    {
+        [self setSampleRateFromName:@"Auto"];
+    }
+    else if (samplerate)
+    {
+        samplerate = hb_audio_samplerate_get_best(codec, samplerate, NULL);
+        [self setSampleRateFromName:@(hb_audio_samplerate_get_name(samplerate))];
+    }
+}
+
 - (void) updateBitRates: (BOOL) shouldSetDefault
 
 {
@@ -321,24 +322,29 @@ static NSMutableArray *masterBitRateArray = nil;
 
 - (NSArray *) sampleRates
 {
-    return masterSampleRateArray;
-}
+    NSMutableArray *samplerates = [[NSMutableArray alloc] init];
 
-- (void) dealloc
-{
-    [_track release];
-    [_codec release];
-    [_mixdown release];
-    [_sampleRate release];
-    [_bitRate release];
-    [_drc release];
-    [_gain release];
-    [_videoContainerTag release];
-    [_codecs release];
-    [_mixdowns release];
-    [_bitRates release];
+    /*
+     * Note that for the Auto value we use 0 for the sample rate because our controller will give back the track's
+     * input sample rate when it finds this 0 value as the selected sample rate.  We do this because the input
+     * sample rate depends on the track, which means it depends on the title, so cannot be nicely set up here.
+     */
+    [samplerates addObject:@{keyAudioSampleRateName: @"Auto",
+                             keyAudioSamplerate:     @0}];
 
-    [super dealloc];
+    int codec = [self.codec[keyAudioCodec] intValue];
+    for (const hb_rate_t *audio_samplerate = hb_audio_samplerate_get_next(NULL);
+         audio_samplerate != NULL;
+         audio_samplerate  = hb_audio_samplerate_get_next(audio_samplerate))
+    {
+        int rate = audio_samplerate->rate;
+        if (rate == hb_audio_samplerate_get_best(codec, rate, NULL))
+        {
+            [samplerates addObject:@{keyAudioSampleRateName: @(audio_samplerate->name),
+                                     keyAudioSamplerate:     @(rate)}];
+        }
+    }
+    return samplerates;
 }
 
 #pragma mark -
@@ -346,15 +352,14 @@ static NSMutableArray *masterBitRateArray = nil;
 
 - (void)setVideoContainerTag:(NSNumber *)videoContainerTag
 {
-    [_videoContainerTag autorelease];
-    _videoContainerTag = [videoContainerTag retain];
+    _videoContainerTag = videoContainerTag;
     [self updateCodecs];
 }
 
 - (void)setTrack:(NSDictionary *)track
 {
     NSDictionary *oldValue = _track;
-    _track = [track retain];
+    _track = track;
     if (nil != _track)
     {
         [self updateCodecs];
@@ -372,29 +377,26 @@ static NSMutableArray *masterBitRateArray = nil;
             [self.delegate settingTrackToNone: self];
         }
     }
-    [oldValue release];
 }
 
 - (void)setCodec:(NSDictionary *)codec
 {
-    [_codec autorelease];
-    _codec = [codec retain];
+    _codec = codec;
+    [self validateSamplerate];
     [self updateMixdowns: YES];
     [self updateBitRates: YES];
 }
 
 - (void)setMixdown:(NSDictionary *)mixdown
 {
-    [_mixdown autorelease];
-    _mixdown = [mixdown retain];
+    _mixdown = mixdown;
     [self updateBitRates: YES];
     [self.delegate mixdownChanged];
 }
 
 - (void)setSampleRate:(NSDictionary *)sampleRate
 {
-    [_sampleRate autorelease];
-    _sampleRate = [sampleRate retain];
+    _sampleRate = sampleRate;
     [self updateBitRates: NO];
 }
 
@@ -460,7 +462,7 @@ static NSMutableArray *masterBitRateArray = nil;
 
 // Because we have indicated that the binding for the gain validates immediately we can implement the
 // key value binding method to ensure the gain stays in our accepted range.
-- (BOOL)validateGain:(id *)ioValue error:(NSError *)outError
+- (BOOL)validateGain:(id *)ioValue error:(NSError * __autoreleasing *)outError
 {
     BOOL retval = YES;
 
@@ -611,6 +613,11 @@ static NSMutableArray *masterBitRateArray = nil;
 
 #pragma mark - NSCoding
 
++ (BOOL)supportsSecureCoding
+{
+    return YES;
+}
+
 - (void)encodeWithCoder:(NSCoder *)coder
 {
     [coder encodeInt:1 forKey:@"HBAudioTrackVersion"];
@@ -629,25 +636,24 @@ static NSMutableArray *masterBitRateArray = nil;
     encodeObject(_bitRates);
 }
 
-- (id)initWithCoder:(NSCoder *)decoder
+- (instancetype)initWithCoder:(NSCoder *)decoder
 {
     self = [super init];
 
-    decodeObject(_track);
-    decodeObject(_codec);
-    decodeObject(_mixdown);
-    decodeObject(_sampleRate);
-    decodeObject(_bitRate);
-    decodeObject(_drc);
-    decodeObject(_gain);
-    decodeObject(_videoContainerTag);
+    decodeObject(_track, NSDictionary);
+    decodeObject(_codec, NSDictionary);
+    decodeObject(_mixdown, NSDictionary);
+    decodeObject(_sampleRate, NSDictionary);
+    decodeObject(_bitRate, NSDictionary);
+    decodeObject(_drc, NSNumber);
+    decodeObject(_gain, NSNumber);
+    decodeObject(_videoContainerTag, NSNumber);
 
-    decodeObject(_codecs);
-    decodeObject(_mixdowns);
-    decodeObject(_bitRates);
+    decodeObject(_codecs, NSMutableArray);
+    decodeObject(_mixdowns, NSMutableArray);
+    decodeObject(_bitRates, NSArray);
 
     return self;
 }
 
 @end
-

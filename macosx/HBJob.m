@@ -5,19 +5,26 @@
  It may be used under the terms of the GNU General Public License. */
 
 #import "HBJob.h"
+#import "HBTitle.h"
 #import "HBPreset.h"
 
 #import "HBAudioDefaults.h"
 #import "HBSubtitlesDefaults.h"
 
-#import "NSCodingMacro.h"
+#import "HBCodingUtilities.h"
 
 #include "hb.h"
 
 NSString *HBContainerChangedNotification = @"HBContainerChangedNotification";
 NSString *HBChaptersChangedNotification  = @"HBChaptersChangedNotification";
 
+@interface HBJob ()
+@property (nonatomic, readonly) NSString *name;
+@end
+
 @implementation HBJob
+
+@synthesize uuid = _uuid;
 
 - (instancetype)initWithTitle:(HBTitle *)title andPreset:(HBPreset *)preset
 {
@@ -29,7 +36,8 @@ NSString *HBChaptersChangedNotification  = @"HBChaptersChangedNotification";
         _title = title;
         _titleIdx = title.index;
 
-        _fileURL = [[NSURL fileURLWithPath:@(title.hb_title->path)] retain];
+        _name = [title.name copy];
+        _fileURL = title.url;
 
         _container = HB_MUX_MP4;
         _angle = 1;
@@ -44,7 +52,7 @@ NSString *HBChaptersChangedNotification  = @"HBChaptersChangedNotification";
 
         _chapterTitles = [title.chapters mutableCopy];
 
-        _uuid = [[[NSUUID UUID] UUIDString] retain];
+        _uuid = [[NSUUID UUID] UUIDString];
 
         [self applyPreset:preset];
     }
@@ -54,18 +62,11 @@ NSString *HBChaptersChangedNotification  = @"HBChaptersChangedNotification";
 
 - (void)applyPreset:(HBPreset *)preset
 {
-    if (preset.isDefault)
-    {
-        self.presetName = [NSString stringWithFormat:@"%@ (Default)", preset.name];
-    }
-    else
-    {
-        self.presetName = preset.name;
-    }
+    self.presetName = preset.name;
 
     NSDictionary *content = preset.content;
 
-    self.container = hb_container_get_from_name(hb_container_sanitize_name([content[@"FileFormat"] UTF8String]));
+    self.container = hb_container_get_from_name([content[@"FileFormat"] UTF8String]);
 
     // MP4 specifics options.
     self.mp4HttpOptimize = [content[@"Mp4HttpOptimize"] boolValue];
@@ -80,7 +81,7 @@ NSString *HBChaptersChangedNotification  = @"HBChaptersChangedNotification";
 
 - (void)applyCurrentSettingsToPreset:(NSMutableDictionary *)dict
 {
-    dict[@"FileFormat"] = @(hb_container_get_name(self.container));
+    dict[@"FileFormat"] = @(hb_container_get_short_name(self.container));
     dict[@"ChapterMarkers"] = @(self.chaptersEnabled);
     // MP4 specifics options.
     dict[@"Mp4HttpOptimize"] = @(self.mp4HttpOptimize);
@@ -106,7 +107,6 @@ NSString *HBChaptersChangedNotification  = @"HBChaptersChangedNotification";
 {
     _title = title;
     self.range.title = title;
-    self.picture.title = title;
 }
 
 - (void)setChaptersEnabled:(BOOL)chaptersEnabled
@@ -132,25 +132,9 @@ NSString *HBChaptersChangedNotification  = @"HBChaptersChangedNotification";
     return retval;
 }
 
-- (void)dealloc
+- (NSString *)description
 {
-    [_audio release];
-    [_subtitles release];
-
-    [_fileURL release];
-    [_destURL release];
-
-    [_range release];
-    [_video release];
-    [_picture release];
-    [_filters release];
-
-    [_chapterTitles release];
-
-    [_uuid release];
-    [_presetName release];
-
-    [super dealloc];
+    return self.name;
 }
 
 #pragma mark - NSCopying
@@ -162,9 +146,10 @@ NSString *HBChaptersChangedNotification  = @"HBChaptersChangedNotification";
     if (copy)
     {
         copy->_state = HBJobStateReady;
+        copy->_name = [_name copy];
         copy->_presetName = [_presetName copy];
         copy->_titleIdx = _titleIdx;
-        copy->_uuid = [[[NSUUID UUID] UUIDString] retain];
+        copy->_uuid = [[NSUUID UUID] UUIDString];
 
         copy->_fileURL = [_fileURL copy];
         copy->_destURL = [_destURL copy];
@@ -193,11 +178,17 @@ NSString *HBChaptersChangedNotification  = @"HBChaptersChangedNotification";
 
 #pragma mark - NSCoding
 
++ (BOOL)supportsSecureCoding
+{
+    return YES;
+}
+
 - (void)encodeWithCoder:(NSCoder *)coder
 {
     [coder encodeInt:1 forKey:@"HBVideoVersion"];
 
     encodeInt(_state);
+    encodeObject(_name);
     encodeObject(_presetName);
     encodeInt(_titleIdx);
     encodeObject(_uuid);
@@ -222,37 +213,43 @@ NSString *HBChaptersChangedNotification  = @"HBChaptersChangedNotification";
     encodeObject(_chapterTitles);
 }
 
-- (id)initWithCoder:(NSCoder *)decoder
+- (instancetype)initWithCoder:(NSCoder *)decoder
 {
-    self = [super init];
+    int version = [decoder decodeIntForKey:@"HBVideoVersion"];
 
-    decodeInt(_state);
-    decodeObject(_presetName);
-    decodeInt(_titleIdx);
-    decodeObject(_uuid);
+    if (version == 1 && (self = [super init]))
+    {
+        decodeInt(_state);
+        decodeObject(_name, NSString);
+        decodeObject(_presetName, NSString);
+        decodeInt(_titleIdx);
+        decodeObject(_uuid, NSString);
 
-    decodeObject(_fileURL);
-    decodeObject(_destURL);
+        decodeObject(_fileURL, NSURL);
+        decodeObject(_destURL, NSURL);
 
-    decodeInt(_container);
-    decodeInt(_angle);
-    decodeBool(_mp4HttpOptimize);
-    decodeBool(_mp4iPodCompatible);
+        decodeInt(_container);
+        decodeInt(_angle);
+        decodeBool(_mp4HttpOptimize);
+        decodeBool(_mp4iPodCompatible);
 
-    decodeObject(_range);
-    decodeObject(_video);
-    decodeObject(_picture);
-    decodeObject(_filters);
+        decodeObject(_range, HBRange);
+        decodeObject(_video, HBVideo);
+        decodeObject(_picture, HBPicture);
+        decodeObject(_filters, HBFilters);
 
-    _video.job = self;
+        _video.job = self;
 
-    decodeObject(_audio);
-    decodeObject(_subtitles);
+        decodeObject(_audio, HBAudio);
+        decodeObject(_subtitles, HBSubtitles);
 
-    decodeBool(_chaptersEnabled);
-    decodeObject(_chapterTitles);
+        decodeBool(_chaptersEnabled);
+        decodeObject(_chapterTitles, NSMutableArray);
 
-    return self;
+        return self;
+    }
+
+    return nil;
 }
 
 @end

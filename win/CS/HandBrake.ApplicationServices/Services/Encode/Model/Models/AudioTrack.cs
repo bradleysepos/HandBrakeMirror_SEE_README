@@ -13,11 +13,9 @@ namespace HandBrake.ApplicationServices.Services.Encode.Model.Models
     using System.ComponentModel;
     using System.Globalization;
 
-    using Caliburn.Micro;
-
     using HandBrake.ApplicationServices.Services.Scan.Model;
     using HandBrake.ApplicationServices.Utilities;
-    using HandBrake.Interop.Model.Encoding;
+    using HandBrake.ApplicationServices.Interop.Model.Encoding;
 
     using Newtonsoft.Json;
 
@@ -346,7 +344,9 @@ namespace HandBrake.ApplicationServices.Services.Encode.Model.Models
             {
                 if (this.Encoder == AudioEncoder.Ac3Passthrough || this.Encoder == AudioEncoder.DtsPassthrough
                     || this.Encoder == AudioEncoder.DtsHDPassthrough || this.Encoder == AudioEncoder.AacPassthru
-                    || this.Encoder == AudioEncoder.Mp3Passthru || this.Encoder == AudioEncoder.Passthrough)
+                    || this.Encoder == AudioEncoder.Mp3Passthru || this.Encoder == AudioEncoder.Passthrough ||
+                    this.Encoder == AudioEncoder.EAc3Passthrough || this.Encoder == AudioEncoder.TrueHDPassthrough
+                    || this.Encoder == AudioEncoder.FlacPassthru)
                 {
                     return true;
                 }

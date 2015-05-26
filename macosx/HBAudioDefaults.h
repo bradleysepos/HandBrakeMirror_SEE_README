@@ -17,12 +17,12 @@ typedef NS_ENUM(NSUInteger, HBAudioTrackSelectionBehavior) {
  *  HBAudioSettings
  *  Stores the audio defaults settings.
  */
-@interface HBAudioDefaults : NSObject <NSCoding, NSCopying, HBPresetCoding>
+@interface HBAudioDefaults : NSObject <NSSecureCoding, NSCopying, HBPresetCoding>
 
 @property (nonatomic, readwrite) HBAudioTrackSelectionBehavior trackSelectionBehavior;
-@property (nonatomic, readwrite, retain) NSMutableArray *trackSelectionLanguages;
+@property (nonatomic, readwrite, strong) NSMutableArray *trackSelectionLanguages;
 
-@property (nonatomic, readwrite, retain) NSMutableArray *tracksArray;
+@property (nonatomic, readwrite, strong) NSMutableArray *tracksArray;
 
 /**
  *  Adds a new track preset.
@@ -31,9 +31,12 @@ typedef NS_ENUM(NSUInteger, HBAudioTrackSelectionBehavior) {
 
 @property(nonatomic, readwrite) BOOL allowAACPassthru;
 @property(nonatomic, readwrite) BOOL allowAC3Passthru;
+@property(nonatomic, readwrite) BOOL allowEAC3Passthru;
 @property(nonatomic, readwrite) BOOL allowDTSHDPassthru;
 @property(nonatomic, readwrite) BOOL allowDTSPassthru;
 @property(nonatomic, readwrite) BOOL allowMP3Passthru;
+@property(nonatomic, readwrite) BOOL allowTrueHDPassthru;
+@property(nonatomic, readwrite) BOOL allowFLACPassthru;
 
 @property(nonatomic, readwrite) int encoderFallback;
 @property(nonatomic, readwrite) BOOL secondaryEncoderMode;

@@ -774,10 +774,9 @@ static int nlmeans_init(hb_filter_object_t *filter,
     NLMeansFunctions *functions = &pv->functions;
 
     functions->build_integral = build_integral_scalar;
-    if (ARCH_X86 == 1)
-    {
-        nlmeans_init_x86(functions);
-    }
+#if defined(ARCH_X86)
+    nlmeans_init_x86(functions);
+#endif
 
     // Mark parameters unset
     for (int c = 0; c < 3; c++)
@@ -1161,7 +1160,7 @@ static int nlmeans_work(hb_filter_object_t *filter,
     hb_filter_private_t *pv = filter->private_data;
     hb_buffer_t *in = *buf_in;
 
-    if (in->size <= 0)
+    if (in->s.flags & HB_BUF_FLAG_EOF)
     {
         hb_buffer_t *last;
         // Flush buffered frames

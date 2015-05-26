@@ -21,7 +21,7 @@
 #include "hb-backend.h"
 #include "values.h"
 
-void dump_settings(GValue *settings);
+void dump_settings(GhbValue *settings);
 void ghb_pref_audio_init(signal_user_data_t *ud);
 
 GObject*
@@ -31,157 +31,34 @@ debug_get_object(GtkBuilder* b, const gchar *n)
     return gtk_builder_get_object(b, n);
 }
 
-GValue*
-ghb_settings_new()
-{
-    return ghb_dict_value_new();
-}
-
-void
-ghb_settings_set_value(
-    GValue *settings,
-    const gchar *key,
-    const GValue *value)
-{
-    if (key == NULL || value == NULL)
-        return;
-    ghb_dict_insert(settings, g_strdup(key), ghb_value_dup(value));
-}
-
-void
-ghb_settings_take_value(GValue *settings, const gchar *key, GValue *value)
-{
-    ghb_dict_insert(settings, g_strdup(key), value);
-}
-
-void
-ghb_settings_set_string(
-    GValue *settings,
-    const gchar *key,
-    const gchar *sval)
-{
-    GValue *value;
-    value = ghb_string_value_new(sval);
-    ghb_dict_insert(settings, g_strdup(key), value);
-}
-
-void
-ghb_settings_set_double(GValue *settings, const gchar *key, gdouble dval)
-{
-    GValue *value;
-    value = ghb_double_value_new(dval);
-    ghb_dict_insert(settings, g_strdup(key), value);
-}
-
-void
-ghb_settings_set_int64(GValue *settings, const gchar *key, gint64 ival)
-{
-    GValue *value;
-    value = ghb_int64_value_new(ival);
-    ghb_dict_insert(settings, g_strdup(key), value);
-}
-
-void
-ghb_settings_set_int(GValue *settings, const gchar *key, gint ival)
-{
-    GValue *value;
-    value = ghb_int64_value_new((gint64)ival);
-    ghb_dict_insert(settings, g_strdup(key), value);
-}
-
-void
-ghb_settings_set_boolean(GValue *settings, const gchar *key, gboolean bval)
-{
-    GValue *value;
-    value = ghb_boolean_value_new(bval);
-    ghb_dict_insert(settings, g_strdup(key), value);
-}
-
-GValue*
-ghb_settings_get_value(const GValue *settings, const gchar *key)
-{
-    GValue *value;
-    value = ghb_dict_lookup(settings, key);
-    if (value == NULL)
-        g_warning("returning null (%s)", key);
-    return value;
-}
-
-gboolean
-ghb_settings_get_boolean(const GValue *settings, const gchar *key)
-{
-    const GValue* value;
-    value = ghb_settings_get_value(settings, key);
-    if (value == NULL) return FALSE;
-    return ghb_value_boolean(value);
-}
-
-gint64
-ghb_settings_get_int64(const GValue *settings, const gchar *key)
-{
-    const GValue* value;
-    value = ghb_settings_get_value(settings, key);
-    if (value == NULL) return 0;
-    return ghb_value_int64(value);
-}
-
 gint
-ghb_settings_get_int(const GValue *settings, const gchar *key)
+ghb_settings_combo_int(const GhbValue *settings, const gchar *key)
 {
-    const GValue* value;
-    value = ghb_settings_get_value(settings, key);
-    if (value == NULL) return 0;
-    return ghb_value_int(value);
+    return ghb_lookup_combo_int(key, ghb_dict_get_value(settings, key));
 }
 
 gdouble
-ghb_settings_get_double(const GValue *settings, const gchar *key)
+ghb_settings_combo_double(const GhbValue *settings, const gchar *key)
 {
-    const GValue* value;
-    value = ghb_settings_get_value(settings, key);
-    if (value == NULL) return 0;
-    return ghb_value_double(value);
+    return ghb_lookup_combo_double(key, ghb_dict_get_value(settings, key));
 }
 
 const gchar*
-ghb_settings_get_const_string(const GValue *settings, const gchar *key)
+ghb_settings_combo_option(const GhbValue *settings, const gchar *key)
 {
-    const GValue* value;
-    value = ghb_settings_get_value(settings, key);
-    return g_value_get_string(value);
+    return ghb_lookup_combo_option(key, ghb_dict_get_value(settings, key));
 }
 
-gchar*
-ghb_settings_get_string(const GValue *settings, const gchar *key)
+GhbValue *ghb_get_job_settings(GhbValue *settings)
 {
-    const GValue* value;
-    value = ghb_settings_get_value(settings, key);
-    if (value == NULL) return g_strdup("");
-    return ghb_value_string(value);
-}
-
-gint
-ghb_settings_combo_int(const GValue *settings, const gchar *key)
-{
-    return ghb_lookup_combo_int(key, ghb_settings_get_value(settings, key));
-}
-
-gdouble
-ghb_settings_combo_double(const GValue *settings, const gchar *key)
-{
-    return ghb_lookup_combo_double(key, ghb_settings_get_value(settings, key));
-}
-
-const gchar*
-ghb_settings_combo_option(const GValue *settings, const gchar *key)
-{
-    return ghb_lookup_combo_option(key, ghb_settings_get_value(settings, key));
-}
-
-const gchar*
-ghb_settings_combo_string(const GValue *settings, const gchar *key)
-{
-    return ghb_lookup_combo_string(key, ghb_settings_get_value(settings, key));
+    GhbValue *job;
+    job = ghb_dict_get(settings, "Job");
+    if (job == NULL)
+    {
+        job = ghb_dict_new();
+        ghb_dict_set(settings, "Job", job);
+    }
+    return job;
 }
 
 // Map widget names to setting keys
@@ -209,10 +86,10 @@ ghb_get_setting_key(GtkWidget *widget)
     return name;
 }
 
-GValue*
+GhbValue*
 ghb_widget_value(GtkWidget *widget)
 {
-    GValue *value = NULL;
+    GhbValue *value = NULL;
     const gchar *name;
     GType type;
 
@@ -224,7 +101,6 @@ ghb_widget_value(GtkWidget *widget)
 
     type = G_OBJECT_TYPE(widget);
     name = ghb_get_setting_key(widget);
-    g_debug("ghb_widget_value widget (%s)\n", name);
     if (type == GTK_TYPE_ENTRY)
     {
         const gchar *str = gtk_entry_get_text(GTK_ENTRY(widget));
@@ -232,50 +108,44 @@ ghb_widget_value(GtkWidget *widget)
     }
     else if (type == GTK_TYPE_RADIO_BUTTON)
     {
-        g_debug("\tradio_button");
         gboolean bval;
         bval = gtk_toggle_button_get_inconsistent(GTK_TOGGLE_BUTTON(widget));
         if (bval)
         {
-            value = ghb_boolean_value_new(FALSE);
+            value = ghb_bool_value_new(FALSE);
         }
         else
         {
             bval = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget));
-            value = ghb_boolean_value_new(bval);
+            value = ghb_bool_value_new(bval);
         }
     }
     else if (type == GTK_TYPE_CHECK_BUTTON)
     {
-        g_debug("\tcheck_button");
         gboolean bval;
         bval = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget));
-        value = ghb_boolean_value_new(bval);
+        value = ghb_bool_value_new(bval);
     }
     else if (type == GTK_TYPE_TOGGLE_TOOL_BUTTON)
     {
-        g_debug("\ttoggle_tool_button");
         gboolean bval;
         bval = gtk_toggle_tool_button_get_active(GTK_TOGGLE_TOOL_BUTTON(widget));
-        value = ghb_boolean_value_new(bval);
+        value = ghb_bool_value_new(bval);
     }
     else if (type == GTK_TYPE_TOGGLE_BUTTON)
     {
-        g_debug("\ttoggle_button");
         gboolean bval;
         bval = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget));
-        value = ghb_boolean_value_new(bval);
+        value = ghb_bool_value_new(bval);
     }
     else if (type == GTK_TYPE_CHECK_MENU_ITEM)
     {
-        g_debug("\tcheck_menu_item");
         gboolean bval;
         bval = gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(widget));
-        value = ghb_boolean_value_new(bval);
+        value = ghb_bool_value_new(bval);
     }
     else if (type == GTK_TYPE_COMBO_BOX)
     {
-        g_debug("\tcombo_box");
         GtkTreeModel *store;
         GtkTreeIter iter;
         gchar *shortOpt;
@@ -360,7 +230,7 @@ ghb_widget_value(GtkWidget *widget)
     }
     else
     {
-        g_debug("Attempt to set unknown widget type: %s\n", name);
+        g_warning("Attempt to set unknown widget type: %s\n", name);
         g_free(value);
         value = NULL;
     }
@@ -370,68 +240,68 @@ ghb_widget_value(GtkWidget *widget)
 gchar*
 ghb_widget_string(GtkWidget *widget)
 {
-    GValue *value;
+    GhbValue *value;
     gchar *sval;
 
     value = ghb_widget_value(widget);
-    sval = ghb_value_string(value);
-    ghb_value_free(value);
+    sval = ghb_value_get_string_xform(value);
+    ghb_value_free(&value);
     return sval;
 }
 
 gdouble
 ghb_widget_double(GtkWidget *widget)
 {
-    GValue *value;
+    GhbValue *value;
     gdouble dval;
 
     value = ghb_widget_value(widget);
-    dval = ghb_value_double(value);
-    ghb_value_free(value);
+    dval = ghb_value_get_double(value);
+    ghb_value_free(&value);
     return dval;
 }
 
 gint64
 ghb_widget_int64(GtkWidget *widget)
 {
-    GValue *value;
+    GhbValue *value;
     gint64 ival;
 
     value = ghb_widget_value(widget);
-    ival = ghb_value_int64(value);
-    ghb_value_free(value);
+    ival = ghb_value_get_int(value);
+    ghb_value_free(&value);
     return ival;
 }
 
 gint
 ghb_widget_int(GtkWidget *widget)
 {
-    GValue *value;
+    GhbValue *value;
     gint ival;
 
     value = ghb_widget_value(widget);
-    ival = (gint)ghb_value_int64(value);
-    ghb_value_free(value);
+    ival = (gint)ghb_value_get_int(value);
+    ghb_value_free(&value);
     return ival;
 }
 
 gint
 ghb_widget_boolean(GtkWidget *widget)
 {
-    GValue *value;
+    GhbValue *value;
     gboolean bval;
 
     value = ghb_widget_value(widget);
-    bval = ghb_value_boolean(value);
-    ghb_value_free(value);
+    bval = ghb_value_get_bool(value);
+    ghb_value_free(&value);
     return bval;
 }
 
 void
-ghb_widget_to_setting(GValue *settings, GtkWidget *widget)
+ghb_widget_to_setting(GhbValue *settings, GtkWidget *widget)
 {
     const gchar *key = NULL;
-    GValue *value;
+    GhbValue *value;
 
     if (widget == NULL) return;
     g_debug("ghb_widget_to_setting");
@@ -441,7 +311,7 @@ ghb_widget_to_setting(GValue *settings, GtkWidget *widget)
     value = ghb_widget_value(widget);
     if (value != NULL)
     {
-        ghb_settings_take_value(settings, key, value);
+        ghb_dict_set(settings, key, value);
     }
     else
     {
@@ -450,52 +320,49 @@ ghb_widget_to_setting(GValue *settings, GtkWidget *widget)
 }
 
 void
-ghb_update_widget(GtkWidget *widget, const GValue *value)
+ghb_update_widget(GtkWidget *widget, const GhbValue *value)
 {
-    GType type;
-    gchar *str;
+    GhbType type;
+    gchar *str, *tmp;
     gint ival;
     gdouble dval;
 
-    g_debug("ghb_update_widget");
-    type = G_VALUE_TYPE(value);
-    if (type == ghb_array_get_type() || type == ghb_dict_get_type())
+    const char *name = ghb_get_setting_key(widget);
+    type = ghb_value_type(value);
+    if (type == GHB_ARRAY || type == GHB_DICT)
         return;
     if (value == NULL) return;
-    str = ghb_value_string(value);
-    ival = ghb_value_int(value);
-    dval = ghb_value_double(value);
+    str = tmp = ghb_value_get_string_xform(value);
+    ival = ghb_value_get_int(value);
+    dval = ghb_value_get_double(value);
     type = G_OBJECT_TYPE(widget);
+
+    if (str == NULL)
+        str = "";
 
     if (type == GTK_TYPE_ENTRY)
     {
-        g_debug("entry");
         gtk_entry_set_text((GtkEntry*)widget, str);
     }
     else if (type == GTK_TYPE_RADIO_BUTTON)
     {
-        g_debug("radio button");
         if (ival)
             gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(widget), !!ival);
     }
     else if (type == GTK_TYPE_CHECK_BUTTON)
     {
-        g_debug("check button");
         gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(widget), ival);
     }
     else if (type == GTK_TYPE_TOGGLE_TOOL_BUTTON)
     {
-        g_debug("toggle button");
         gtk_toggle_tool_button_set_active(GTK_TOGGLE_TOOL_BUTTON(widget), ival);
     }
     else if (type == GTK_TYPE_TOGGLE_BUTTON)
     {
-        g_debug("toggle button");
         gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(widget), ival);
     }
     else if (type == GTK_TYPE_CHECK_MENU_ITEM)
     {
-        g_debug("check menu item");
         gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(widget), ival);
     }
     else if (type == GTK_TYPE_COMBO_BOX)
@@ -506,7 +373,6 @@ ghb_update_widget(GtkWidget *widget, const GValue *value)
         gdouble ivalue;
         gboolean foundit = FALSE;
 
-        g_debug("combo (%s)", str);
         store = gtk_combo_box_get_model(GTK_COMBO_BOX(widget));
         if (gtk_tree_model_get_iter_first (store, &iter))
         {
@@ -560,25 +426,27 @@ ghb_update_widget(GtkWidget *widget, const GValue *value)
     }
     else if (type == GTK_TYPE_SPIN_BUTTON)
     {
-        g_debug("spin (%s)", str);
         gtk_spin_button_set_value(GTK_SPIN_BUTTON(widget), dval);
     }
     else if (type == GTK_TYPE_SCALE)
     {
-        g_debug("hscale");
         gtk_range_set_value(GTK_RANGE(widget), dval);
     }
     else if (type == GTK_TYPE_SCALE_BUTTON)
     {
-        g_debug("scale_button");
         gtk_scale_button_set_value(GTK_SCALE_BUTTON(widget), dval);
     }
     else if (type == GTK_TYPE_TEXT_VIEW)
     {
-        g_debug("textview (%s)", str);
+        static int text_view_busy = 0;
         GtkTextBuffer *buffer = gtk_text_view_get_buffer(
                                                 GTK_TEXT_VIEW(widget));
-        gtk_text_buffer_set_text (buffer, str, -1);
+        if (!text_view_busy)
+        {
+            text_view_busy = 1;
+            gtk_text_buffer_set_text (buffer, str, -1);
+            text_view_busy = 0;
+        }
     }
     else if (type == GTK_TYPE_LABEL)
     {
@@ -627,21 +495,21 @@ ghb_update_widget(GtkWidget *widget, const GValue *value)
     }
     else
     {
-        g_debug("Attempt to set unknown widget type");
+        g_warning("Attempt to set unknown widget type %s", name);
     }
-    g_free(str);
+    g_free(tmp);
 }
 
 int
-ghb_ui_update_from_settings(signal_user_data_t *ud, const gchar *name, const GValue *settings)
+ghb_ui_update_from_settings(signal_user_data_t *ud, const gchar *name, const GhbValue *settings)
 {
     GObject *object;
-    GValue * value;
+    GhbValue * value;
 
     g_debug("ghb_ui_update_from_settings() %s", name);
     if (name == NULL)
         return 0;
-    value = ghb_settings_get_value(settings, name);
+    value = ghb_dict_get_value(settings, name);
     if (value == NULL)
         return 0;
     object = GHB_OBJECT(ud->builder, name);
@@ -658,7 +526,7 @@ ghb_ui_update_from_settings(signal_user_data_t *ud, const gchar *name, const GVa
 }
 
 int
-ghb_ui_update(signal_user_data_t *ud, const gchar *name, const GValue *value)
+ghb_ui_update(signal_user_data_t *ud, const gchar *name, const GhbValue *value)
 {
     GObject *object;
 
@@ -681,9 +549,9 @@ ghb_ui_update(signal_user_data_t *ud, const gchar *name, const GValue *value)
 int
 ghb_ui_settings_update(
     signal_user_data_t *ud,
-    GValue *settings,
+    GhbValue *settings,
     const gchar *name,
-    const GValue *value)
+    const GhbValue *value)
 {
     GObject *object;
 

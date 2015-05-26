@@ -262,12 +262,15 @@ hb_encoder_internal_t hb_audio_encoders[]  =
     { { "Vorbis (vorbis)",    "libvorbis",  NULL,                          HB_ACODEC_VORBIS,                      HB_MUX_MASK_MKV, }, NULL, 0, HB_GID_ACODEC_VORBIS,     },
     { { "FLAC (ffmpeg)",      "ffflac",     NULL,                          HB_ACODEC_FFFLAC,                      HB_MUX_MASK_MKV, }, NULL, 0, HB_GID_ACODEC_FLAC,       },
     { { "FLAC (24-bit)",      "ffflac24",   NULL,                          HB_ACODEC_FFFLAC24,                    HB_MUX_MASK_MKV, }, NULL, 0, HB_GID_ACODEC_FLAC,       },
+    // generic names
+    { { "AAC",                "aac",        NULL,                          0,                     HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 0, HB_GID_ACODEC_AAC,        },
+    { { "HE-AAC",             "haac",       NULL,                          0,                     HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 0, HB_GID_ACODEC_AAC_HE,     },
     // actual encoders
     { { "AAC (CoreAudio)",    "ca_aac",     "AAC (Apple AudioToolbox)",    HB_ACODEC_CA_AAC,      HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_ACODEC_AAC,        },
     { { "HE-AAC (CoreAudio)", "ca_haac",    "HE-AAC (Apple AudioToolbox)", HB_ACODEC_CA_HAAC,     HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_ACODEC_AAC_HE,     },
-    { { "AAC (avcodec)",      "av_aac",     "AAC (libavcodec)",            HB_ACODEC_FFAAC,       HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_ACODEC_AAC,        },
     { { "AAC (FDK)",          "fdk_aac",    "AAC (libfdk_aac)",            HB_ACODEC_FDK_AAC,     HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_ACODEC_AAC,        },
     { { "HE-AAC (FDK)",       "fdk_haac",   "HE-AAC (libfdk_aac)",         HB_ACODEC_FDK_HAAC,    HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_ACODEC_AAC_HE,     },
+    { { "AAC (avcodec)",      "av_aac",     "AAC (libavcodec)",            HB_ACODEC_FFAAC,       HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_ACODEC_AAC,        },
     { { "AAC Passthru",       "copy:aac",   "AAC Passthru",                HB_ACODEC_AAC_PASS,    HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_ACODEC_AAC_PASS,   },
     { { "AC3",                "ac3",        "AC3 (libavcodec)",            HB_ACODEC_AC3,         HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_ACODEC_AC3,        },
     { { "AC3 Passthru",       "copy:ac3",   "AC3 Passthru",                HB_ACODEC_AC3_PASS,    HB_MUX_MASK_MP4|HB_MUX_MASK_MKV, }, NULL, 1, HB_GID_ACODEC_AC3_PASS,   },
@@ -986,6 +989,20 @@ fail:
 void hb_audio_bitrate_get_limits(uint32_t codec, int samplerate, int mixdown,
                                  int *low, int *high)
 {
+    /*
+     * samplerate == 0 means "auto" (same as source) and the UIs know the source
+     * samplerate -- except where there isn't a source (audio defaults panel);
+     * but we have enough info to return the global bitrate limits for this
+     * mixdown, since the first/last samplerate are known to us and non-zero.
+     */
+    if (samplerate == 0)
+    {
+        int dummy;
+        hb_audio_bitrate_get_limits(codec, hb_audio_rates_first_item->rate, mixdown, low, &dummy);
+        hb_audio_bitrate_get_limits(codec, hb_audio_rates_last_item->rate, mixdown, &dummy, high);
+        return;
+    }
+
     /* samplerate, sr_shift */
     int sr_shift;
     samplerate = hb_audio_samplerate_get_best(codec, samplerate, &sr_shift);
@@ -1288,6 +1305,21 @@ void hb_audio_quality_get_limits(uint32_t codec, float *low, float *high,
 {
     switch (codec)
     {
+        case HB_ACODEC_FFAAC:
+            *direction   = 0;
+            *granularity = 1.;
+            *low         = 1.;
+            *high        = 10.;
+            break;
+
+        case HB_ACODEC_FDK_HAAC:
+        case HB_ACODEC_FDK_AAC:
+            *direction   = 0;
+            *granularity = 1.;
+            *low         = 1.;
+            *high        = 5.;
+            break;
+
         case HB_ACODEC_LAME:
             *direction   = 1;
             *granularity = 0.5;
@@ -1333,6 +1365,13 @@ float hb_audio_quality_get_default(uint32_t codec)
 {
     switch (codec)
     {
+        case HB_ACODEC_FFAAC:
+            return 5.;
+
+        case HB_ACODEC_FDK_HAAC:
+        case HB_ACODEC_FDK_AAC:
+            return 3.;
+
         case HB_ACODEC_LAME:
             return 2.;
 
@@ -1525,6 +1564,14 @@ int hb_mixdown_has_codec_support(int mixdown, uint32_t codec)
 
 int hb_mixdown_has_remix_support(int mixdown, uint64_t layout)
 {
+    /*
+     * Where there isn't a source (e.g. audio defaults panel), we have no input
+     * layout; assume remix support, as the mixdown will be sanitized later on.
+     */
+    if (!layout)
+    {
+        return 1;
+    }
     switch (mixdown)
     {
         // stereo + front left/right of center
@@ -1671,6 +1718,20 @@ int hb_mixdown_get_default(uint32_t codec, uint64_t layout)
     return hb_mixdown_get_best(codec, layout, mixdown);
 }
 
+hb_mixdown_t* hb_mixdown_get_from_mixdown(int mixdown)
+{
+    int i;
+    for (i = 0; i < hb_audio_mixdowns_count; i++)
+    {
+        if (hb_audio_mixdowns[i].item.amixdown == mixdown)
+        {
+            return &hb_audio_mixdowns[i].item;
+        }
+    }
+
+    return NULL;
+}
+
 int hb_mixdown_get_from_name(const char *name)
 {
     if (name == NULL || *name == '\0')
@@ -1757,7 +1818,21 @@ int hb_video_encoder_get_default(int muxer)
     }
 
 fail:
-    return 0;
+    return HB_VCODEC_INVALID;
+}
+
+hb_encoder_t * hb_video_encoder_get_from_codec(int codec)
+{
+    int i;
+    for (i = 0; i < hb_video_encoders_count; i++)
+    {
+        if (hb_video_encoders[i].item.codec == codec)
+        {
+            return &hb_video_encoders[i].item;
+        }
+    }
+
+    return NULL;
 }
 
 int hb_video_encoder_get_from_name(const char *name)
@@ -1776,7 +1851,7 @@ int hb_video_encoder_get_from_name(const char *name)
     }
 
 fail:
-    return 0;
+    return HB_VCODEC_INVALID;
 }
 
 const char* hb_video_encoder_get_name(int encoder)
@@ -1887,10 +1962,10 @@ int hb_audio_encoder_get_fallback_for_passthru(int passthru)
     }
 
     // passthru tracks are often the second audio from the same source track
-    // if we don't have an encoder matching the passthru codec, return 0
+    // if we don't have an encoder matching the passthru codec, return INVALID
     // dropping the track, as well as ensuring that there is at least one
     // audio track in the output is then up to the UIs
-    return 0;
+    return HB_ACODEC_INVALID;
 }
 
 int hb_audio_encoder_get_default(int muxer)
@@ -1924,7 +1999,21 @@ int hb_audio_encoder_get_default(int muxer)
     }
 
 fail:
-    return 0;
+    return HB_ACODEC_INVALID;
+}
+
+hb_encoder_t* hb_audio_encoder_get_from_codec(int codec)
+{
+    int i;
+    for (i = 0; i < hb_audio_encoders_count; i++)
+    {
+        if (hb_audio_encoders[i].item.codec == codec)
+        {
+            return &hb_audio_encoders[i].item;
+        }
+    }
+
+    return NULL;
 }
 
 int hb_audio_encoder_get_from_name(const char *name)
@@ -1943,7 +2032,7 @@ int hb_audio_encoder_get_from_name(const char *name)
     }
 
 fail:
-    return 0;
+    return HB_ACODEC_INVALID;
 }
 
 const char* hb_audio_encoder_get_name(int encoder)
@@ -2208,6 +2297,20 @@ int hb_autopassthru_get_encoder(int in_codec, int copy_mask, int fallback,
     return (out_codec & HB_ACODEC_PASS_MASK) ? out_codec : fallback;
 }
 
+hb_container_t* hb_container_get_from_format(int format)
+{
+    int i;
+    for (i = 0; i < hb_containers_count; i++)
+    {
+        if (hb_containers[i].item.format == format)
+        {
+            return &hb_containers[i].item;
+        }
+    }
+
+    return NULL;
+}
+
 int hb_container_get_from_name(const char *name)
 {
     if (name == NULL || *name == '\0')
@@ -2224,7 +2327,7 @@ int hb_container_get_from_name(const char *name)
     }
 
 fail:
-    return 0;
+    return HB_MUX_INVALID;
 }
 
 int hb_container_get_from_extension(const char *extension)
@@ -2242,7 +2345,7 @@ int hb_container_get_from_extension(const char *extension)
     }
 
 fail:
-    return 0;
+    return HB_MUX_INVALID;
 }
 
 const char* hb_container_get_name(int format)
@@ -2582,7 +2685,7 @@ void hb_list_rem( hb_list_t * l, void * p )
  *********************************************************************/
 void * hb_list_item( const hb_list_t * l, int i )
 {
-    if( i < 0 || i >= l->items_count )
+    if( l == NULL || i < 0 || i >= l->items_count )
     {
         return NULL;
     }
@@ -2711,6 +2814,9 @@ void hb_list_empty( hb_list_t ** _l )
 void hb_list_close( hb_list_t ** _l )
 {
     hb_list_t * l = *_l;
+
+    if (l == NULL)
+        return;
 
     free( l->items );
     free( l );
@@ -3048,7 +3154,7 @@ static void job_setup(hb_job_t * job, hb_title_t * title)
     job->vquality   = -1.0;
     job->vbitrate   = 1000;
     job->twopass    = 0;
-    job->pass       = 0;
+    job->pass_id    = HB_PASS_ENCODE;
     job->vrate      = title->vrate;
 
     job->mux = HB_MUX_MP4;
@@ -3078,6 +3184,8 @@ static void job_clean( hb_job_t * job )
         hb_filter_object_t *filter;
         hb_attachment_t *attachment;
 
+        free((void*)job->json);
+        job->json = NULL;
         free(job->encoder_preset);
         job->encoder_preset = NULL;
         free(job->encoder_tune);
@@ -3703,12 +3811,11 @@ void hb_subtitle_close( hb_subtitle_t **sub )
  **********************************************************************
  *
  *********************************************************************/
-int hb_subtitle_add_ssa_header(hb_subtitle_t *subtitle, int w, int h)
+int hb_subtitle_add_ssa_header(hb_subtitle_t *subtitle, const char *font,
+                               int fs, int w, int h)
 {
     // Free any pre-existing extradata
     free(subtitle->extradata);
-
-    int fs = h * .066;
 
     // SRT subtitles are represented internally as SSA
     // Create an SSA header
@@ -3723,9 +3830,9 @@ int hb_subtitle_add_ssa_header(hb_subtitle_t *subtitle, int w, int h)
         "\r\n"
         "[V4+ Styles]\r\n"
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\r\n"
-        "Style: Default,Arial,%d,&H00FFFFFF,&H00FFFFFF,&H000F0F0F,&H000F0F0F,0,0,0,0,100,100,0,0.00,1,2,3,2,20,20,20,0\r\n";
+        "Style: Default,%s,%d,&H00FFFFFF,&H00FFFFFF,&H000F0F0F,&H000F0F0F,0,0,0,0,100,100,0,0.00,1,2,3,2,20,20,20,0\r\n";
 
-    subtitle->extradata = (uint8_t*)hb_strdup_printf(ssa_header, w, h, fs);
+    subtitle->extradata = (uint8_t*)hb_strdup_printf(ssa_header, w, h, font, fs);
     if (subtitle->extradata == NULL)
     {
         hb_error("hb_subtitle_add_ssa_header: malloc failed");
@@ -4382,7 +4489,6 @@ void hb_hexdump( hb_debug_level_t level, const char * label, const uint8_t * dat
     }
 }
 
-int hb_gui_use_hwd_flag = 0;
 int hb_use_dxva( hb_title_t * title )
 {
     return ( (title->video_codec_param == AV_CODEC_ID_MPEG2VIDEO

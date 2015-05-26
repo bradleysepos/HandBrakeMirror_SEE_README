@@ -184,16 +184,26 @@ int encx265Init(hb_work_object_t *w, hb_job_t *job)
     }
 
     /* iterate through x265_opts and parse the options */
-    hb_dict_entry_t *entry = NULL;
-    hb_dict_t *x265_opts = hb_encopts_to_dict(job->encoder_options, job->vcodec);
-    while ((entry = hb_dict_next(x265_opts, entry)) != NULL)
+    hb_dict_t *x265_opts;
+    x265_opts = hb_encopts_to_dict(job->encoder_options, job->vcodec);
+
+    hb_dict_iter_t iter;
+    for (iter  = hb_dict_iter_init(x265_opts);
+         iter != HB_DICT_ITER_DONE;
+         iter  = hb_dict_iter_next(x265_opts, iter))
     {
+        const char *key = hb_dict_iter_key(iter);
+        hb_value_t *value = hb_dict_iter_value(iter);
+        char *str = hb_value_get_string_xform(value);
+
         // here's where the strings are passed to libx265 for parsing
-        if (param_parse(param, entry->key, entry->value))
+        if (param_parse(param, key, str))
         {
+            free(str);
             hb_dict_free(&x265_opts);
             goto fail;
         }
+        free(str);
     }
     hb_dict_free(&x265_opts);
 
@@ -234,18 +244,19 @@ int encx265Init(hb_work_object_t *w, hb_job_t *job)
     {
         param->rc.rateControlMode = X265_RC_ABR;
         param->rc.bitrate         = job->vbitrate;
-        if (job->pass > 0 && job->pass < 3)
+        if (job->pass_id == HB_PASS_ENCODE_1ST ||
+            job->pass_id == HB_PASS_ENCODE_2ND)
         {
             char stats_file[1024] = "";
             char pass[2];
-            snprintf(pass, sizeof(pass), "%d", job->pass);
+            snprintf(pass, sizeof(pass), "%d", job->pass_id);
             hb_get_tempory_filename(job->h, stats_file, "x265.log");
             if (param_parse(param, "stats", stats_file) ||
                 param_parse(param, "pass", pass))
             {
                 goto fail;
             }
-            if (job->pass == 1 && job->fastfirstpass == 0 &&
+            if (job->pass_id == HB_PASS_ENCODE_1ST && job->fastfirstpass == 0 &&
                 param_parse(param, "slow-firstpass", "1"))
             {
                 goto fail;
@@ -279,6 +290,9 @@ int encx265Init(hb_work_object_t *w, hb_job_t *job)
     /* we should now know whether B-frames are enabled */
     job->areBframes = (param->bframes > 0) + (param->bframes   > 0 &&
                                               param->bBPyramid > 0);
+
+    /* Reset global variables before opening a new encoder */
+    x265_cleanup();
 
     pv->x265 = x265_encoder_open(param);
     if (pv->x265 == NULL)
@@ -522,7 +536,7 @@ int encx265Work(hb_work_object_t *w, hb_buffer_t **buf_in, hb_buffer_t **buf_out
     hb_work_private_t *pv = w->private_data;
     hb_buffer_t       *in = *buf_in;
 
-    if (in->size <= 0)
+    if (in->s.flags & HB_BUF_FLAG_EOF)
     {
         uint32_t nnal;
         x265_nal *nal;

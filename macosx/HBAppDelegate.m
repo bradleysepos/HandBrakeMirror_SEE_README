@@ -16,17 +16,19 @@
 #import "HBCore.h"
 #import "HBController.h"
 
+#define PRESET_FILE @"UserPresets.json"
+
 @interface HBAppDelegate ()
 
-@property (nonatomic, retain) HBPresetsManager *presetsManager;
-@property (assign) IBOutlet NSMenu *presetsMenu;
+@property (nonatomic, strong) HBPresetsManager *presetsManager;
+@property (unsafe_unretained) IBOutlet NSMenu *presetsMenu;
 
-@property (nonatomic, retain) HBPreferencesController *preferencesController;
-@property (nonatomic, retain) HBQueueController *queueController;
+@property (nonatomic, strong) HBPreferencesController *preferencesController;
+@property (nonatomic, strong) HBQueueController *queueController;
 
-@property (nonatomic, retain) HBOutputPanelController *outputPanel;
+@property (nonatomic, strong) HBOutputPanelController *outputPanel;
 
-@property (nonatomic, retain) HBController *mainController;
+@property (nonatomic, strong) HBController *mainController;
 
 @end
 
@@ -48,17 +50,11 @@
 
         _outputPanel = [[HBOutputPanelController alloc] init];
 
-        // Lets report the HandBrake version number here to the activity log and text log file
-        NSDictionary *infoDict = [[NSBundle mainBundle] infoDictionary];
-        NSString *versionStringFull = [NSString stringWithFormat:@"Handbrake Version: %@  (%@)", infoDict[@"CFBundleShortVersionString"], infoDict[@"CFBundleVersion"]];
-        [HBUtilities writeToActivityLog: "%s", versionStringFull.UTF8String];
-
         // we init the HBPresetsManager
-        NSURL *presetsURL = [NSURL fileURLWithPath:[[HBUtilities appSupportPath] stringByAppendingPathComponent:@"UserPresets.plist"]];
+        NSURL *presetsURL = [[HBUtilities appSupportURL] URLByAppendingPathComponent:PRESET_FILE];
         _presetsManager = [[HBPresetsManager alloc] initWithURL:presetsURL];
 
         _queueController = [[HBQueueController alloc] init];
-        _queueController.outputPanel = _outputPanel;
         _queueController.delegate = self;
         _mainController = [[HBController alloc] initWithQueue:_queueController presetsManager:_presetsManager];
 
@@ -81,8 +77,6 @@
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification
 {
-    // Updates built-ins presets if needed
-    [self checkBuiltInsForUpdates];
     [self buildPresetsMenu];
 
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(buildPresetsMenu) name:HBPresetsChangedNotification object:nil];
@@ -90,115 +84,59 @@
     // Get the number of HandBrake instances currently running
     NSUInteger instances = [NSRunningApplication runningApplicationsWithBundleIdentifier:[[NSBundle mainBundle] bundleIdentifier]].count;
 
-    // If we are a single instance it is safe to clean up the previews if there are any
-    // left over. This is a bit of a kludge but will prevent a build up of old instance
-    // live preview cruft. No danger of removing an active preview directory since they
-    // are created later in HBPreviewController if they don't exist at the moment a live
-    // preview encode is initiated.
-    if (instances == 1)
-    {
-        NSString *previewDirectory = [[HBUtilities appSupportPath] stringByAppendingPathComponent:@"Previews"];
-        NSError *error = nil;
-        NSArray *files = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:previewDirectory error:&error];
-        for (NSString *file in files)
-        {
-            BOOL result = [[NSFileManager defaultManager] removeItemAtPath:[previewDirectory stringByAppendingPathComponent:file] error:&error];
-            if (result == NO && error)
-            {
-                [HBUtilities writeToActivityLog: "Could not remove existing preview at : %s", file.UTF8String];
-            }
-        }
-    }
-
-    [self showMainWindow:self];
-
-    // Now we re-check the queue array to see if there are
-    // any remaining encodes to be done in it and ask the
-    // user if they want to reload the queue
-    if (self.queueController.count)
-    {
-        // On Screen Notification
-        // We check to see if there is already another instance of hb running.
-        // Note: hbInstances == 1 means we are the only instance of HandBrake.app
-        NSAlert *alert = nil;
-        if (instances > 1)
-        {
-            alert = [[NSAlert alloc] init];
-            [alert setMessageText:NSLocalizedString(@"There is already an instance of HandBrake running.", @"")];
-            [alert setInformativeText:NSLocalizedString(@"HandBrake will now load up the existing queue.", nil)];
-            [alert addButtonWithTitle:NSLocalizedString(@"Reload Queue", nil)];
-        }
-        else
-        {
-            if (self.queueController.workingItemsCount > 0 || self.queueController.pendingItemsCount > 0)
-            {
-                NSString *alertTitle;
-
-                if (self.queueController.workingItemsCount > 0)
-                {
-                    alertTitle = [NSString stringWithFormat:
-                                  NSLocalizedString(@"HandBrake Has Detected %d Previously Encoding Item(s) and %d Pending Item(s) In Your Queue.", @""),
-                                  self.queueController.workingItemsCount, self.queueController.pendingItemsCount];
-                }
-                else
-                {
-                    alertTitle = [NSString stringWithFormat:
-                                  NSLocalizedString(@"HandBrake Has Detected %d Pending Item(s) In Your Queue.", @""),
-                                  self.queueController.pendingItemsCount];
-                }
-
-                alert = [[NSAlert alloc] init];
-                [alert setMessageText:alertTitle];
-                [alert setInformativeText:NSLocalizedString(@"Do you want to reload them ?", nil)];
-                [alert addButtonWithTitle:NSLocalizedString(@"Reload Queue", nil)];
-                [alert addButtonWithTitle:NSLocalizedString(@"Empty Queue", nil)];
-                [alert setAlertStyle:NSCriticalAlertStyle];
-            }
-            else
-            {
-                // Since we addressed any pending or previously encoding items above, we go ahead and make sure
-                // the queue is empty of any finished items or cancelled items.
-                [self.queueController removeAllJobs];
-                [self.mainController launchAction];
-            }
-        }
-
-        if (alert)
-        {
-            NSModalResponse response = [alert runModal];
-
-            if (response == NSAlertSecondButtonReturn)
-            {
-                [HBUtilities writeToActivityLog:"didDimissReloadQueue NSAlertSecondButtonReturn Chosen"];
-                [self.queueController removeAllJobs];
-                [self.mainController launchAction];
-            }
-            else
-            {
-                [HBUtilities writeToActivityLog:"didDimissReloadQueue NSAlertFirstButtonReturn Chosen"];
-                if (instances == 1)
-                {
-                    [self.queueController setEncodingJobsAsPending];
-                }
-
-                [self showQueueWindow:nil];
-            }
-
-            [alert release];
-        }
-    }
-    else
-    {
-        [self.mainController launchAction];
-    }
-
     // Open debug output window now if it was visible when HB was closed
     if ([[NSUserDefaults standardUserDefaults] boolForKey:@"OutputPanelIsOpen"])
         [self showOutputPanel:nil];
 
-    // Open queue window now if it was visible when HB was closed
-    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"QueueWindowIsOpen"])
-        [self showQueueWindow:nil];
+    // On Screen Notification
+    // We check to see if there is already another instance of hb running.
+    if (instances > 1)
+    {
+        NSAlert *alert = [[NSAlert alloc] init];
+        [alert setMessageText:NSLocalizedString(@"There is already an instance of HandBrake running.", nil)];
+        [alert setInformativeText:NSLocalizedString(@"The queue will be shared between the instances.", nil)];
+        [alert runModal];
+    }
+    else
+    {
+        [self.queueController setEncodingJobsAsPending];
+        [self.queueController removeCompletedJobs];
+    }
+
+    // Now we re-check the queue array to see if there are
+    // any remaining encodes to be done
+    if (self.queueController.count)
+    {
+        [self showMainWindow:self];
+        [self showQueueWindow:self];
+    }
+    else
+    {
+        // Open queue window now if it was visible when HB was closed
+        if ([[NSUserDefaults standardUserDefaults] boolForKey:@"QueueWindowIsOpen"])
+            [self showQueueWindow:nil];
+
+        [self showMainWindow:self];
+        [self.mainController launchAction];
+    }
+
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
+        // Remove encodes logs older than a month
+        if ([[NSUserDefaults standardUserDefaults] boolForKey:@"HBClearOldLogs"])
+        {
+            [self cleanEncodeLogs];
+        }
+
+        // If we are a single instance it is safe to clean up the previews if there are any
+        // left over. This is a bit of a kludge but will prevent a build up of old instance
+        // live preview cruft. No danger of removing an active preview directory since they
+        // are created later in HBPreviewController if they don't exist at the moment a live
+        // preview encode is initiated.
+        if (instances == 1)
+        {
+            [self cleanPreviews];
+        }
+    });
 }
 
 - (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)app
@@ -213,29 +151,7 @@
         [alert setAlertStyle:NSCriticalAlertStyle];
 
         NSInteger result = [alert runModal];
-        [alert release];
 
-        if (result == NSAlertFirstButtonReturn)
-        {
-            return NSTerminateNow;
-        }
-        else
-        {
-            return NSTerminateCancel;
-        }
-    }
-
-    // Warn if items still in the queue
-    else if (self.queueController.pendingItemsCount > 0)
-    {
-        NSAlert *alert = [[NSAlert alloc] init];
-        [alert setMessageText:NSLocalizedString(@"Are you sure you want to quit HandBrake?", nil)];
-        [alert setInformativeText:NSLocalizedString(@"There are pending encodes in your queue. Do you want to quit anyway?",nil)];
-        [alert addButtonWithTitle:NSLocalizedString(@"Quit", nil)];
-        [alert addButtonWithTitle:NSLocalizedString(@"Don't Quit", nil)];
-        [alert setAlertStyle:NSCriticalAlertStyle];
-        NSInteger result = [alert runModal];
-        [alert release];
         if (result == NSAlertFirstButtonReturn)
         {
             return NSTerminateNow;
@@ -253,9 +169,10 @@
 {
     [self.presetsManager savePresets];
 
-    [_mainController release];
+    [[NSUserDefaults standardUserDefaults] setBool:_queueController.window.isVisible forKey:@"QueueWindowIsOpen"];
+    [[NSUserDefaults standardUserDefaults] setBool:_outputPanel.window.isVisible forKey:@"OutputPanelIsOpen"];
+
     _mainController = nil;
-    [_queueController release];
     _queueController = nil;
 
     [HBCore closeGlobal];
@@ -286,6 +203,65 @@
     return YES;
 }
 
+#pragma mark - Clean ups
+
+/**
+ *  Clears the EncodeLogs folder, removes the logs
+ *  older than a month.
+ */
+- (void)cleanEncodeLogs
+{
+    NSURL *directoryUrl = [[HBUtilities appSupportURL] URLByAppendingPathComponent:@"EncodeLogs"];
+
+    if (directoryUrl)
+    {
+        NSArray *contents = [[NSFileManager defaultManager] contentsOfDirectoryAtURL:directoryUrl
+                                                          includingPropertiesForKeys:nil
+                                                                             options:NSDirectoryEnumerationSkipsSubdirectoryDescendants |
+                                                                                     NSDirectoryEnumerationSkipsHiddenFiles |
+                                                                                     NSDirectoryEnumerationSkipsPackageDescendants
+                                                                               error:NULL];
+
+        NSDate *limit = [NSDate dateWithTimeIntervalSinceNow: -(60 * 60 * 24 * 30)];
+        NSFileManager *manager = [[NSFileManager alloc] init];
+
+        for (NSURL *fileURL in contents)
+        {
+            NSDate *creationDate = nil;
+            [fileURL getResourceValue:&creationDate forKey:NSURLCreationDateKey error:NULL];
+            if ([creationDate isLessThan:limit])
+            {
+                [manager removeItemAtURL:fileURL error:NULL];
+            }
+        }
+    }
+}
+
+- (void)cleanPreviews
+{
+    NSURL *previewDirectory = [[HBUtilities appSupportURL] URLByAppendingPathComponent:@"Previews"];
+
+    if (previewDirectory)
+    {
+        NSArray *contents = [[NSFileManager defaultManager] contentsOfDirectoryAtURL:previewDirectory
+                                                          includingPropertiesForKeys:nil
+                                                                             options:NSDirectoryEnumerationSkipsSubdirectoryDescendants |
+                                                                                     NSDirectoryEnumerationSkipsPackageDescendants
+                                                                               error:NULL];
+
+        NSFileManager *manager = [[NSFileManager alloc] init];
+        for (NSURL *url in contents)
+        {
+            NSError *error = nil;
+            BOOL result = [manager removeItemAtURL:url error:&error];
+            if (result == NO && error)
+            {
+                [HBUtilities writeToActivityLog: "Could not remove existing preview at : %s", url.lastPathComponent.UTF8String];
+            }
+        }
+    }
+}
+
 #pragma mark - Menu actions
 
 - (IBAction)rip:(id)sender
@@ -305,26 +281,6 @@
 
 #pragma mark - Presets Menu actions
 
-- (void)checkBuiltInsForUpdates
-{
-    // if we have built in presets to update, then do so AlertBuiltInPresetUpdate
-    if ([self.presetsManager checkBuiltInsForUpdates])
-    {
-        if( [[NSUserDefaults standardUserDefaults] boolForKey:@"AlertBuiltInPresetUpdate"] == YES)
-        {
-            // Show an alert window that built in presets will be updated
-            [NSApp requestUserAttention:NSCriticalRequest];
-            NSAlert *alert = [[NSAlert alloc] init];
-            [alert setMessageText:@"HandBrake has determined your built in presets are out of date…"];
-            [alert setInformativeText:@"HandBrake will now update your built-in presets."];
-            [alert runModal];
-            [alert release];
-        }
-        // when alert is dismissed, go ahead and update the built in presets
-        [self.presetsManager generateBuiltInPresets];
-    }
-}
-
 /**
  *  Adds the presets list to the menu.
  */
@@ -340,7 +296,6 @@
             [self.presetsMenu removeItem:item];
         }
     }
-    [menuItems release];
 
     __block NSUInteger i = 0;
     __block BOOL builtInEnded = NO;
@@ -360,12 +315,11 @@
                  item.representedObject = obj;
              }
              // Make the default preset font bold.
-             if ([obj isDefault])
+             if ([obj isEqualTo:self.presetsManager.defaultPreset])
              {
                  NSAttributedString *newTitle = [[NSAttributedString alloc] initWithString:[obj name]
                                                                                 attributes:@{NSFontAttributeName: [NSFont boldSystemFontOfSize:14]}];
                  [item setAttributedTitle:newTitle];
-                 [newTitle release];
              }
              // Add a separator line after the last builtIn preset
              if ([obj isBuiltIn] == NO && builtInEnded == NO)
@@ -377,7 +331,6 @@
              item.indentationLevel = idx.length - 1;
 
              [self.presetsMenu addItem:item];
-             [item release];
          }
      }];
 }
@@ -418,7 +371,7 @@
  */
 - (IBAction)showOutputPanel:(id)sender
 {
-    [self.outputPanel showOutputPanel:sender];
+    [self.outputPanel showWindow:sender];
 }
 
 - (IBAction)showPicturePanel:(id)sender

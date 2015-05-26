@@ -8,16 +8,9 @@
 
 @class HBPreviewGenerator;
 
-@protocol HBPreviewControllerDelegate <NSObject>
-
-- (IBAction)showPicturePanel:(id)sender;
-
-@end
-
 @interface HBPreviewController : NSWindowController <NSWindowDelegate>
 
-- (id)initWithDelegate:(id <HBPreviewControllerDelegate>)delegate;
-
-@property (nonatomic, retain) HBPreviewGenerator *generator;
+@property (nonatomic, strong) HBPreviewGenerator *generator;
+@property (nonatomic, readwrite, unsafe_unretained) NSWindowController *pictureSettingsWindow;
 
 @end

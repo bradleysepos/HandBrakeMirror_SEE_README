@@ -4,6 +4,8 @@
         xmlns:Controls="clr-namespace:HandBrakeWPF.Controls"
         xmlns:Converters="clr-namespace:HandBrakeWPF.Converters"
              xmlns:Micro="clr-namespace:Caliburn.Micro;assembly=Caliburn.Micro"
+             xmlns:i="http://schemas.microsoft.com/expression/2010/interactivity"
+             xmlns:commands="clr-namespace:HandBrakeWPF.Commands"
              AllowDrop="True"
         FontSize="11"
         Micro:Message.Attach="[Event Loaded] = [Action Load]"
@@ -16,8 +18,8 @@
         <Converters:EnumComboConverter x:Key="enumComboConverter" />
 
         <Style TargetType="Button">
-            <Setter Property="FontWeight" Value="Bold" />
-            <Setter Property="Padding" Value="5,1" />
+
+            <Setter Property="Padding" Value="8,2" />
             <Setter Property="FontSize" Value="11.5" />
             <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="MinHeight" Value="22" />
@@ -33,32 +35,6 @@
                 <PropertyGroupDescription PropertyName="Category" />
             </CollectionViewSource.GroupDescriptions>
         </CollectionViewSource>
-
-        <Style TargetType="ListBoxItem">
-            <Setter Property="Padding" Value="0,2,0,2" />
-            <Style.Triggers>
-                <MultiDataTrigger>
-                    <MultiDataTrigger.Conditions>
-                        <Condition Binding="{Binding IsBuildIn}" Value="True" />
-                        <Condition Binding="{Binding DataContext.UseSystemColours, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type UserControl}}}" Value="False" />
-                    </MultiDataTrigger.Conditions>
-                    <Setter Property="Foreground" Value="DarkBlue" />
-                </MultiDataTrigger>
-                <!--<DataTrigger Binding="{Binding IsBuildIn}" Value="True">
-                    <Setter Property="Foreground" Value="DarkBlue" />
-                </DataTrigger>-->
-                <Trigger Property="IsSelected" Value="True">
-                    <Setter Property="FontWeight" Value="Bold"/>
-                    <Setter Property="Background" Value="Transparent"/>
-                </Trigger>
-                <DataTrigger Binding="{Binding IsDefault}" Value="True" >
-                    <Setter Property="FontStyle" Value="Italic" />
-                </DataTrigger>
-                <DataTrigger Binding="{Binding IsDefault}" Value="False" >
-                    <Setter Property="FontStyle" Value="Normal" />
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
 
         <Style x:Key="ContainerStyle" TargetType="{x:Type GroupItem}">
             <Setter Property="Template">
@@ -95,7 +71,7 @@
                   VerticalAlignment="Top"
                   >
                 <MenuItem Header="_File">
-                    <MenuItem Header="_Cancel Scan" Command="{Binding CancelScanCommand}" />
+                    <MenuItem Header="Choose Source" Micro:Message.Attach="[Event Click] = [Action SelectSourceWindow]" InputGestureText="Alt + O" />
                     <Separator />
                     <MenuItem Header="_Exit" Micro:Message.Attach="[Event Click] = [Action ExitApplication]"  InputGestureText="Alt + F4" />
                 </MenuItem>
@@ -120,7 +96,7 @@
                 </MenuItem>
 
 
-                <MenuItem Header="_Presets" x:Name="presetMenu">
+                <MenuItem Header="_Presets" x:Name="presetMenu" IsEnabled="{Binding HasSource, Converter={StaticResource booleanConverter}, ConverterParameter=false}">
                     <MenuItem Header="_Presets" ItemsSource="{Binding Presets}">
                         <MenuItem.ItemContainerStyle>
                             <Style TargetType="MenuItem">
@@ -148,7 +124,7 @@
                 </MenuItem>
 
                 <MenuItem Header="_Help">
-                    <MenuItem Header="_HandBrake User Guide (HTTP)" Micro:Message.Attach="[Event Click] = [Action LaunchHelp]">
+                    <MenuItem Header="_HandBrake User Guide (HTTP)" Micro:Message.Attach="[Event Click] = [Action LaunchHelp]" InputGestureText="F1">
                         <MenuItem.Icon>
                             <Image Width="16" Height="16"  Source="Images/information.png" />
                         </MenuItem.Icon>
@@ -199,7 +175,7 @@
                                />
                         <Label Margin="8,0,0,0"
                                VerticalAlignment="Center"
-                               Content="Start"
+                               Content="{Binding StartLabel, FallbackValue='Start'}"
                                />
                     </StackPanel>
                 </Button>
@@ -262,7 +238,7 @@
                                                />
                                         <Label Margin="8,0,0,0"
                                                VerticalAlignment="Center"
-                                               Content="Add To Queue"
+                                               Content="Add to Queue"
                                                />
                                     </StackPanel>
                                     <Button.Style>
@@ -309,7 +285,7 @@
                                />
                         <Label Margin="8,0,0,0"
                                VerticalAlignment="Center"
-                               Content="Show Queue"
+                               Content="{Binding QueueLabel, FallbackValue='Show Queue'}"
                                />
                     </StackPanel>
                 </Button>
@@ -346,7 +322,7 @@
         </StackPanel>
 
         <!--  Main Body  -->
-        <Grid Grid.Row="1"  IsEnabled="{Binding ShowSourceSelection, Converter={StaticResource booleanConverter}, ConverterParameter=true}">
+        <Grid Grid.Row="1"  IsEnabled="{Binding HasSource, Converter={StaticResource booleanConverter}, ConverterParameter=false}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" MinWidth="700"/>
                 <ColumnDefinition Width="Auto" />
@@ -458,7 +434,7 @@
                     </TextBox>
                     <Button Name="DestinationBrowser"
                             Grid.Column="2"
-                            Margin="8,0,0,0"
+                            Margin="8,0,0,0" FontWeight="Bold"
                             Content="Browse"
                             Micro:Message.Attach="[Event Click] = [Action BrowseDestination]"
                             />
@@ -552,6 +528,33 @@
                              SelectedItem="{Binding SelectedPreset, Mode=TwoWay}" BorderThickness="0,0,0,1"
                              BorderBrush="LightGray"
                             >
+                        <ListBox.Resources>
+
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Padding" Value="0,2,0,2" />
+                                <Style.Triggers>
+                                    <Trigger Property="IsSelected" Value="True">
+                                        <Setter Property="FontWeight" Value="Bold"/>
+                                        <Setter Property="Background" Value="Transparent"/>
+                                    </Trigger>
+                                    <DataTrigger Binding="{Binding IsDefault}" Value="True" >
+                                        <Setter Property="FontStyle" Value="Italic" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding IsDefault}" Value="False" >
+                                        <Setter Property="FontStyle" Value="Normal" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ListBox.Resources>
+                        
+                        <i:Interaction.Triggers>
+                            <commands:InputBindingTrigger>
+                                <commands:InputBindingTrigger.InputBinding>
+                                    <KeyBinding Key="Delete"/>
+                                </commands:InputBindingTrigger.InputBinding>
+                                <Micro:ActionMessage MethodName="PresetRemove" />
+                            </commands:InputBindingTrigger>
+                        </i:Interaction.Triggers>
 
                         <ListBox.GroupStyle>
                             <GroupStyle ContainerStyle="{StaticResource ContainerStyle}"/>
@@ -640,21 +643,37 @@
         </Grid>
 
         <!-- Source Selection-->
-        <Controls:SourceSelection Grid.Row="1" MinWidth="300" HorizontalAlignment="Left" VerticalAlignment="Stretch" BorderThickness="1" BorderBrush="DarkGray"
-                                  Visibility="{Binding ShowSourceSelection, Converter={StaticResource boolToVisConverter}}" 
-                                  />
-
-        <!--  StatusPanel  -->
+        <Controls:SourceSelection x:Name="sourceSelection"
+                                  Grid.Row="0" Grid.RowSpan="3"
+                                  Visibility="{Binding ShowSourceSelection, Converter={StaticResource boolToVisConverter}, ConverterParameter=false, TargetNullValue=Collapsed, FallbackValue=Collapsed}"
+                                  VerticalAlignment="Stretch" HorizontalAlignment="Stretch"
+                                  Panel.ZIndex="10" />
+        
         <Controls:StatusPanel x:Name="loadingPanel"
-                              Grid.Row="1"
-                              Grid.RowSpan="2"
-                              Height="70"
-                              VerticalAlignment="Bottom"
+                              Grid.Row="0"
+                              Grid.RowSpan="3"
+                              Visibility="{Binding ShowStatusWindow, Converter={StaticResource boolToVisConverter}, ConverterParameter=false, TargetNullValue=Collapsed, FallbackValue=Collapsed}"
+                              VerticalAlignment="Stretch" HorizontalAlignment="Stretch"
                               Panel.ZIndex="10"
                               IsLoading="{Binding ShowStatusWindow}"
-                              Message="{Binding StatusLabel}"
-                              SubMessage="Please Wait ..."
+                              Message="Please wait ..."
+                              SubMessage="{Binding StatusLabel}"
+                              ActionText="Cancel"
+                              CancelAction="{Binding CancelAction}"
                               />
+
+        <Controls:AlertPanel x:Name="alertPanel"
+                              Grid.Row="0"
+                              Grid.RowSpan="3"
+                              Visibility="{Binding ShowAlertWindow, Converter={StaticResource boolToVisConverter}, ConverterParameter=false, TargetNullValue=Collapsed, FallbackValue=Collapsed}"
+                              VerticalAlignment="Stretch" HorizontalAlignment="Stretch"
+                              Panel.ZIndex="10"
+                              Message="{Binding AlertWindowHeader}"
+                              SubMessage="{Binding AlertWindowText}"
+                              ActionText="OK"
+                              DefaultAction="{Binding AlertWindowClose}">
+            
+        </Controls:AlertPanel>
 
         <!--  Status Bar  -->
         <StatusBar Grid.Row="2" Grid.ColumnSpan="2" MinHeight="32" >

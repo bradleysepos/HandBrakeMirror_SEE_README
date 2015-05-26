@@ -58,18 +58,21 @@ hb_thread_t * hb_work_init( hb_list_t * jobs, volatile int * die, hb_error_code 
     return hb_thread_init( "work", work_func, work, HB_LOW_PRIORITY );
 }
 
-static void InitWorkState( hb_handle_t * h )
+static void InitWorkState(hb_handle_t *h, int pass_id, int pass, int pass_count)
 {
     hb_state_t state;
 
-    state.state = HB_STATE_WORKING;
+    state.state  = HB_STATE_WORKING;
 #define p state.param.working
-    p.progress  = 0.0;
-    p.rate_cur  = 0.0;
-    p.rate_avg  = 0.0;
-    p.hours     = -1;
-    p.minutes   = -1;
-    p.seconds   = -1; 
+    p.pass_id    = pass_id;
+    p.pass       = pass;
+    p.pass_count = pass_count;
+    p.progress   = 0.0;
+    p.rate_cur   = 0.0;
+    p.rate_avg   = 0.0;
+    p.hours      = -1;
+    p.minutes    = -1;
+    p.seconds    = -1; 
 #undef p
 
     hb_set_state( h, &state );
@@ -90,18 +93,59 @@ static void work_func( void * _work )
     while( !*work->die && ( job = hb_list_item( work->jobs, 0 ) ) )
     {
         hb_list_rem( work->jobs, job );
-        job->die = work->die;
-        job->done_error = work->error;
-        *(work->current_job) = job;
-        InitWorkState( job->h );
-        do_job( job );
-        *(work->current_job) = NULL;
+        hb_list_t * passes = hb_list_init();
+
+        // JSON jobs get special treatment.  We want to perform the title
+        // scan for the JSON job automatically.  This requires that we delay
+        // filling the job struct till we have performed the title scan
+        // because the default values for the job come from the title.
+        if (job->json != NULL)
+        {
+            // Perform title scan for json job
+            hb_json_job_scan(job->h, job->json);
+
+            // Expand json string to full job struct
+            hb_job_t *new_job = hb_json_to_job(job->h, job->json);
+            if (new_job == NULL)
+            {
+                hb_job_close(&job);
+                hb_list_close(&passes);
+                *work->error = HB_ERROR_INIT;
+                *work->die = 1;
+                break;
+            }
+            new_job->h = job->h;
+            hb_job_close(&job);
+            job = new_job;
+        }
+        hb_job_setup_passes(job->h, job, passes);
+        hb_job_close(&job);
+
+        int pass_count, pass;
+        pass_count = hb_list_count(passes);
+        for (pass = 0; pass < pass_count && !*work->die; pass++)
+        {
+            job = hb_list_item(passes, pass);
+            job->die = work->die;
+            job->done_error = work->error;
+            *(work->current_job) = job;
+            InitWorkState(job->h, job->pass_id, pass + 1, pass_count);
+            do_job( job );
+            *(work->current_job) = NULL;
+        }
+        // Clean up any incomplete jobs
+        for (; pass < pass_count; pass++)
+        {
+            job = hb_list_item(passes, pass);
+            hb_job_close(&job);
+        }
+        hb_list_close(&passes);
     }
 
     free( work );
 }
 
-hb_work_object_t * hb_get_work( int id )
+hb_work_object_t * hb_get_work( hb_handle_t *h, int id )
 {
     hb_work_object_t * w;
     for( w = hb_objects; w; w = w->next )
@@ -110,39 +154,46 @@ hb_work_object_t * hb_get_work( int id )
         {
             hb_work_object_t *wc = malloc( sizeof(*w) );
             *wc = *w;
+            wc->h = h;
             return wc;
         }
     }
     return NULL;
 }
 
-hb_work_object_t* hb_codec_decoder(int codec)
+hb_work_object_t* hb_codec_decoder(hb_handle_t *h, int codec)
 {
+    hb_work_object_t * w = NULL;
     if (codec & HB_ACODEC_FF_MASK)
     {
-        return hb_get_work(WORK_DECAVCODEC);
+        w = hb_get_work(h, WORK_DECAVCODEC);
+        w->yield = 1;   // decoders yield to keep sync fifos more even
     }
     switch (codec)
     {
-        case HB_ACODEC_LPCM: return hb_get_work(WORK_DECLPCM);
-        default:             break;
+        case HB_ACODEC_LPCM:
+            w = hb_get_work(h, WORK_DECLPCM);
+            w->yield = 1;   // decoders yield to keep sync fifos more even
+            break;
+        default:
+            break;
     }
-    return NULL;
+    return w;
 }
 
-hb_work_object_t* hb_codec_encoder(int codec)
+hb_work_object_t* hb_codec_encoder(hb_handle_t *h, int codec)
 {
     if (codec & HB_ACODEC_FF_MASK)
     {
-        return hb_get_work(WORK_ENCAVCODEC_AUDIO);
+        return hb_get_work(h, WORK_ENCAVCODEC_AUDIO);
     }
     switch (codec)
     {
-        case HB_ACODEC_AC3:     return hb_get_work(WORK_ENCAVCODEC_AUDIO);
-        case HB_ACODEC_LAME:    return hb_get_work(WORK_ENCLAME);
-        case HB_ACODEC_VORBIS:  return hb_get_work(WORK_ENCVORBIS);
-        case HB_ACODEC_CA_AAC:  return hb_get_work(WORK_ENC_CA_AAC);
-        case HB_ACODEC_CA_HAAC: return hb_get_work(WORK_ENC_CA_HAAC);
+        case HB_ACODEC_AC3:     return hb_get_work(h, WORK_ENCAVCODEC_AUDIO);
+        case HB_ACODEC_LAME:    return hb_get_work(h, WORK_ENCLAME);
+        case HB_ACODEC_VORBIS:  return hb_get_work(h, WORK_ENCVORBIS);
+        case HB_ACODEC_CA_AAC:  return hb_get_work(h, WORK_ENC_CA_AAC);
+        case HB_ACODEC_CA_HAAC: return hb_get_work(h, WORK_ENC_CA_HAAC);
         default:                break;
     }
     return NULL;
@@ -182,10 +233,19 @@ void hb_display_job_info(hb_job_t *job)
         sec_stop = (float)stop / 90000.0 - min_stop * 60;
         min_stop %= 60;
 
-        hb_log("   + title %d, start %02d:%02d:%02.2f stop %02d:%02d:%02.2f",
-               title->index,
-               hr_start, min_start, sec_start,
-               hr_stop,  min_stop,  sec_stop);
+        if (job->pts_to_stop)
+        {
+            hb_log("   + title %d, start %02d:%02d:%02.2f stop %02d:%02d:%02.2f",
+                   title->index,
+                   hr_start, min_start, sec_start,
+                   hr_stop,  min_stop,  sec_stop);
+        }
+        else
+        {
+            hb_log("   + title %d, start %02d:%02d:%02.2f",
+                   title->index,
+                   hr_start, min_start, sec_start);
+        }
     }
     else if( job->frame_to_start || job->frame_to_stop )
     {
@@ -255,7 +315,7 @@ void hb_display_job_info(hb_job_t *job)
         for( i = 0; i < hb_list_count( job->list_filter ); i++ )
         {
             hb_filter_object_t * filter = hb_list_item( job->list_filter, i );
-            if( filter->settings )
+            if( filter->settings && *filter->settings )
                 hb_log("     + %s (%s)", filter->name, filter->settings);
             else
                 hb_log("     + %s (default settings)", filter->name);
@@ -346,8 +406,8 @@ void hb_display_job_info(hb_job_t *job)
         }
         else
         {
-            hb_log( "     + bitrate: %d kbps, pass: %d", job->vbitrate, job->pass );
-            if(job->pass == 1 && job->fastfirstpass == 1 &&
+            hb_log( "     + bitrate: %d kbps, pass: %d", job->vbitrate, job->pass_id );
+            if(job->pass_id == HB_PASS_ENCODE_1ST && job->fastfirstpass == 1 &&
                (job->vcodec == HB_VCODEC_X264 || job->vcodec == HB_VCODEC_X265))
             {
                 hb_log( "     + fast first pass" );
@@ -524,7 +584,7 @@ static void do_job(hb_job_t *job)
     hb_work_object_t *w;
     hb_work_object_t *sync;
     hb_work_object_t *muxer;
-    hb_work_object_t *reader = hb_get_work(WORK_READER);
+    hb_work_object_t *reader = hb_get_work(job->h, WORK_READER);
 
     hb_audio_t *audio;
     hb_subtitle_t *subtitle;
@@ -538,7 +598,7 @@ static void do_job(hb_job_t *job)
     title = job->title;
     interjob = hb_interjob_get( job->h );
 
-    if( job->pass == 2 )
+    if( job->pass_id == HB_PASS_ENCODE_2ND )
     {
         correct_framerate( job );
     }
@@ -606,7 +666,8 @@ static void do_job(hb_job_t *job)
          * first burned subtitle (explicitly or after sanitizing) - which should
          * ensure that it doesn't get dropped. */
         interjob->select_subtitle->out_track = 1;
-        if (job->pass == 0 || job->pass == 2)
+        if (job->pass_id == HB_PASS_ENCODE ||
+            job->pass_id == HB_PASS_ENCODE_2ND)
         {
             // final pass, interjob->select_subtitle is no longer needed
             hb_list_insert(job->list_subtitle, 0, interjob->select_subtitle);
@@ -1181,7 +1242,8 @@ static void do_job(hb_job_t *job)
         hb_error("No video decoder set!");
         goto cleanup;
     }
-    hb_list_add(job->list_work, (w = hb_get_work(title->video_codec)));
+    hb_list_add(job->list_work, (w = hb_get_work(job->h, title->video_codec)));
+    w->yield = 1;   // decoders yield to keep sync fifos more even
     w->codec_param = title->video_codec_param;
     w->fifo_in  = job->fifo_mpeg2;
     w->fifo_out = job->fifo_raw;
@@ -1205,7 +1267,7 @@ static void do_job(hb_job_t *job)
             subtitle->fifo_sync = hb_fifo_init( FIFO_SMALL, FIFO_SMALL_WAKE );
             subtitle->fifo_out  = hb_fifo_init( FIFO_SMALL, FIFO_SMALL_WAKE );
 
-            w = hb_get_work( subtitle->codec );
+            w = hb_get_work( job->h, subtitle->codec );
             w->fifo_in = subtitle->fifo_in;
             w->fifo_out = subtitle->fifo_raw;
             w->subtitle = subtitle;
@@ -1242,29 +1304,29 @@ static void do_job(hb_job_t *job)
         switch( job->vcodec )
         {
         case HB_VCODEC_FFMPEG_MPEG4:
-            w = hb_get_work( WORK_ENCAVCODEC );
+            w = hb_get_work( job->h, WORK_ENCAVCODEC );
             w->codec_param = AV_CODEC_ID_MPEG4;
             break;
         case HB_VCODEC_FFMPEG_MPEG2:
-            w = hb_get_work( WORK_ENCAVCODEC );
+            w = hb_get_work( job->h, WORK_ENCAVCODEC );
             w->codec_param = AV_CODEC_ID_MPEG2VIDEO;
             break;
         case HB_VCODEC_FFMPEG_VP8:
-            w = hb_get_work( WORK_ENCAVCODEC );
+            w = hb_get_work( job->h, WORK_ENCAVCODEC );
             w->codec_param = AV_CODEC_ID_VP8;
             break;
         case HB_VCODEC_X264:
-            w = hb_get_work( WORK_ENCX264 );
+            w = hb_get_work( job->h, WORK_ENCX264 );
             break;
         case HB_VCODEC_QSV_H264:
-            w = hb_get_work( WORK_ENCQSV );
+            w = hb_get_work( job->h, WORK_ENCQSV );
             break;
         case HB_VCODEC_THEORA:
-            w = hb_get_work( WORK_ENCTHEORA );
+            w = hb_get_work( job->h, WORK_ENCTHEORA );
             break;
 #ifdef USE_X265
         case HB_VCODEC_X265:
-            w = hb_get_work( WORK_ENCX265 );
+            w = hb_get_work( job->h, WORK_ENCX265 );
             break;
 #endif
         }
@@ -1289,7 +1351,8 @@ static void do_job(hb_job_t *job)
             */
             if ( audio->priv.fifo_in )
             {
-                if ( ( w = hb_codec_decoder( audio->config.in.codec ) ) == NULL )
+                w = hb_codec_decoder(job->h, audio->config.in.codec);
+                if (w == NULL)
                 {
                     hb_error("Invalid input codec: %d", audio->config.in.codec);
                     *job->done_error = HB_ERROR_WRONG_INPUT;
@@ -1313,7 +1376,8 @@ static void do_job(hb_job_t *job)
                 /*
                 * Add the encoder thread if not doing AC-3 pass through
                 */
-                if ( ( w = hb_codec_encoder( audio->config.out.codec ) ) == NULL )
+                w = hb_codec_encoder( job->h, audio->config.out.codec);
+                if (w == NULL)
                 {
                     hb_error("Invalid audio codec: %#x", audio->config.out.codec);
                     w = NULL;
@@ -1463,8 +1527,8 @@ static void do_job(hb_job_t *job)
 
     hb_handle_t * h = job->h;
     hb_state_t state;
-    hb_get_state( h, &state );
-    
+    hb_get_state2( h, &state );
+
     hb_log("work: average encoding speed for job is %f fps", state.param.working.rate_avg);
 
     job->done = 1;
@@ -1718,6 +1782,10 @@ static void work_loop( void * _w )
                     break;
                 }
             }
+        }
+        if (w->yield)
+        {
+            hb_yield();
         }
     }
     if ( buf_out )

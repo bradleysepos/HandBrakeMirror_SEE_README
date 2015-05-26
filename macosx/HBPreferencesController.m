@@ -35,12 +35,12 @@
                                        label: (NSString *)label
                                        image: (NSImage *)image;
 
-@property (assign) IBOutlet NSTokenField *formatTokenField;
-@property (assign) IBOutlet NSTokenField *builtInTokenField;
-@property (nonatomic, readonly) NSArray *buildInFormatTokens;
-@property (nonatomic, retain) NSArray *matches;
+@property (unsafe_unretained) IBOutlet NSTokenField *formatTokenField;
+@property (unsafe_unretained) IBOutlet NSTokenField *builtInTokenField;
+@property (nonatomic, readonly, strong) NSArray *buildInFormatTokens;
+@property (nonatomic, strong) NSArray *matches;
 
-@property (nonatomic, retain) HBLanguagesSelection *languages;
+@property (nonatomic, strong) HBLanguagesSelection *languages;
 
 @end
 
@@ -70,11 +70,11 @@
         @"AlertWhenDone":                   @"Alert Window",
         @"AlertWhenDoneSound":              @"YES",
         @"LoggingLevel":                    @"1",
+        @"HBClearOldLogs":                  @YES,
         @"EncodeLogLocation":               @"NO",
         @"MinTitleScanSeconds":             @"10",
         @"PreviewsNumber":                  @"10",
         @"x264CqSliderFractional":          @"0.50",
-        @"AlertBuiltInPresetUpdate":        @"YES",
         @"SendCompletedEncodeToApp":        @"MetaX",
         @"HBShowAdvancedTab":               @NO,
         @"HBAutoNamingFormat":              @[@"{Source}", @" ", @"{Title}"],
@@ -99,12 +99,6 @@
     return self;
 }
 
-- (void)dealloc
-{
-    [_languages release];
-    [super dealloc];
-}
-
 - (void)showWindow:(id)sender
 {
     if (!self.window.isVisible)
@@ -124,7 +118,7 @@
  */
 - (void) awakeFromNib
 {
-    NSToolbar * toolbar = [[[NSToolbar alloc] initWithIdentifier: @"Preferences Toolbar"] autorelease];
+    NSToolbar * toolbar = [[NSToolbar alloc] initWithIdentifier: @"Preferences Toolbar"];
     [toolbar setDelegate: self];
     [toolbar setAllowsUserCustomization: NO];
     [toolbar setDisplayMode: NSToolbarDisplayModeIconAndLabel];
@@ -135,7 +129,7 @@
     [self.formatTokenField setTokenizingCharacterSet:[NSCharacterSet characterSetWithCharactersInString:@"%%"]];
     [self.formatTokenField setCompletionDelay:0.2];
 
-    _buildInFormatTokens = [@[@"{Source}", @"{Title}", @"{Date}", @"{Time}", @"{Chapters}", @"{Quality/Bitrate}"] retain];
+    _buildInFormatTokens = @[@"{Source}", @"{Title}", @"{Date}", @"{Time}", @"{Chapters}", @"{Quality/Bitrate}"];
     [self.builtInTokenField setTokenizingCharacterSet:[NSCharacterSet characterSetWithCharactersInString:@"%%"]];
     [self.builtInTokenField setStringValue:[self.buildInFormatTokens componentsJoinedByString:@"%%"]];
 
@@ -342,7 +336,7 @@
     [item setImage:image];
     [item setAction:@selector(setPrefView:)];
     [item setAutovalidates:NO];
-    return [item autorelease];
+    return item;
 }
 
 @end

@@ -11,9 +11,10 @@ namespace HandBrakeWPF.Services
 {
     using HandBrake.ApplicationServices.Services.Encode.EventArgs;
     using HandBrake.ApplicationServices.Services.Encode.Interfaces;
-    using HandBrake.ApplicationServices.Services.Interfaces;
 
     using HandBrakeWPF.Services.Interfaces;
+
+    using IQueueProcessor = HandBrakeWPF.Services.Queue.Interfaces.IQueueProcessor;
 
     /// <summary>
     /// The Notification Service (Growl Connector)
@@ -37,7 +38,7 @@ namespace HandBrakeWPF.Services
         /// <param name="userSettingService">
         /// The user Setting Service.
         /// </param>
-        public NotificationService(IEncodeServiceWrapper encodeService, IQueueProcessor queueProcessor, IUserSettingService userSettingService)
+        public NotificationService(IEncode encodeService, IQueueProcessor queueProcessor, IUserSettingService userSettingService)
         {
             this.userSettingService = userSettingService;
            // encodeService.EncodeCompleted += this.EncodeServiceEncodeCompleted;

@@ -50,6 +50,16 @@ namespace HandBrakeWPF.ViewModels.Interfaces
         bool AddToQueue();
 
         /// <summary>
+        /// The launch help.
+        /// </summary>
+        void LaunchHelp();
+
+        /// <summary>
+        /// The select source window.
+        /// </summary>
+        void SelectSourceWindow();
+
+        /// <summary>
         /// File Scan
         /// </summary>
         void FileScan();

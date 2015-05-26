@@ -48,8 +48,6 @@ struct hb_handle_s
        from this one (see work.c) */
     hb_list_t    * jobs;
     hb_job_t     * current_job;
-    int            job_count;
-    int            job_count_permanent;
     volatile int   work_die;
     hb_error_code  work_error;
     hb_thread_t  * work_thread;
@@ -70,11 +68,31 @@ struct hb_handle_s
     hb_interjob_t * interjob;
 
     // power management opaque pointer
-    void *system_sleep_opaque;
-} ;
+    void         * system_sleep_opaque;
+
+    // When hardware decoding, scan must also use hardware so that
+    // libav hardware decode contest is used.  So set hardware
+    // decoding as a global property on the hb instance.
+    hb_hwd_t       hwd;
+};
 
 hb_work_object_t * hb_objects = NULL;
 int hb_instance_counter = 0;
+
+void hb_hwd_set_enable( hb_handle_t *h, uint8_t enable )
+{
+    h->hwd.enable = enable;
+}
+
+int hb_hwd_enabled( hb_handle_t *h )
+{
+    return h->hwd.enable;
+}
+
+hb_hwd_t * hb_hwd_get_context( hb_handle_t *h )
+{
+    return &h->hwd;
+}
 
 static void thread_func( void * );
 
@@ -1255,7 +1273,7 @@ hb_job_t * hb_current_job( hb_handle_t * h )
  * @param h Handle to hb_handle_t.
  * @param job Handle to hb_job_t.
  */
-static void hb_add_internal( hb_handle_t * h, hb_job_t * job )
+static void hb_add_internal( hb_handle_t * h, hb_job_t * job, hb_list_t *list_pass )
 {
     hb_job_t      * job_copy;
     hb_audio_t    * audio;
@@ -1336,21 +1354,64 @@ static void hb_add_internal( hb_handle_t * h, hb_job_t * job )
         job_copy->file = strdup(job->file);
 
     job_copy->h     = h;
-    job_copy->pause = h->pause_lock;
 
     /* Copy the job filter list */
     job_copy->list_filter = hb_filter_list_copy( job->list_filter );
 
     /* Add the job to the list */
-    hb_list_add( h->jobs, job_copy );
-    h->job_count = hb_count(h);
-    h->job_count_permanent++;
+    hb_list_add( list_pass, job_copy );
+}
+
+hb_job_t* hb_job_copy(hb_job_t * job)
+{
+    hb_job_t      * job_copy;
+
+    /* Copy the job */
+    job_copy        = calloc( sizeof( hb_job_t ), 1 );
+    if (job_copy == NULL)
+        return NULL;
+
+    if (job->json != NULL)
+    {
+        // JSON jobs should only have the json string set.
+        job_copy->json = strdup(job->json);
+        return job_copy;
+    }
+    memcpy( job_copy, job, sizeof( hb_job_t ) );
+
+    job_copy->list_subtitle = hb_subtitle_list_copy( job->list_subtitle );
+    job_copy->list_chapter = hb_chapter_list_copy( job->list_chapter );
+    job_copy->list_audio = hb_audio_list_copy( job->list_audio );
+    job_copy->list_attachment = hb_attachment_list_copy( job->list_attachment );
+    job_copy->metadata = hb_metadata_copy( job->metadata );
+
+    if (job->encoder_preset != NULL)
+        job_copy->encoder_preset = strdup(job->encoder_preset);
+    if (job->encoder_tune != NULL)
+        job_copy->encoder_tune = strdup(job->encoder_tune);
+    if (job->encoder_options != NULL)
+        job_copy->encoder_options = strdup(job->encoder_options);
+    if (job->encoder_profile != NULL)
+        job_copy->encoder_profile = strdup(job->encoder_profile);
+    if (job->encoder_level != NULL)
+        job_copy->encoder_level = strdup(job->encoder_level);
+    if (job->file != NULL)
+        job_copy->file = strdup(job->file);
+
+    job_copy->list_filter = hb_filter_list_copy( job->list_filter );
+
+    return job_copy;
 }
 
 void hb_add( hb_handle_t * h, hb_job_t * job )
 {
-    int sub_id = 0;
+    hb_job_t *job_copy = hb_job_copy(job);
+    job_copy->h = h;
+    hb_list_add(h->jobs, job_copy);
+}
 
+void hb_job_setup_passes(hb_handle_t * h, hb_job_t * job, hb_list_t * list_pass)
+{
     if (job->vquality >= 0)
     {
         job->twopass = 0;
@@ -1358,26 +1419,22 @@ void hb_add( hb_handle_t * h, hb_job_t * job )
     if (job->indepth_scan)
     {
         hb_deep_log(2, "Adding subtitle scan pass");
-        job->pass = -1;
-        job->sequence_id = (job->sequence_id & 0xFFFFFF) | (sub_id++ << 24);
-        hb_add_internal(h, job);
+        job->pass_id = HB_PASS_SUBTITLE;
+        hb_add_internal(h, job, list_pass);
         job->indepth_scan = 0;
     }
     if (job->twopass)
     {
         hb_deep_log(2, "Adding two-pass encode");
-        job->pass = 1;
-        job->sequence_id = (job->sequence_id & 0xFFFFFF) | (sub_id++ << 24);
-        hb_add_internal(h, job);
-        job->pass = 2;
-        job->sequence_id = (job->sequence_id & 0xFFFFFF) | (sub_id++ << 24);
-        hb_add_internal(h, job);
+        job->pass_id = HB_PASS_ENCODE_1ST;
+        hb_add_internal(h, job, list_pass);
+        job->pass_id = HB_PASS_ENCODE_2ND;
+        hb_add_internal(h, job, list_pass);
     }
     else
     {
-        job->pass = 0;
-        job->sequence_id = (job->sequence_id & 0xFFFFFF) | (sub_id++ << 24);
-        hb_add_internal(h, job);
+        job->pass_id = HB_PASS_ENCODE;
+        hb_add_internal(h, job, list_pass);
     }
 }
 
@@ -1389,12 +1446,6 @@ void hb_add( hb_handle_t * h, hb_job_t * job )
 void hb_rem( hb_handle_t * h, hb_job_t * job )
 {
     hb_list_rem( h->jobs, job );
-
-    h->job_count = hb_count(h);
-    if (h->job_count_permanent)
-        h->job_count_permanent--;
-
-    /* XXX free everything XXX */
 }
 
 /**
@@ -1405,16 +1456,10 @@ void hb_rem( hb_handle_t * h, hb_job_t * job )
  */
 void hb_start( hb_handle_t * h )
 {
-    /* XXX Hack */
-    h->job_count = hb_list_count( h->jobs );
-    h->job_count_permanent = h->job_count;
-
     hb_lock( h->state_lock );
     h->state.state = HB_STATE_WORKING;
 #define p h->state.param.working
     p.progress  = 0.0;
-    p.job_cur   = 1;
-    p.job_count = h->job_count;
     p.rate_cur  = 0.0;
     p.rate_avg  = 0.0;
     p.hours     = -1;
@@ -1477,10 +1522,6 @@ void hb_resume( hb_handle_t * h )
 void hb_stop( hb_handle_t * h )
 {
     h->work_die = 1;
-
-    h->job_count = hb_count(h);
-    h->job_count_permanent = 0;
-
     hb_resume( h );
 }
 
@@ -1491,10 +1532,6 @@ void hb_stop( hb_handle_t * h )
 void hb_scan_stop( hb_handle_t * h )
 {
     h->scan_die = 1;
-
-    h->job_count = hb_count(h);
-    h->job_count_permanent = 0;
-
     hb_resume( h );
 }
 
@@ -1522,15 +1559,6 @@ void hb_get_state2( hb_handle_t * h, hb_state_t * s )
 
     hb_unlock( h->state_lock );
 }
-
-/**
- * Called in MacGui in UpdateUI to check
- *  for a new scan being completed to set a new source
- */
-int hb_get_scancount( hb_handle_t * h)
- {
-     return h->scanCount;
- }
 
 /**
  * Closes access to libhb by freeing the hb_handle_t handle ontained in hb_init.
@@ -1627,6 +1655,9 @@ int hb_global_init()
      */
     hb_buffer_pool_init();
 
+    // Initialize the builtin presets hb_dict_t
+    hb_presets_builtin_init();
+
     return result;
 }
 
@@ -1639,6 +1670,8 @@ void hb_global_close()
     DIR * dir;
     struct dirent * entry;
     
+    hb_presets_free();
+
     /* Find and remove temp folder */
     memset( dirname, 0, 1024 );
     hb_get_temporary_directory( dirname );
@@ -1735,9 +1768,6 @@ static void thread_func( void * _h )
             h->state.state                = HB_STATE_WORKDONE;
             h->state.param.workdone.error = h->work_error;
 
-            h->job_count = hb_count(h);
-            if (h->job_count < 1)
-                h->job_count_permanent = 0;
             hb_unlock( h->state_lock );
         }
 
@@ -1813,14 +1843,6 @@ void hb_set_state( hb_handle_t * h, hb_state_t * s )
     if( h->state.state == HB_STATE_WORKING ||
         h->state.state == HB_STATE_SEARCHING )
     {
-        /* XXX Hack */
-        if (h->job_count < 1)
-            h->job_count_permanent = 1;
-
-        h->state.param.working.job_cur =
-            h->job_count_permanent - hb_list_count( h->jobs );
-        h->state.param.working.job_count = h->job_count_permanent;
-
         // Set which job is being worked on
         if (h->current_job)
             h->state.param.working.sequence_id = h->current_job->sequence_id & 0xFFFFFF;

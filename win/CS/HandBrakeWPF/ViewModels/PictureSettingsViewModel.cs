@@ -13,11 +13,10 @@ namespace HandBrakeWPF.ViewModels
     using System.Collections.Generic;
     using System.Globalization;
 
-    using HandBrake.ApplicationServices.Model;
     using HandBrake.ApplicationServices.Services.Encode.Model;
     using HandBrake.ApplicationServices.Services.Scan.Model;
-    using HandBrake.Interop.Model;
-    using HandBrake.Interop.Model.Encoding;
+    using HandBrake.ApplicationServices.Interop.Model;
+    using HandBrake.ApplicationServices.Interop.Model.Encoding;
 
     using HandBrakeWPF.Helpers;
     using HandBrakeWPF.Services.Presets.Model;
@@ -25,7 +24,6 @@ namespace HandBrakeWPF.ViewModels
     using HandBrakeWPF.ViewModels.Interfaces;
 
     using PresetPictureSettingsMode = HandBrakeWPF.Model.Picture.PresetPictureSettingsMode;
-    using Size = System.Drawing.Size;
 
     /// <summary>
     /// The Picture Settings View Model
@@ -126,6 +124,7 @@ namespace HandBrakeWPF.ViewModels
         /// </summary>
         public PictureSettingsViewModel()
         {
+            this.sourceResolution = new Size(0, 0);
             this.Task = new EncodeTask();
             this.Init();
         }
@@ -924,30 +923,14 @@ namespace HandBrakeWPF.ViewModels
 
             // Step 2, For the changed field, call hb_set_anamorphic_size and process the results.
             PictureSize.AnamorphicResult result = PictureSize.hb_set_anamorphic_size2(this.GetPictureSettings(), this.GetPictureTitleInfo(), setting);
-
-            switch (this.SelectedAnamorphicMode)
-            {
-                case Anamorphic.None:
-                    this.Task.Width = result.OutputWidth;
-                    this.Task.Height = result.OutputHeight;
-                    break;
-                case Anamorphic.Strict:
-                    this.Task.Width = 0;
-                    this.Task.Height = 0;
-                    break;
-                case Anamorphic.Loose:
-                    this.Task.Width = result.OutputWidth;
-                    this.Task.Height = 0;
-                    break;
-                case Anamorphic.Custom:
-                    this.Task.Width = result.OutputWidth;
-                    this.Task.Height = result.OutputHeight;
-                    break;
-            }
+            this.Task.Width = result.OutputWidth;
+            this.Task.Height = result.OutputHeight;
+            this.Task.PixelAspectX = (int)Math.Round(result.OutputParWidth, 0);
+            this.Task.PixelAspectY = (int)Math.Round(result.OutputParHeight, 0);
 
             // Step 3, Set the display width label to indicate the output.
             double dispWidth = Math.Round((result.OutputWidth * result.OutputParWidth / result.OutputParHeight), 0);
-            this.DisplaySize = this.sourceResolution.IsEmpty
+            this.DisplaySize = this.sourceResolution == null || this.sourceResolution.IsEmpty
                            ? string.Empty
                            : string.Format("Storage: {0}x{1}, Display: {2}x{3}", result.OutputWidth, result.OutputHeight, dispWidth, result.OutputHeight);
 

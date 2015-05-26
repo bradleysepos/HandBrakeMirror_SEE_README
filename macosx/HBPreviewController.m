@@ -93,22 +93,20 @@ typedef enum ViewMode : NSUInteger {
     IBOutlet NSPopUpButton          * fPreviewMovieLengthPopUp;
 }
 
-@property (nonatomic, assign) id <HBPreviewControllerDelegate> delegate;
-
-@property (nonatomic) CALayer *backLayer;
-@property (nonatomic) CALayer *pictureLayer;
+@property (nonatomic, strong) CALayer *backLayer;
+@property (nonatomic, strong) CALayer *pictureLayer;
 
 @property (nonatomic) CGFloat backingScaleFactor;
 
 @property (nonatomic) ViewMode currentViewMode;
 @property (nonatomic) BOOL scaleToScreen;
 
-@property (nonatomic, retain) NSTimer *hudTimer;
+@property (nonatomic, strong) NSTimer *hudTimer;
 
 @property (nonatomic) NSUInteger pictureIndex;
 
-@property (nonatomic, retain) QTMovie *movie;
-@property (nonatomic, retain) NSTimer *movieTimer;
+@property (nonatomic, strong) QTMovie *movie;
+@property (nonatomic, strong) NSTimer *movieTimer;
 
 /* Pictures HUD actions */
 - (IBAction) previewDurationPopUpChanged: (id) sender;
@@ -130,26 +128,13 @@ typedef enum ViewMode : NSUInteger {
 
 @implementation HBPreviewController
 
-- (id)initWithDelegate:(id <HBPreviewControllerDelegate>)delegate
+- (instancetype)init
 {
-	if (self = [super initWithWindowNibName:@"PicturePreview"])
-	{
-        // NSWindowController likes to lazily load its window. However since
-        // this controller tries to set all sorts of outlets before the window
-        // is displayed, we need it to load immediately. The correct way to do
-        // this, according to the documentation, is simply to invoke the window
-        // getter once.
-        //
-        // If/when we switch a lot of this stuff to bindings, this can probably
-        // go away.
-        [self window];
-        _delegate = delegate;
-
-    }
+    self = [super initWithWindowNibName:@"PicturePreview"];
 	return self;
 }
 
-- (void) awakeFromNib
+- (void)windowDidLoad
 {
     [[self window] setDelegate:self];
 
@@ -209,7 +194,7 @@ typedef enum ViewMode : NSUInteger {
     NSMutableDictionary *actions = [NSMutableDictionary
                                     dictionaryWithDictionary:[self.pictureLayer actions]];
 
-    [actions setObject:[NSNull null] forKey:@"contents"];
+    actions[@"contents"] = [NSNull null];
     [self.pictureLayer setActions:actions];
 
     [[[[self window] contentView] layer] insertSublayer:self.backLayer below: [fMovieView layer]];
@@ -220,6 +205,8 @@ typedef enum ViewMode : NSUInteger {
     [fPictureControlBox setFrameOrigin:hudControlBoxOrigin];
     [fEncodingControlBox setFrameOrigin:hudControlBoxOrigin];
     [fMoviePlaybackControlBox setFrameOrigin:hudControlBoxOrigin];
+
+    [self hideHud];
 
     /* set the current scale factor */
     if( [[self window] respondsToSelector:@selector( backingScaleFactor )] )
@@ -234,10 +221,9 @@ typedef enum ViewMode : NSUInteger {
     {
         _generator.delegate = nil;
         [_generator cancel];
-        [_generator autorelease];
     }
 
-    _generator = [generator retain];
+    _generator = generator;
 
     if (generator)
     {
@@ -250,15 +236,17 @@ typedef enum ViewMode : NSUInteger {
         [self switchViewToMode:ViewModePicturePreview];
         [self displayPreview];
     }
+    else
+    {
+        [self.pictureLayer setContents:nil];
+        self.window.title = NSLocalizedString(@"Preview", nil);
+    }
 }
 
 - (void) reloadPreviews
 {
     if (self.generator)
     {
-        // Purge the existing picture previews so they get recreated the next time
-        // they are needed.
-        [self.generator purgeImageCache];
         [self switchViewToMode:ViewModePicturePreview];
         [self displayPreview];
     }
@@ -291,7 +279,6 @@ typedef enum ViewMode : NSUInteger {
     }
 
     [self.generator purgeImageCache];
-    [[NSUserDefaults standardUserDefaults] setBool:NO forKey:@"PreviewWindowIsOpen"];
 }
 
 - (void) windowDidChangeBackingProperties: (NSNotification *) notification
@@ -299,8 +286,7 @@ typedef enum ViewMode : NSUInteger {
     NSWindow *theWindow = (NSWindow *)[notification object];
 
     CGFloat newBackingScaleFactor = [theWindow backingScaleFactor];
-    CGFloat oldBackingScaleFactor = [[[notification userInfo]
-                                      objectForKey:@"NSBackingPropertyOldScaleFactorKey"]
+    CGFloat oldBackingScaleFactor = [[notification userInfo][@"NSBackingPropertyOldScaleFactorKey"]
                                      doubleValue];
 
     if (newBackingScaleFactor != oldBackingScaleFactor)
@@ -361,7 +347,7 @@ typedef enum ViewMode : NSUInteger {
 /**
  * Resizes the entire window to accomodate a view of a particular size.
  */
-- (void) resizeWindowForViewSize: (NSSize) viewSize
+- (void)resizeWindowForViewSize:(NSSize)viewSize animate:(BOOL)performAnimation
 {
     NSSize currentSize = [[[self window] contentView] frame].size;
     NSRect frame = [[self window] frame];
@@ -432,9 +418,8 @@ typedef enum ViewMode : NSUInteger {
         }
     }
 
-    [[self window] setFrame:frame display:YES animate:YES];
+    [[self window] setFrame:frame display:YES animate:performAnimation];
 }
-
 
 /**
  * Enable/Disable an arbitrary number of UI elements.
@@ -529,18 +514,11 @@ typedef enum ViewMode : NSUInteger {
 
 - (void) dealloc
 {
-    [_hudTimer invalidate];
-    [_hudTimer release];
-
-    [_movieTimer invalidate];
-    [_movieTimer release];
-
-    [_generator cancel];
-    [_generator release];
-
     [self removeMovieObservers];
 
-    [super dealloc];
+    [_hudTimer invalidate];
+    [_movieTimer invalidate];
+    [_generator cancel];
 }
 
 #pragma mark -
@@ -632,6 +610,13 @@ typedef enum ViewMode : NSUInteger {
     }
 }
 
+- (void)hideHud
+{
+    [fPictureControlBox setHidden:YES];
+    [fMoviePlaybackControlBox setHidden:YES];
+    [fEncodingControlBox setHidden:YES];
+}
+
 - (void) startHudTimer
 {
 	if (self.hudTimer)
@@ -671,56 +656,51 @@ typedef enum ViewMode : NSUInteger {
  */
 - (void) displayPreview
 {
-    CGImageRef fPreviewImage = NULL;
-
     if (self.window.isVisible)
     {
-        fPreviewImage = [self.generator imageAtIndex:self.pictureIndex shouldCache:YES];
-        [self.pictureLayer setContents:(id)fPreviewImage];
-    }
-    else
-    {
-        return;
+        CGImageRef fPreviewImage = [self.generator copyImageAtIndex:self.pictureIndex shouldCache:YES];
+        [self.pictureLayer setContents:(__bridge id)(fPreviewImage)];
+        CFRelease(fPreviewImage);
     }
 
-    /* Set the picture size display fields below the Preview Picture*/
-    NSSize imageScaledSize = NSMakeSize(CGImageGetWidth(fPreviewImage), CGImageGetHeight(fPreviewImage));
-    NSSize displaySize = imageScaledSize;
+    // Set the picture size display fields below the Preview Picture
+    NSSize imageScaledSize = [self.generator imageSize];
 
     if (self.backingScaleFactor != 1.0)
     {
         // HiDPI mode usually display everything
         // with douple pixel count, but we don't
         // want to double the size of the video
-        displaySize.height /= self.backingScaleFactor;
-        displaySize.width /= self.backingScaleFactor;
         imageScaledSize.height /= self.backingScaleFactor;
         imageScaledSize.width /= self.backingScaleFactor;
     }
 
     // Get the optimal view size for the image
-    NSSize viewSize = [self optimalViewSizeForImageSize:displaySize];
+    NSSize viewSize = [self optimalViewSizeForImageSize:imageScaledSize];
     viewSize.width += BORDER_SIZE * 2;
     viewSize.height += BORDER_SIZE * 2;
 
     NSSize windowSize;
     if (self.scaleToScreen == YES)
+    {
         // Scale the window to the max possible size
         windowSize = [[[self window] screen] visibleFrame].size;
+    }
     else
+    {
         // Scale the window to the image size
         windowSize = viewSize;
+    }
 
-    [self resizeWindowForViewSize:windowSize];
+    [self resizeWindowForViewSize:windowSize animate:self.window.isVisible];
     NSSize areaSize = [[[self window] contentView] frame].size;
     areaSize.width -= BORDER_SIZE * 2;
     areaSize.height -= BORDER_SIZE * 2;
 
     if (self.scaleToScreen == YES)
     {
-        /* We are in Scale To Screen mode so, we have to get the ratio for height and width against the window
-         *size so we can scale from there.
-         */
+        // We are in Scale To Screen mode so, we have to get the ratio for height and width against the window
+        // size so we can scale from there.
         CGFloat pictureAspectRatio = imageScaledSize.width / imageScaledSize.height;
         CGFloat areaAspectRatio = areaSize.width / areaSize.height;
 
@@ -762,25 +742,28 @@ typedef enum ViewMode : NSUInteger {
     [self.backLayer setBounds:CGRectMake(0, 0, viewSize.width + (BORDER_SIZE * 2), viewSize.height + (BORDER_SIZE * 2))];
     [self.pictureLayer setBounds:CGRectMake(0, 0, viewSize.width, viewSize.height)];
 
+    CGFloat scale = self.pictureLayer.frame.size.width / imageScaledSize.width;
     NSString *scaleString;
-    CGFloat scale = ( ( CGFloat )[self.pictureLayer frame].size.width) / ( ( CGFloat )imageScaledSize.width);
     if (scale * 100.0 != 100)
+    {
         scaleString = [NSString stringWithFormat:@" (%.0f%% actual size)", scale * 100.0];
+    }
     else
+    {
         scaleString = @"(Actual size)";
+    }
 
     if (_scaleToScreen == YES)
+    {
         scaleString = [scaleString stringByAppendingString:@" Scaled To Screen"];
+    }
 
-    /* Set the info fields in the hud controller */
-    [fInfoField setStringValue: [NSString stringWithFormat:
-                                 @"%@", self.generator.info]];
+    // Set the info fields in the hud controller
+    [fInfoField setStringValue:self.generator.info];
+    [fscaleInfoField setStringValue:scaleString];
 
-    [fscaleInfoField setStringValue: [NSString stringWithFormat:
-                                      @"%@", scaleString]];
-
-    /* Set the info field in the window title bar */
-    [[self window] setTitle:[NSString stringWithFormat: @"Preview - %@ %@", self.generator.info, scaleString]];
+    // Set the info field in the window title bar
+    [self.window setTitle:[NSString stringWithFormat:@"Preview - %@ %@", self.generator.info, scaleString]];
 }
 
 - (IBAction) previewDurationPopUpChanged: (id) sender
@@ -816,7 +799,7 @@ typedef enum ViewMode : NSUInteger {
 
 - (IBAction) showPictureSettings: (id) sender
 {
-    [self.delegate showPicturePanel:self];
+    [self.pictureSettingsWindow showWindow:self];
 }
 
 #pragma mark -
@@ -848,7 +831,7 @@ typedef enum ViewMode : NSUInteger {
                                           @"QTMovieIsSteppableAttribute": @(YES),
                                           QTMovieApertureModeAttribute: QTMovieApertureModeClean};
 
-        QTMovie *movie = [[[QTMovie alloc] initWithAttributes:movieAttributes error:&outError] autorelease];
+        QTMovie *movie = [[QTMovie alloc] initWithAttributes:movieAttributes error:&outError];
 
 		if (!movie)
         {
@@ -868,7 +851,7 @@ typedef enum ViewMode : NSUInteger {
             if (subtitlesArray && [subtitlesArray count])
             {
                 // enable the first tx3g subtitle track
-                [[subtitlesArray objectAtIndex: 0] setEnabled: YES];
+                [subtitlesArray[0] setEnabled: YES];
             }
             else
             {
@@ -878,7 +861,7 @@ typedef enum ViewMode : NSUInteger {
                 {
                     // track 0 should be video, other video tracks should
                     // be subtitles; force-enable the first subs track
-                    [[subtitlesArray objectAtIndex: 1] setEnabled: YES];
+                    [subtitlesArray[1] setEnabled: YES];
                 }
             }
 

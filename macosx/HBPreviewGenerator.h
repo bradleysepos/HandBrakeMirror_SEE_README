@@ -22,16 +22,17 @@
 
 @interface HBPreviewGenerator : NSObject
 
-@property (nonatomic, assign) id <HBPreviewGeneratorDelegate> delegate;
+@property (nonatomic, unsafe_unretained) id <HBPreviewGeneratorDelegate> delegate;
 
-- (instancetype)initWithCore:(HBCore *)core job:(HBJob *)job;
+- (instancetype)initWithCore:(HBCore *)core job:(HBJob *)job NS_DESIGNATED_INITIALIZER;
 
 /* Still image generator */
-- (CGImageRef) imageAtIndex: (NSUInteger) index shouldCache: (BOOL) cache;
-- (NSUInteger) imagesCount;
+- (CGImageRef) copyImageAtIndex: (NSUInteger) index shouldCache: (BOOL) cache CF_RETURNS_RETAINED;
+@property (nonatomic, readonly) NSUInteger imagesCount;
+@property (nonatomic, readonly) CGSize imageSize;
 - (void) purgeImageCache;
 
-- (NSString *)info;
+@property (nonatomic, readonly, copy) NSString *info;
 
 /* Video generator */
 - (BOOL) createMovieAsyncWithImageAtIndex: (NSUInteger) index duration: (NSUInteger) seconds;

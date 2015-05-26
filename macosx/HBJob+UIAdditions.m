@@ -7,6 +7,7 @@
 #import "HBJob+UIAdditions.h"
 
 #import "HBAttributedStringAdditions.h"
+#import "HBTitle.h"
 #import "HBJob.h"
 #import "HBAudioTrack.h"
 #import "HBAudioDefaults.h"
@@ -38,9 +39,9 @@ static NSDictionary            *shortHeightAttr;
 - (NSArray *)angles
 {
     NSMutableArray *angles = [NSMutableArray array];
-    for (int i = 0; i < self.title.angles; i++)
+    for (int i = 1; i <= self.title.angles; i++)
     {
-        [angles addObject:[NSString stringWithFormat: @"%d", i + 1]];
+        [angles addObject:[NSString stringWithFormat: @"%d", i]];
     }
     return angles;
 }
@@ -64,12 +65,12 @@ static NSDictionary            *shortHeightAttr;
         }
         else
         {
-            title = [NSString stringWithUTF8String:container->name];
+            title = @(container->name);
         }
         [containers addObject:title];
     }
 
-    return [[containers copy] autorelease];
+    return [containers copy];
 }
 
 - (void)initStyles
@@ -77,22 +78,22 @@ static NSDictionary            *shortHeightAttr;
     if (!ps)
     {
         // Attributes
-        ps = [[[NSParagraphStyle defaultParagraphStyle] mutableCopy] retain];
+        ps = [[NSParagraphStyle defaultParagraphStyle] mutableCopy];
         [ps setHeadIndent: 40.0];
         [ps setParagraphSpacing: 1.0];
         [ps setTabStops:@[]];    // clear all tabs
-        [ps addTabStop: [[[NSTextTab alloc] initWithType: NSLeftTabStopType location: 20.0] autorelease]];
+        [ps addTabStop: [[NSTextTab alloc] initWithType: NSLeftTabStopType location: 20.0]];
 
-        detailAttr = [@{NSFontAttributeName: [NSFont systemFontOfSize:10.0],
-                        NSParagraphStyleAttributeName: ps} retain];
+        detailAttr = @{NSFontAttributeName: [NSFont systemFontOfSize:10.0],
+                        NSParagraphStyleAttributeName: ps};
 
-        detailBoldAttr = [@{NSFontAttributeName: [NSFont boldSystemFontOfSize:10.0],
-                            NSParagraphStyleAttributeName: ps} retain];
+        detailBoldAttr = @{NSFontAttributeName: [NSFont boldSystemFontOfSize:10.0],
+                            NSParagraphStyleAttributeName: ps};
 
-        titleAttr = [@{NSFontAttributeName: [NSFont systemFontOfSize:[NSFont systemFontSize]],
-                       NSParagraphStyleAttributeName: ps} retain];
+        titleAttr = @{NSFontAttributeName: [NSFont systemFontOfSize:[NSFont systemFontSize]],
+                       NSParagraphStyleAttributeName: ps};
 
-        shortHeightAttr = [@{NSFontAttributeName: [NSFont systemFontOfSize:2.0]} retain];
+        shortHeightAttr = @{NSFontAttributeName: [NSFont systemFontOfSize:2.0]};
     }
 }
 
@@ -150,7 +151,7 @@ static NSDictionary            *shortHeightAttr;
             }
         }
 
-        [finalString appendString:[NSString stringWithFormat:@"%@", self.fileURL.path.lastPathComponent] withAttributes:titleAttr];
+        [finalString appendString:[NSString stringWithFormat:@"%@", self.description] withAttributes:titleAttr];
 
         // lets add the output file name to the title string here
         NSString *outputFilenameString = self.destURL.lastPathComponent;
@@ -321,9 +322,24 @@ static NSDictionary            *shortHeightAttr;
             {
                 // we are using the x264 system
                 encoderPresetInfo = [encoderPresetInfo stringByAppendingString: [NSString stringWithFormat:@"Preset: %@", self.video.preset]];
-                if (self.video.tune.length)
+
+                if (self.video.tune.length || self.video.fastDecode)
                 {
-                    encoderPresetInfo = [encoderPresetInfo stringByAppendingString: [NSString stringWithFormat:@" - Tune: %@", self.video.tune]];
+                    encoderPresetInfo = [encoderPresetInfo stringByAppendingString:@" - Tune: "];
+
+                    if (self.video.tune.length)
+                    {
+                        encoderPresetInfo = [encoderPresetInfo stringByAppendingString: [NSString stringWithFormat:@"%@", self.video.tune]];
+
+                        if (self.video.fastDecode)
+                        {
+                            encoderPresetInfo = [encoderPresetInfo stringByAppendingString:@","];
+                        }
+                    }
+                    if (self.video.fastDecode)
+                    {
+                        encoderPresetInfo = [encoderPresetInfo stringByAppendingString:@"fastdecode"];
+                    }
                 }
                 if (self.video.videoOptionExtra.length)
                 {
@@ -459,7 +475,7 @@ static NSDictionary            *shortHeightAttr;
         }
     }
     
-    return [finalString autorelease];
+    return finalString;
 }
 
 @end

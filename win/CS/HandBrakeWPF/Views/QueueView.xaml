@@ -11,12 +11,13 @@
         xmlns:Audio="clr-namespace:HandBrakeWPF.Converters.Audio"
         xmlns:Subtitles="clr-namespace:HandBrakeWPF.Converters.Subtitles"
         xmlns:video="clr-namespace:HandBrakeWPF.Converters.Video"
+        xmlns:commands="clr-namespace:HandBrakeWPF.Commands"
+        xmlns:helpers="clr-namespace:HandBrakeWPF.Helpers"
         Title="{Binding Title}"
         Width="700"
         Height="500"
         MinWidth="350"
         MinHeight="250"
-        Style="{StaticResource windowStyle}"
         WindowStartupLocation="CenterScreen"
         TextOptions.TextFormattingMode="Display"
         mc:Ignorable="d">
@@ -190,22 +191,23 @@
                  dd:DragDrop.IsDragSource="True"
                  dd:DragDrop.IsDropTarget="True"
                  ItemsSource="{Binding QueueTasks, Mode=OneWay}"
+                 helpers:ListBoxHelper.SelectedItems="{Binding SelectedItems}" 
                  SelectionMode="Extended">
 
-            <ListBox.Style>
-                <Style TargetType="ListBox">
-                    <Style.Triggers>
-                        <DataTrigger Binding="{Binding UseSystemColours}" Value="False">
-                            <Setter Property="Background" Value="LightGray" />
-                        </DataTrigger>
-                    </Style.Triggers>
-                </Style>
-            </ListBox.Style>
+            <i:Interaction.Triggers>
+                <commands:InputBindingTrigger>
+                    <commands:InputBindingTrigger.InputBinding>
+                        <KeyBinding Key="Delete"/>
+                    </commands:InputBindingTrigger.InputBinding>
+                    <cal:ActionMessage MethodName="RemoveSelectedJobs" />
+                </commands:InputBindingTrigger>
+            </i:Interaction.Triggers>
 
             <ListBox.ContextMenu>
                 <ContextMenu>
                     <MenuItem cal:Message.Attach="[Event Click] = [Action ClearCompleted]" Header="Clear Completed" />
-                    <MenuItem cal:Message.Attach="[Event Click] = [Action Clear]" Header="Clear" />
+                    <MenuItem cal:Message.Attach="[Event Click] = [Action Clear]" Header="Clear All" />
+                    <MenuItem cal:Message.Attach="[Event Click] = [Action RemoveSelectedJobs]" Header="Clear Selected" />                 
                     <Separator />
                     <MenuItem cal:Message.Attach="[Event Click] = [Action Import]" Header="Import Queue" />
                     <MenuItem cal:Message.Attach="[Event Click] = [Action Export]" Header="Export Queue" />
@@ -266,12 +268,7 @@
 
                         </Setter.Value>
                     </Setter>
-                    <Style.Triggers>
-                        <DataTrigger Binding="{Binding DataContext.UseSystemColours, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type Window}}}" Value="False">
-                            <Setter Property="Background" Value="WhiteSmoke" />
-                        </DataTrigger>
-                    </Style.Triggers>
-
+          
                 </Style>
             </ListBox.ItemContainerStyle>
 
