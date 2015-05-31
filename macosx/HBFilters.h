@@ -7,6 +7,8 @@
 #import <Foundation/Foundation.h>
 #import "HBPresetCoding.h"
 
+NS_ASSUME_NONNULL_BEGIN
+
 extern NSString * const HBFiltersChangedNotification;
 
 /**
@@ -30,7 +32,9 @@ extern NSString * const HBFiltersChangedNotification;
 @property (nonatomic, readwrite, copy) NSString *denoiseTune;
 @property (nonatomic, readwrite, copy) NSString *denoiseCustomString;
 
-@property (nonatomic, readwrite) NSInteger deblock;
+@property (nonatomic, readwrite) int deblock;
 @property (nonatomic, readwrite) BOOL grayscale;
 
 @end
+
+NS_ASSUME_NONNULL_END

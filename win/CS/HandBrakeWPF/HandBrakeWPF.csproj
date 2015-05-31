@@ -140,6 +140,7 @@
     <Compile Include="Controls\AlertPanel.xaml.cs">
       <DependentUpon>AlertPanel.xaml</DependentUpon>
     </Compile>
+    <Compile Include="Converters\Audio\AudioTrackDefaultBehaviourConverter.cs" />
     <Compile Include="Converters\Audio\AudioBehaviourConverter.cs" />
     <Compile Include="Converters\Filters\DenoisePresetConverter.cs" />
     <Compile Include="Converters\Subtitles\SubtitleBurnInBehaviourConverter.cs" />
@@ -150,6 +151,7 @@
     <Compile Include="EventArgs\QueueProgressEventArgs.cs" />
     <Compile Include="EventArgs\SettingChangedEventArgs.cs" />
     <Compile Include="Extensions\StringExtensions.cs" />
+    <Compile Include="Model\Audio\AudioTrackDefaultsMode.cs" />
     <Compile Include="Model\Audio\AudioBehaviourModes.cs" />
     <Compile Include="Model\Audio\AudioBehaviours.cs" />
     <Compile Include="Model\DriveInformation.cs" />
@@ -157,6 +159,7 @@
     <Compile Include="Model\Subtitles\SubtitleBurnInBehaviourModes.cs" />
     <Compile Include="Model\Subtitles\SubtitleBehaviourModes.cs" />
     <Compile Include="Model\Subtitles\SubtitleBehaviours.cs" />
+    <Compile Include="Services\Presets\Factories\JsonPresetFactory.cs" />
     <Compile Include="Services\Queue\Interfaces\IQueueProcessor.cs" />
     <Compile Include="Services\Presets\Factories\PlistPresetFactory.cs" />
     <Compile Include="Helpers\FileHelper.cs" />
@@ -361,7 +364,6 @@
     <None Include="Installer\Installer64.nsi" />
     <None Include="Installer\MakeNightly.nsi.tmpl" />
     <None Include="Installer\MakeNightly64.nsi.tmpl" />
-    <EmbeddedResource Include="Presets.dat" />
     <None Include="Properties\AssemblyInfo.cs.Nightly.tmpl" />
     <None Include="Properties\AssemblyInfo.cs.tmpl" />
     <AppDesigner Include="Properties\" />

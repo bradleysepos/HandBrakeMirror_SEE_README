@@ -104,15 +104,15 @@
         job->ipod_atom = self.mp4iPodCompatible;
     }
 
-    job->twopass = self.video.twoPass;
-    if (job->vcodec == HB_VCODEC_X264 || job->vcodec == HB_VCODEC_X265)
+    if (self.video.twoPass && (self.video.encoder == HB_VCODEC_X264 ||
+                               self.video.encoder == HB_VCODEC_X265))
     {
-        // set fastfirstpass if 2-pass and Turbo are enabled
-        if (self.video.twoPass)
-        {
-            job->fastfirstpass = self.video.turboTwoPass;
-        }
+        job->fastfirstpass = self.video.turboTwoPass;
+    }
+    job->twopass = self.video.twoPass;
 
+    if (hb_video_encoder_get_presets(self.video.encoder) != NULL)
+    {
         // advanced x264/x265 options
         NSString   *tmpString;
         // translate zero-length strings to NULL for libhb
@@ -454,7 +454,7 @@
         if ([self.filters.denoise isEqualToString:@"nlmeans"])
             filter_id = HB_FILTER_NLMEANS;
 
-        if ([self.filters.denoisePreset isEqualToString:@"none"])
+        if ([self.filters.denoisePreset isEqualToString:@"custom"])
         {
             const char *filter_str;
             filter_str = self.filters.denoiseCustomString.UTF8String;
@@ -479,7 +479,7 @@
     if (self.filters.deblock)
     {
         filter = hb_filter_init(HB_FILTER_DEBLOCK);
-        hb_add_filter(job, filter, [NSString stringWithFormat:@"%ld", (long)self.filters.deblock].UTF8String);
+        hb_add_filter(job, filter, [NSString stringWithFormat:@"%d", self.filters.deblock].UTF8String);
     }
 
     // Add Crop/Scale filter

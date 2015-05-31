@@ -7,6 +7,8 @@
 #import <Foundation/Foundation.h>
 #import "HBTreeNode.h"
 
+NS_ASSUME_NONNULL_BEGIN
+
 typedef NS_ENUM(NSUInteger, HBPresetFormat) {
     HBPresetFormatPlist,
     HBPresetFormatJson,
@@ -33,7 +35,7 @@ typedef NS_ENUM(NSUInteger, HBPresetFormat) {
  *  @return An initialized preset—which might be different than the original receiver—that contains the preset at URL,
  *  or nil if there is an error or if the contents of the resource are not and HandBrake preset.
  */
-- (instancetype)initWithContentsOfURL:(NSURL *)url;
+- (nullable instancetype)initWithContentsOfURL:(NSURL *)url;
 
 /**
  *  Writes a property list or json representation of the contents of the preset to a given URL.
@@ -60,7 +62,7 @@ typedef NS_ENUM(NSUInteger, HBPresetFormat) {
 /**
  *  A long textual description of the preset.
  */
-@property (nonatomic, copy) NSString *presetDescription;
+@property (nonatomic, copy, nullable) NSString *presetDescription;
 
 /**
  *  Whether the preset is one of the HandBrake built-in ones or not.
@@ -75,7 +77,7 @@ typedef NS_ENUM(NSUInteger, HBPresetFormat) {
 /**
  *  The actual content of the preset.
  */
-@property (nonatomic, strong) NSDictionary *content;
+@property (nonatomic, strong, nullable) NSDictionary *content;
 
 /**
  *  A dictionary representation of the preset.
@@ -83,3 +85,6 @@ typedef NS_ENUM(NSUInteger, HBPresetFormat) {
 @property (readonly, copy) NSDictionary *dictionary;
 
 @end
+
+NS_ASSUME_NONNULL_END
+
