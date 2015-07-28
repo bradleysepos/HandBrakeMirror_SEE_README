@@ -1016,39 +1016,49 @@ int hb_preset_job_add_subtitles(hb_handle_t *h, int title_index,
 
 static int get_video_framerate(hb_value_t *rate_value)
 {
-    int rate = 0;
-    if (hb_value_type(rate_value) != HB_VALUE_TYPE_STRING)
+    // Predefined by name
+    if (hb_value_type(rate_value) == HB_VALUE_TYPE_STRING)
     {
-        double d;
-        d = hb_value_get_double(rate_value);
-        if (d != 0 && d <= 600)
+        int rate = 0;
+        const char *rate_name = hb_value_get_string(rate_value);
+        if (!strcasecmp(rate_name, "source") ||
+            !strcasecmp(rate_name, "auto") ||
+            !strcasecmp(rate_name, "same as source"))
         {
-            // Assume the value is an actual framerate and compute
-            // 27Mhz based denominator
-            rate = (int)(27000000 / d);
+            return rate;
         }
         else
         {
-            // Assume the value is a 27Mhz based denominator
-            rate = (int)d;
-        }
-    }
-    else
-    {
-        const char *rate_name = hb_value_get_string(rate_value);
-        if (strcasecmp(rate_name, "source") &&
-            strcasecmp(rate_name, "auto") &&
-            strcasecmp(rate_name, "same as source"))
-        {
             rate = hb_video_framerate_get_from_name(rate_name);
-            if (rate < 0)
+            if (rate != -1)
             {
-                // No matching rate found. Error out.
-                rate = -1;
+                return rate;
             }
         }
     }
-    return rate;
+
+    // Arbitrary
+    double d, d_den;
+    int min, max;
+    d = hb_value_get_double(rate_value);
+    d_den = (int)(27000000 / d);
+    hb_video_framerate_get_limits(&min, &max);
+    if (d >= min && d <= max)
+    {
+        // Assume the value is an actual framerate and return
+        // 27Mhz based denominator
+        return d_den;
+    }
+    else if (d_den > min && d_den < max)
+    {
+        // Assume the value is already a 27Mhz based denominator
+        return (int)(d);
+    }
+    else
+    {
+        // Value out of bounds
+        return -1;
+    }
 }
 
 int hb_preset_apply_filters(const hb_dict_t *preset, hb_dict_t *job_dict)

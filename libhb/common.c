@@ -96,6 +96,8 @@ hb_rate_internal_t hb_video_rates[]  =
     { { "60",                   450000, }, NULL, 1, },
 };
 int hb_video_rates_count = sizeof(hb_video_rates) / sizeof(hb_video_rates[0]);
+int hb_video_rate_min = 1;
+int hb_video_rate_max = 1000;
 
 hb_rate_t *hb_audio_rates_first_item = NULL;
 hb_rate_t *hb_audio_rates_last_item  = NULL;
@@ -668,6 +670,12 @@ fail:
 const char* hb_video_framerate_sanitize_name(const char *name)
 {
     return hb_video_framerate_get_name(hb_video_framerate_get_from_name(name));
+}
+
+int hb_video_framerate_get_limits(int *low, int *high)
+{
+    *low  = hb_video_rate_min;
+    *high = hb_video_rate_max;
 }
 
 const hb_rate_t* hb_video_framerate_get_next(const hb_rate_t *last)
