@@ -1063,6 +1063,7 @@ int hb_preset_apply_filters(const hb_dict_t *preset, hb_dict_t *job_dict)
 {
     hb_value_t *filters_dict, *filter_list, *filter_dict;
     char *filter_str;
+    int clock, clock_min, clock_max;
 
     // Create new filters
     filters_dict = hb_dict_init();
@@ -1285,10 +1286,11 @@ int hb_preset_apply_filters(const hb_dict_t *preset, hb_dict_t *job_dict)
         !strcasecmp(hb_value_get_string(fr_mode_value), "pfr") ? 2 : 0) :
         hb_value_get_int(fr_mode_value);
 
+    hb_video_framerate_get_limits(&clock, &clock_min, &clock_max);
     if (vrate_den == 0)
         filter_str = hb_strdup_printf("%d", fr_mode);
     else
-        filter_str = hb_strdup_printf("%d:%d:%d", fr_mode, 27000000, vrate_den);
+        filter_str = hb_strdup_printf("%d:%d:%d", fr_mode, clock, vrate_den);
 
     filter_dict = hb_dict_init();
     hb_dict_set(filter_dict, "ID", hb_value_int(HB_FILTER_VFR));
