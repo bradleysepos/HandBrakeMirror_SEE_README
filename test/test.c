@@ -901,7 +901,7 @@ void SigHandler( int i_signal )
  ****************************************************************************/
 static void ShowHelp()
 {
-    int i;
+    int i, rate_min, rate_max;
     const hb_rate_t *rate;
     const hb_dither_t *dither;
     const hb_mixdown_t *mixdown;
@@ -1042,7 +1042,11 @@ static void ShowHelp()
             fprintf(out, "/");
         }
     }
-    fprintf( out, ")\n"
+    fprintf( out, "\n"
+"                           or a number between " );
+    hb_video_framerate_get_limits(&rate_min, &rate_max);
+    fprintf(out, "%i and %i", rate_min, rate_max);
+    fprintf( out, ").\n"
 "                           Be aware that not specifying a framerate lets\n"
 "                           HandBrake preserve a source's time stamps,\n"
 "                           potentially creating variable framerate video\n"
