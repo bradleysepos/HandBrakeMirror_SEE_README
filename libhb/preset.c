@@ -1046,12 +1046,12 @@ static int get_video_framerate(hb_value_t *rate_value)
     if (d >= min && d <= max)
     {
         // Assume the value is an actual framerate and return
-        // 27Mhz based denominator
+        // 27MHz based denominator
         return d_den;
     }
     else if (d_den > min && d_den < max)
     {
-        // Assume the value is already a 27Mhz based denominator
+        // Assume the value is already a 27MHz based denominator
         return (int)(d);
     }
     else
