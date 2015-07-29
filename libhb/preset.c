@@ -1038,27 +1038,25 @@ static int get_video_framerate(hb_value_t *rate_value)
     }
 
     // Arbitrary
-    double d, d_den;
-    int min, max;
-    d = hb_value_get_double(rate_value);
-    d_den = (int)(27000000 / d);
-    hb_video_framerate_get_limits(&min, &max);
-    if (d >= min && d <= max)
+    int clock, clock_min, clock_max,
+               frame_min, frame_max;
+    double rate_d = hb_value_get_double(rate_value);
+    hb_video_framerate_get_limits(&clock, &clock_min, &clock_max);
+    frame_min = clock / clock_min;
+    frame_max = clock / clock_max;
+    if (rate_d >= frame_min && rate_d <= frame_max)
     {
-        // Assume the value is an actual framerate and return
-        // 27MHz based denominator
-        return d_den;
+        // Value is a framerate, return clockrate
+        return (int)(clock / rate_d);
     }
-    else if (d_den > min && d_den < max)
+    else if (rate_d >= clock_min && rate_d <= clock_max)
     {
-        // Assume the value is already a 27MHz based denominator
-        return (int)(d);
+        // Value is already a clockrate
+        return (int)(rate_d);
     }
-    else
-    {
-        // Value out of bounds
-        return -1;
-    }
+
+    // Value out of bounds
+    return -1;
 }
 
 int hb_preset_apply_filters(const hb_dict_t *preset, hb_dict_t *job_dict)
