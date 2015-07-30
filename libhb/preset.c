@@ -1038,12 +1038,12 @@ static int get_video_framerate(hb_value_t *rate_value)
     }
 
     // Arbitrary
-    int clock, clock_min, clock_max,
-               frame_min, frame_max;
-    double rate_d = hb_value_get_double(rate_value);
-    hb_video_framerate_get_limits(&clock, &clock_min, &clock_max);
+    int clock_min, clock_max, clock,
+        frame_min, frame_max;
+    hb_video_framerate_get_limits(&clock_min, &clock_max, &clock);
     frame_min = clock / clock_min;
     frame_max = clock / clock_max;
+    double rate_d = hb_value_get_double(rate_value);
     if (rate_d >= frame_min && rate_d <= frame_max)
     {
         // Value is a framerate, return clockrate
@@ -1063,7 +1063,9 @@ int hb_preset_apply_filters(const hb_dict_t *preset, hb_dict_t *job_dict)
 {
     hb_value_t *filters_dict, *filter_list, *filter_dict;
     char *filter_str;
-    int clock, clock_min, clock_max;
+
+    int clock_min, clock_max, clock;
+    hb_video_framerate_get_limits(&clock_min, &clock_max, &clock);
 
     // Create new filters
     filters_dict = hb_dict_init();
@@ -1286,7 +1288,6 @@ int hb_preset_apply_filters(const hb_dict_t *preset, hb_dict_t *job_dict)
         !strcasecmp(hb_value_get_string(fr_mode_value), "pfr") ? 2 : 0) :
         hb_value_get_int(fr_mode_value);
 
-    hb_video_framerate_get_limits(&clock, &clock_min, &clock_max);
     if (vrate_den == 0)
         filter_str = hb_strdup_printf("%d", fr_mode);
     else

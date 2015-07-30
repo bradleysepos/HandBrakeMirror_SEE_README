@@ -901,7 +901,7 @@ void SigHandler( int i_signal )
  ****************************************************************************/
 static void ShowHelp()
 {
-    int i, clock, clock_min, clock_max;
+    int i, clock_min, clock_max, clock;
     const hb_rate_t *rate;
     const hb_dither_t *dither;
     const hb_mixdown_t *mixdown;
@@ -1044,7 +1044,7 @@ static void ShowHelp()
     }
     fprintf( out, "\n"
 "                           or a number between " );
-    hb_video_framerate_get_limits(&clock, &clock_min, &clock_max);
+    hb_video_framerate_get_limits(&clock_min, &clock_max, &clock);
     fprintf(out, "%i and %i", (clock / clock_min), (clock / clock_max));
     fprintf( out, ").\n"
 "                           Be aware that not specifying a framerate lets\n"

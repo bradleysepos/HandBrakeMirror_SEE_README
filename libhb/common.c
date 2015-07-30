@@ -673,11 +673,11 @@ const char* hb_video_framerate_sanitize_name(const char *name)
     return hb_video_framerate_get_name(hb_video_framerate_get_from_name(name));
 }
 
-void hb_video_framerate_get_limits(int *clock, int *low, int *high)
+void hb_video_framerate_get_limits(int *low, int *high, int *clock)
 {
-    *clock = hb_video_rate_clock;
     *low   = hb_video_rate_min;
     *high  = hb_video_rate_max;
+    *clock = hb_video_rate_clock;
 }
 
 const hb_rate_t* hb_video_framerate_get_next(const hb_rate_t *last)

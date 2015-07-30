@@ -122,7 +122,9 @@ static int avformatInit( hb_mux_object_t * m )
     int meta_mux;
     int max_tracks;
     int ii, ret;
-    int clock, clock_min, clock_max;
+
+    int clock_min, clock_max, clock;
+    hb_video_framerate_get_limits(&clock_min, &clock_max, &clock);
 
     const char *muxer_name = NULL;
 
@@ -369,7 +371,6 @@ static int avformatInit( hb_mux_object_t * m )
     // measuring framerate, the actual value may not be exact.  So
     // we look for rates that are "close" and make an adjustment
     // to fps.den.
-    hb_video_framerate_get_limits(&clock, &clock_min, &clock_max);
     if (vrate.num == clock)
     {
         const hb_rate_t *video_framerate = NULL;

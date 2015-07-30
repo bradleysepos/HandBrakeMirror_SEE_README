@@ -66,7 +66,8 @@ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
     w->private_data = pv;
     pv->job = job;
 
-    int clock, clock_min, clock_max;
+    int clock_min, clock_max, clock;
+    hb_video_framerate_get_limits(&clock_min, &clock_max, &clock);
 
     switch ( w->codec_param )
     {
@@ -118,7 +119,6 @@ int encavcodecInit( hb_work_object_t * w, hb_job_t * job )
     // measuring framerate, the actual value may not be exact.  So
     // we look for rates that are "close" and make an adjustment
     // to fps.den.
-    hb_video_framerate_get_limits(&clock, &clock_min, &clock_max);
     if (fps.num == clock)
     {
         const hb_rate_t *video_framerate = NULL;
