@@ -1049,7 +1049,7 @@ static int get_video_framerate(hb_value_t *rate_value)
         // Value is a framerate, return clockrate
         return (int)(clock / rate_d);
     }
-    else if (rate_d >= clock_min && rate_d <= clock_max)
+    else if (rate_d >= clock_max && rate_d <= clock_min)
     {
         // Value is already a clockrate
         return (int)(rate_d);
