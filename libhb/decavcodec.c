@@ -2039,7 +2039,7 @@ static int decavcodecvInfo( hb_work_object_t *w, hb_work_info_t *info )
     compute_frame_duration( pv );
     hb_video_framerate_get_limits(&clock, &clock_min, &clock_max);
     info->rate.num = clock;
-    info->rate.den = pv->duration * 300.;
+    info->rate.den = pv->duration * (double)(clock / 90000);
 
     info->profile = pv->context->profile;
     info->level = pv->context->level;
