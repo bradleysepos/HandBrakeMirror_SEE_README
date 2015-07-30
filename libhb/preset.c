@@ -1041,15 +1041,15 @@ static int get_video_framerate(hb_value_t *rate_value)
     int clock_min, clock_max, clock,
         frame_min, frame_max;
     hb_video_framerate_get_limits(&clock_min, &clock_max, &clock);
-    frame_min = clock / clock_min;
-    frame_max = clock / clock_max;
+    frame_min = clock / clock_max;
+    frame_max = clock / clock_min;
     double rate_d = hb_value_get_double(rate_value);
     if (rate_d >= frame_min && rate_d <= frame_max)
     {
         // Value is a framerate, return clockrate
         return (int)(clock / rate_d);
     }
-    else if (rate_d >= clock_max && rate_d <= clock_min)
+    else if (rate_d >= clock_min && rate_d <= clock_max)
     {
         // Value is already a clockrate
         return (int)(rate_d);

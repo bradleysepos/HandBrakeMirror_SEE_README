@@ -1045,7 +1045,7 @@ static void ShowHelp()
     fprintf( out, "\n"
 "                           or a number between " );
     hb_video_framerate_get_limits(&clock_min, &clock_max, &clock);
-    fprintf(out, "%i and %i", (clock / clock_min), (clock / clock_max));
+    fprintf(out, "%i and %i", (clock / clock_max), (clock / clock_min));
     fprintf( out, ").\n"
 "                           Be aware that not specifying a framerate lets\n"
 "                           HandBrake preserve a source's time stamps,\n"
