@@ -481,11 +481,12 @@
     }
 
     // Add Crop/Scale filter
-    filter = hb_filter_init(HB_FILTER_CROP_SCALE);
-    hb_add_filter( job, filter, [NSString stringWithFormat:@"%d:%d:%d:%d:%d:%d",
+    filter = hb_filter_init(HB_FILTER_CROP_SCALE_PAD);
+    hb_add_filter( job, filter, [NSString stringWithFormat:@"%d:%d:%d:%d:%d:%d:%d:%d",
                                  self.picture.width, self.picture.height,
                                  self.picture.cropTop, self.picture.cropBottom,
-                                 self.picture.cropLeft, self.picture.cropRight].UTF8String);
+                                 self.picture.cropLeft, self.picture.cropRight,
+                                 self.picture.width, self.picture.height].UTF8String);
     
     // Add framerate shaping filter
     filter = hb_filter_init(HB_FILTER_VFR);

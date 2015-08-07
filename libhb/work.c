@@ -844,7 +844,7 @@ static void do_job(hb_job_t *job)
                 switch (filter->id)
                 {
                     // cropping and scaling always done via VPP filter
-                    case HB_FILTER_CROP_SCALE:
+                    case HB_FILTER_CROP_SCALE_PAD:
                         if (filter->settings == NULL || *filter->settings == '\0')
                         {
                             // VPP defaults were set above, so not a problem

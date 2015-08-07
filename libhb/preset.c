@@ -1560,6 +1560,8 @@ int hb_preset_apply_title(hb_handle_t *h, int title_index,
     geo.geometry = title->geometry;
     int width = hb_value_get_int(hb_dict_get(preset, "PictureForceWidth"));
     int height = hb_value_get_int(hb_dict_get(preset, "PictureForceHeight"));
+    int padded_width  = hb_value_get_int(hb_dict_get(preset, "PaddedWidth"));
+    int padded_height = hb_value_get_int(hb_dict_get(preset, "PaddedHeight"));
     if (width > 0)
     {
         geo.geometry.width = width;
@@ -1605,13 +1607,14 @@ int hb_preset_apply_title(hb_handle_t *h, int title_index,
     char *filter_str;
 
     // Setup scale filter
-    filter_str = hb_strdup_printf("%d:%d:%d:%d:%d:%d",
+    filter_str = hb_strdup_printf("%d:%d:%d:%d:%d:%d:%d:%d",
                                   resultGeo.width, resultGeo.height,
                                   geo.crop[0], geo.crop[1],
-                                  geo.crop[2], geo.crop[3]);
+                                  geo.crop[2], geo.crop[3],
+                                  padded_width, padded_height);
 
     filter_dict = hb_dict_init();
-    hb_dict_set(filter_dict, "ID", hb_value_int(HB_FILTER_CROP_SCALE));
+    hb_dict_set(filter_dict, "ID", hb_value_int(HB_FILTER_CROP_SCALE_PAD));
     hb_dict_set(filter_dict, "Settings", hb_value_string(filter_str));
     free(filter_str);
     hb_value_array_append(filter_list, filter_dict);

@@ -3454,8 +3454,8 @@ hb_filter_object_t * hb_filter_init( int filter_id )
             filter = &hb_filter_render_sub;
             break;
 
-        case HB_FILTER_CROP_SCALE:
-            filter = &hb_filter_crop_scale;
+        case HB_FILTER_CROP_SCALE_PAD:
+            filter = &hb_filter_crop_scale_pad;
             break;
 
         case HB_FILTER_ROTATE:

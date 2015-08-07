@@ -108,6 +108,8 @@ static int      width       = 0;
 static int      height      = 0;
 static int      crop[4]     = { -1,-1,-1,-1 };
 static int      loose_crop  = -1;
+static int      padded_width  = 0;
+static int      padded_height = 0;
 static char *   vrate       = NULL;
 static float    vquality    = -1.0;
 static int      vbitrate    = 0;
@@ -1224,6 +1226,8 @@ static void ShowHelp()
 "       --crop  <T:B:L:R>   Set cropping values (default: autocrop)\n"
 "       --loose-crop        Always crop to a multiple of the modulus\n"
 "       --no-loose-crop     Disable preset 'loose-crop'\n"
+"       --padded-width  <#> Set padded width (letterbox)\n"
+"       --padded-height <#> Set padded height (letterbox)\n"
 "   -Y, --maxHeight   <#>   Set maximum height\n"
 "   -X, --maxWidth    <#>   Set maximum width\n"
 "   --non-anamorphic        Set pixel aspect ratio to 1:1\n"
@@ -1731,6 +1735,8 @@ static int ParseOptions( int argc, char ** argv )
     #define PRESET_EXPORT_FILE   304
     #define PRESET_IMPORT        305
     #define PRESET_IMPORT_GUI    306
+    #define PADDED_WIDTH         307
+    #define PADDED_HEIGHT        308
 
     for( ;; )
     {
@@ -1829,6 +1835,8 @@ static int ParseOptions( int argc, char ** argv )
             { "crop",        required_argument, NULL,    'n' },
             { "loose-crop",  optional_argument, NULL, LOOSE_CROP },
             { "no-loose-crop", no_argument,     &loose_crop, 0 },
+            { "padded-width",  required_argument, NULL, PADDED_WIDTH },
+            { "padded-height", required_argument, NULL, PADDED_HEIGHT },
 
             // mapping of legacy option names for backwards compatibility
             { "qsv-preset",           required_argument, NULL, ENCODER_PRESET,       },
@@ -2310,6 +2318,18 @@ static int ParseOptions( int argc, char ** argv )
                     loose_crop = atoi(optarg);
                 else
                     loose_crop = 1;
+                break;
+            case PADDED_WIDTH:
+                if (optarg != NULL)
+                {
+                    padded_width = atoi(optarg);
+                }
+                break;
+            case PADDED_HEIGHT:
+                if (optarg != NULL)
+                {
+                    padded_height = atoi(optarg);
+                }
                 break;
             case 'r':
             {
@@ -3344,6 +3364,14 @@ static hb_dict_t * PreparePreset(const char *preset_name)
     if (height > 0)
     {
         hb_dict_set(preset, "PictureForceHeight", hb_value_int(height));
+    }
+    if (padded_width > 0)
+    {
+        hb_dict_set(preset, "PaddedWidth", hb_value_int(padded_width));
+    }
+    if (padded_height > 0)
+    {
+        hb_dict_set(preset, "PaddedHeight", hb_value_int(padded_height));
     }
     if (crop[0] >= 0 || crop[1] >= 0 || crop[2] >= 0 || crop[3] >= 0)
     {
